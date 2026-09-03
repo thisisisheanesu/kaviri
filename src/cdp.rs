@@ -43,14 +43,42 @@ fn free_port() -> std::io::Result<u16> {
 
 fn http_get(port: u16, path: &str) -> std::io::Result<String> {
     let mut s = TcpStream::connect(("127.0.0.1", port))?;
-    s.set_read_timeout(Some(Duration::from_secs(5)))?;
+    s.set_read_timeout(Some(Duration::from_millis(1500)))?;
     write!(
         s,
-        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
     )?;
-    let mut buf = String::new();
-    s.read_to_string(&mut buf)?;
-    match buf.split_once("\r\n\r\n") {
+    // Chromium's DevTools HTTP server may keep the socket open, so read by
+    // Content-Length rather than until EOF.
+    let mut buf: Vec<u8> = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+            let head = String::from_utf8_lossy(&buf[..pos]).to_ascii_lowercase();
+            if let Some(cl) = head
+                .lines()
+                .find_map(|l| l.strip_prefix("content-length:"))
+                .and_then(|v| v.trim().parse::<usize>().ok())
+            {
+                if buf.len() >= pos + 4 + cl {
+                    break;
+                }
+            }
+        }
+        match s.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                break
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    let text = String::from_utf8_lossy(&buf).to_string();
+    match text.split_once("\r\n\r\n") {
         Some((_, body)) => Ok(body.to_string()),
         None => Err(std::io::Error::other("bad HTTP response")),
     }
@@ -95,7 +123,7 @@ impl Cdp {
         let port = free_port().map_err(|e| e.to_string())?;
         let profile_dir = std::env::temp_dir().join(format!("lensa-profile-{port}"));
         std::fs::create_dir_all(&profile_dir).map_err(|e| e.to_string())?;
-        let child = Command::new(&bin)
+        let mut child = Command::new(&bin)
             .args([
                 "--headless=new",
                 &format!("--remote-debugging-port={port}"),
@@ -125,10 +153,20 @@ impl Cdp {
                             break u.to_string();
                         }
                     }
+                    if std::env::var_os("LENSA_DEBUG").is_some() {
+                        eprintln!("lensa[debug]: /json/version body without ws url: {body}");
+                    }
                 }
-                Err(_) => {}
+                Err(e) => {
+                    if std::env::var_os("LENSA_DEBUG").is_some() {
+                        eprintln!("lensa[debug]: /json/version poll failed: {e}");
+                    }
+                }
             }
             if Instant::now() > deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = std::fs::remove_dir_all(&profile_dir);
                 return Err("chromium did not expose a debugger endpoint in 40s".into());
             }
             std::thread::sleep(Duration::from_millis(200));
@@ -359,6 +397,7 @@ impl Drop for Cdp {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        let _ = std::fs::remove_dir_all(&self._profile_dir);
     }
 }
 
