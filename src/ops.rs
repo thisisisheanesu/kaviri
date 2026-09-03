@@ -29,7 +29,7 @@ pub struct Session {
 
 /// Injected into every document: a fake cursor + click ripple so the video
 /// shows pointer motion (headless screencast has no OS cursor).
-const CURSOR_JS: &str = r#"
+const CURSOR_JS: &str = r##"
 (() => {
   const ensure = () => {
     let c = document.getElementById('__lensa_cursor');
@@ -65,7 +65,7 @@ const CURSOR_JS: &str = r#"
     }
   };
 })();
-"#;
+"##;
 
 fn js_string(s: &str) -> String {
     serde_json::to_string(s).unwrap()

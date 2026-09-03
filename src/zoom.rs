@@ -16,7 +16,7 @@ use std::process::{Command, Stdio};
 pub const EASE: f64 = 0.7;
 pub const FPS: u32 = 30;
 
-#[derive(Debug, Clone, serde::ser::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ZoomEvent {
     pub t: f64,
     pub end: f64,
