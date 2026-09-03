@@ -379,6 +379,15 @@ impl Cdp {
         self.send("Page.stopScreencast", json!({}))?;
         // Drain stragglers.
         self.sleep_pump(150)?;
+        // The screencast only sends frames on paint, so a static tail would
+        // otherwise be cut off: hold the last frame until stop time.
+        if let Some(last) = self.frames.last() {
+            let t_stop = self.now_rec();
+            if t_stop > last.t + 0.05 {
+                let jpeg = last.jpeg.clone();
+                self.frames.push(Frame { t: t_stop, jpeg });
+            }
+        }
         self.recording = false;
         Ok(())
     }
