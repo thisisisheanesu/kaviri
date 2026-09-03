@@ -1,0 +1,11 @@
+# lensa demo: public web page, a few clicks, smooth scroll -> zoomed MP4
+{"op":"start_recording"}
+{"op":"navigate","url":"https://example.com"}
+{"op":"wait","ms":900}
+{"op":"click","selector":"h1"}
+{"op":"wait","ms":700}
+{"op":"click","selector":"a[href]"}
+{"op":"wait","ms":2500}
+{"op":"scroll","y":500,"smooth":true}
+{"op":"wait","ms":1500}
+{"op":"stop_recording"}

@@ -1,0 +1,4 @@
+/target
+*.mp4
+*.telemetry.json
+.lensa-tmp/

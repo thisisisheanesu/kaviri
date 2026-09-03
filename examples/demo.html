@@ -1,0 +1,17 @@
+<!doctype html><meta charset="utf-8"><title>lensa demo form</title>
+<style>
+  body{font-family:system-ui;background:#f4f5f7;margin:0;display:grid;place-items:center;min-height:100vh}
+  .card{background:#fff;padding:40px 48px;border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,.08);width:380px}
+  h1{font-size:22px;margin:0 0 20px}
+  label{display:block;font-size:13px;color:#555;margin:14px 0 4px}
+  input{width:100%;padding:10px 12px;border:1px solid #d5d8dd;border-radius:8px;font-size:15px;box-sizing:border-box}
+  button{margin-top:22px;width:100%;padding:11px;border:0;border-radius:8px;background:#3b82f6;color:#fff;font-size:15px;cursor:pointer}
+  #done{display:none;color:#16a34a;font-weight:600;margin-top:16px;text-align:center}
+</style>
+<div class="card">
+  <h1>Create your account</h1>
+  <label for="name">Full name</label><input id="name" autocomplete="off">
+  <label for="email">Email</label><input id="email" autocomplete="off">
+  <button id="submit" onclick="document.getElementById('done').style.display='block'">Sign up</button>
+  <div id="done">Account created ✓</div>
+</div>

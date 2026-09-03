@@ -1,0 +1,13 @@
+# lensa demo: local page (no network), typing with typewriter effect
+{"op":"start_recording"}
+{"op":"navigate","url":"examples/demo.html"}
+{"op":"wait","ms":600}
+{"op":"click","selector":"#name"}
+{"op":"type","selector":"#name","text":"Ada Lovelace","typewriter_ms":60}
+{"op":"wait","ms":400}
+{"op":"type","selector":"#email","text":"ada@analytical.engine","typewriter_ms":45}
+{"op":"wait","ms":400}
+{"op":"click","selector":"#submit"}
+{"op":"wait","selector":"#done"}
+{"op":"wait","ms":1500}
+{"op":"stop_recording"}
