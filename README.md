@@ -5,7 +5,7 @@ Screen Studio-style videos — automatic smooth zoom and pan onto every
 interaction. **Screen Studio for AI agents.**
 
 One binary. An agent feeds it newline-delimited JSON ops (navigate, click,
-type, scroll…); lensa drives a browser, captures the content at 2x, tracks
+type, scroll…); lensa drives a browser, captures the page content, tracks
 every interaction's timestamp and bounding box, and renders a polished MP4
 with cinematic ease-in/hold/ease-out zooms that follow consecutive nearby
 interactions. No OS screen recorder, no Wayland portals, no coordinate
@@ -85,3 +85,6 @@ any Linux including Wayland-only boxes). An embedded-webview backend
 - `serve` handles one TCP connection at a time.
 - Frames are buffered in memory (fine for demo-length takes; spool-to-disk
   planned for long recordings).
+- Capture resolution equals the logical viewport (the DevTools screencast
+  caps frames at the emulated viewport size); supersampled 2x capture is a
+  v2 item, likely via a `Page.captureScreenshot` pump or the wry backend.
