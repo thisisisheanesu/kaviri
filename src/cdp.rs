@@ -404,6 +404,12 @@ impl Cdp {
 
 impl Drop for Cdp {
     fn drop(&mut self) {
+        // Ask the browser to exit via CDP first: on snap systems the spawned
+        // child is a wrapper script, so kill() alone would leak the browser.
+        let id = self.next_id;
+        let msg = json!({"id": id, "method": "Browser.close", "params": {}});
+        let _ = self.ws.send(Message::Text(msg.to_string()));
+        std::thread::sleep(Duration::from_millis(300));
         let _ = self.child.kill();
         let _ = self.child.wait();
         let _ = std::fs::remove_dir_all(&self._profile_dir);
