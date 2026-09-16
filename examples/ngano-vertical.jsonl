@@ -6,6 +6,8 @@
 # than something reached halfway down, and every beat is short because the format is.
 {"op":"navigate","url":"https://ngano.dev/map"}
 {"op":"wait","selector":"svg.africa"}
+# On a phone the map sits below the intro, so the take opens already scrolled to it.
+{"op":"scroll","y":330,"smooth":false}
 {"op":"wait","ms":900}
 {"op":"start_recording"}
 

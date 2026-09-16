@@ -147,8 +147,6 @@ pub struct Cdp {
     recording: bool,
     capture: Capture,
     last_shot: Option<Instant>,
-    css_w: u32,
-    css_h: u32,
     _profile_dir: PathBuf,
 }
 
@@ -323,8 +321,6 @@ impl Cdp {
             frames: FrameSpool::new(),
             capture: Capture::Screencast,
             last_shot: None,
-            css_w,
-            css_h,
             rec_t0: None,
             recording: false,
             _profile_dir: profile_dir,
@@ -556,23 +552,12 @@ impl Cdp {
         };
         let t = t0.elapsed().as_secs_f64();
         /*
-         * `clip.scale` is the part that matters. Without it the screenshot comes back
-         * at the emulated CSS size no matter what the device scale factor is, which is
-         * the trap the screencast path falls into; with it, the frame is rendered at
-         * css * scale device pixels and the zoom has real detail to crop into.
-         */
-        /*
-         * The device scale factor already renders the page at css * scale, so the clip
-         * scale stays 1. Setting it to `scale` as well compounds the two: a 2.5x take came
-         * back at 6.25x, 2700x4800 instead of 1080x1920, four times the pixels and the
-         * spool for nothing.
-         */
-        let clip = json!({
-            "x": 0, "y": 0,
-            "width": self.css_w, "height": self.css_h,
-            "scale": 1,
-        });
-        /*
+         * No clip. The window and the emulation already give the viewport device pixels,
+         * so a plain viewport screenshot is css * scale. A clip is in document
+         * coordinates, not viewport ones: pinned at y 0 it pointed above the fold as soon
+         * as the page scrolled and came back blank, and carrying the scale as well
+         * squared it.
+         *
          * Short timeout. While a navigation is in flight the screenshot cannot answer until
          * the new page paints, and under the general 30s timeout that one lost frame froze
          * the take for half a minute. A frame is cheap to skip; the pump tries again 25ms
@@ -584,7 +569,6 @@ impl Cdp {
                 "format": "jpeg", "quality": 82,
                 "optimizeForSpeed": true,
                 "captureBeyondViewport": false,
-                "clip": clip,
             }),
             Duration::from_millis(700),
         ) {
