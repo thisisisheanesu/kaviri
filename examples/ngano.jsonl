@@ -1,0 +1,28 @@
+# ngano.dev: the map, a country page, the language directory, the API.
+# The first navigate happens BEFORE start_recording, so the take opens on a loaded
+# page instead of two seconds of white while Chromium boots.
+{"op":"navigate","url":"https://ngano.dev/map"}
+{"op":"wait","selector":"svg.africa"}
+{"op":"wait","ms":700}
+{"op":"start_recording"}
+{"op":"click","selector":"[data-metricbar] button[data-metric=\"datasets\"]"}
+{"op":"wait","ms":420}
+{"op":"click","selector":"[data-metricbar] button[data-metric=\"languages\"]"}
+{"op":"wait","ms":420}
+{"op":"click","selector":"svg.africa a[href=\"/countries/zw\"]"}
+{"op":"wait","selector":"h1.title"}
+{"op":"wait","ms":650}
+{"op":"navigate","url":"https://ngano.dev/languages"}
+{"op":"wait","selector":"#lang-filter"}
+{"op":"wait","ms":250}
+{"op":"click","selector":"#lang-filter"}
+{"op":"type","selector":"#lang-filter","text":"shona","typewriter_ms":50}
+{"op":"wait","ms":550}
+{"op":"navigate","url":"https://ngano.dev/docs#try"}
+{"op":"wait","selector":"#tryit-query"}
+{"op":"wait","ms":250}
+{"op":"click","selector":"#tryit button[type=\"submit\"]"}
+{"op":"wait","ms":1000}
+{"op":"navigate","url":"https://ngano.dev/api/v1/stats"}
+{"op":"wait","ms":800}
+{"op":"stop_recording"}

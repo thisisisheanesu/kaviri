@@ -8,7 +8,7 @@
 //! - VFR frames are normalized to CFR 30fps BEFORE any time-based math
 //!   (pass 1), then a zoompan expression does the zooms (pass 2).
 
-use crate::cdp::Frame;
+use crate::cdp::FrameSpool;
 use crate::ops::Mark;
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -199,7 +199,8 @@ pub fn find_ffmpeg() -> Result<String, String> {
 }
 
 /// Pass 1: VFR screencast frames -> CFR 30fps H.264 intermediate.
-fn render_cfr(frames: &[Frame], raw_path: &str, ffmpeg: &str) -> Result<f64, String> {
+fn render_cfr(spool: &FrameSpool, raw_path: &str, ffmpeg: &str) -> Result<f64, String> {
+    let frames = spool.frames();
     if frames.is_empty() {
         return Err("no frames captured".into());
     }
@@ -234,14 +235,23 @@ fn render_cfr(frames: &[Frame], raw_path: &str, ffmpeg: &str) -> Result<f64, Str
         let stdin = child.stdin.as_mut().unwrap();
         let n_ticks = (t_last * FPS as f64).ceil() as usize;
         let mut idx = 0usize;
+        /*
+         * One frame is held at a time. A static stretch emits the same JPEG for many
+         * ticks, so it is read off the spool once and reused, which keeps this pass at
+         * O(one frame) of memory however long the take is.
+         */
+        let mut held = spool.read(0)?;
+        let mut held_idx = 0usize;
         for n in 0..n_ticks {
             let t = n as f64 / FPS as f64;
             while idx + 1 < frames.len() && frames[idx + 1].t <= t {
                 idx += 1;
             }
-            stdin
-                .write_all(&frames[idx].jpeg)
-                .map_err(|e| format!("write frame: {e}"))?;
+            if idx != held_idx {
+                held = spool.read(idx)?;
+                held_idx = idx;
+            }
+            stdin.write_all(&held).map_err(|e| format!("write frame: {e}"))?;
         }
     }
     let status = child.wait().map_err(|e| e.to_string())?;
@@ -302,21 +312,31 @@ fn render_zoom(
 
 /// Full pipeline: frames + marks -> zoomed MP4. Returns (duration, n_events).
 pub fn render(
-    frames: &[Frame],
+    spool: &FrameSpool,
     marks: &[Mark],
     out_path: &str,
     css_w: u32,
     css_h: u32,
+    /*
+     * The video's own size, which is not the viewport's. A phone-shaped take wants a
+     * 432px viewport so the site lays out like a phone, and a 1080px video so it is not
+     * a postage stamp on the platform it is going to. Capture happens between the two:
+     * css * scale pixels, cropped by the zoom, then resampled to this.
+     */
+    out_size: (u32, u32),
     keep_temp: bool,
 ) -> Result<(f64, usize), String> {
     let ffmpeg = find_ffmpeg()?;
-    let (fw, fh) = crate::cdp::jpeg_dims(&frames.first().ok_or("no frames captured")?.jpeg)
+    if spool.is_empty() {
+        return Err("no frames captured".into());
+    }
+    let (fw, fh) = crate::cdp::jpeg_dims(&spool.read(0)?)
         .ok_or("could not parse first frame's JPEG header")?;
     let fw = fw - fw % 2;
     let fh = fh - fh % 2;
     let scale = fw as f64 / css_w as f64;
-    let out_w = css_w - css_w % 2;
-    let out_h = css_h - css_h % 2;
+    let out_w = out_size.0 - out_size.0 % 2;
+    let out_h = out_size.1 - out_size.1 % 2;
 
     let tmp_dir = std::path::Path::new(out_path)
         .parent()
@@ -326,7 +346,11 @@ pub fn render(
     std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
     let raw_path = tmp_dir.join("raw.mp4").display().to_string();
 
-    let duration = render_cfr(frames, &raw_path, &ffmpeg)?;
+    eprintln!(
+        "lensa: viewport {css_w}x{css_h}, capture {fw}x{fh} ({scale:.2}x), output {out_w}x{out_h}"
+    );
+
+    let duration = render_cfr(spool, &raw_path, &ffmpeg)?;
     let events = events_from_marks(marks, scale, fw as f64, fh as f64, duration);
 
     // Telemetry sidecar for debugging / re-rendering.

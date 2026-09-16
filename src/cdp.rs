@@ -8,7 +8,7 @@
 use base64::Engine;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -16,10 +16,122 @@ use std::time::{Duration, Instant};
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
 
+/// One captured frame, as it sits in the spool: when it happened and where its JPEG
+/// bytes live. The bytes themselves are never held in memory after the frame arrives.
 pub struct Frame {
     /// Seconds on the recording clock (relative to `rec_t0`).
     pub t: f64,
-    pub jpeg: Vec<u8>,
+    offset: u64,
+    len: u32,
+}
+
+/// Captured frames, spooled to a file rather than accumulated in RAM.
+///
+/// A 1470x830 JPEG is 10-20KB, so a minute of busy capture is a few hundred megabytes
+/// held live if the frames are kept in a `Vec`. That is fine for a fifteen second demo
+/// and ruinous for anything longer, and it is the kind of limit that only shows up on
+/// the take you cannot repeat. Frames go to one append-only file; the index carries the
+/// timestamps, which is the only part the zoom planner needs to read.
+pub struct FrameSpool {
+    file: Option<std::fs::File>,
+    path: PathBuf,
+    frames: Vec<Frame>,
+    bytes: u64,
+}
+
+impl FrameSpool {
+    pub fn new() -> FrameSpool {
+        FrameSpool { file: None, path: PathBuf::new(), frames: Vec::new(), bytes: 0 }
+    }
+
+    /// Open a fresh spool. The old one, if any, is dropped and its file removed.
+    pub fn reset(&mut self) -> Result<(), String> {
+        self.discard();
+        let path = std::env::temp_dir().join(format!(
+            "lensa-spool-{}-{}.jpgs",
+            std::process::id(),
+            Instant::now().elapsed().as_nanos()
+        ));
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .read(true)
+            .write(true)
+            .open(&path)
+            .map_err(|e| format!("open frame spool {}: {e}", path.display()))?;
+        self.file = Some(file);
+        self.path = path;
+        Ok(())
+    }
+
+    fn push(&mut self, t: f64, jpeg: &[u8]) -> Result<(), String> {
+        let file = match self.file.as_mut() {
+            Some(f) => f,
+            None => return Ok(()),
+        };
+        file.write_all(jpeg).map_err(|e| format!("spool write: {e}"))?;
+        self.frames.push(Frame { t, offset: self.bytes, len: jpeg.len() as u32 });
+        self.bytes += jpeg.len() as u64;
+        Ok(())
+    }
+
+    /// Read one frame's JPEG back off the spool.
+    pub fn read(&self, i: usize) -> Result<Vec<u8>, String> {
+        let frame = self.frames.get(i).ok_or("frame index out of range")?;
+        let mut file = std::fs::File::open(&self.path).map_err(|e| format!("spool open: {e}"))?;
+        file.seek(SeekFrom::Start(frame.offset)).map_err(|e| format!("spool seek: {e}"))?;
+        let mut buf = vec![0u8; frame.len as usize];
+        file.read_exact(&mut buf).map_err(|e| format!("spool read: {e}"))?;
+        Ok(buf)
+    }
+
+    pub fn frames(&self) -> &[Frame] {
+        &self.frames
+    }
+
+    pub fn len(&self) -> usize {
+        self.frames.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.frames.is_empty()
+    }
+
+    /// Bytes written so far, for the progress line on a long take.
+    pub fn bytes(&self) -> u64 {
+        self.bytes
+    }
+
+    fn discard(&mut self) {
+        self.file = None;
+        if !self.path.as_os_str().is_empty() {
+            let _ = std::fs::remove_file(&self.path);
+        }
+        self.frames.clear();
+        self.bytes = 0;
+        self.path = PathBuf::new();
+    }
+}
+
+impl Drop for FrameSpool {
+    fn drop(&mut self) {
+        self.discard();
+    }
+}
+
+/// How frames are taken off the page.
+///
+/// `Page.startScreencast` is push-based and free when nothing repaints, but its frames
+/// are the size of the CSS viewport: `maxWidth` only ever scales them down, so a 2x
+/// device scale factor buys nothing and the zoom crops into pixels that were never
+/// captured. `Page.captureScreenshot` honours the device scale factor, so it is the
+/// only path that actually supersamples. It costs a round trip per frame, which is why
+/// it is used only when it buys something.
+#[derive(PartialEq)]
+enum Capture {
+    Screencast,
+    /// Poll `Page.captureScreenshot` at roughly this interval.
+    Screenshot(Duration),
 }
 
 pub struct Cdp {
@@ -30,9 +142,14 @@ pub struct Cdp {
     responses: HashMap<u64, Value>,
     ack_ids: HashSet<u64>,
     events: VecDeque<(String, Value)>,
-    pub frames: Vec<Frame>,
+    pub frames: FrameSpool,
     pub rec_t0: Option<Instant>,
     recording: bool,
+    capture: Capture,
+    last_shot: Option<Instant>,
+    css_w: u32,
+    css_h: u32,
+    scale: f64,
     _profile_dir: PathBuf,
 }
 
@@ -120,6 +237,8 @@ impl Cdp {
         scale: f64,
     ) -> Result<Cdp, String> {
         let bin = find_chromium(chromium)?;
+        let dev_w = (css_w as f64 * scale).round() as u32;
+        let dev_h = (css_h as f64 * scale).round() as u32;
         let port = free_port().map_err(|e| e.to_string())?;
         let profile_dir = std::env::temp_dir().join(format!("lensa-profile-{port}"));
         std::fs::create_dir_all(&profile_dir).map_err(|e| e.to_string())?;
@@ -128,7 +247,14 @@ impl Cdp {
                 "--headless=new",
                 &format!("--remote-debugging-port={port}"),
                 &format!("--user-data-dir={}", profile_dir.display()),
-                &format!("--window-size={css_w},{css_h}"),
+                /*
+                 * --window-size is in device pixels, so it has to carry the scale or
+                 * the compositor surface stays 1x and every screencast frame comes
+                 * back at the CSS size no matter what maxWidth asks for. This is what
+                 * makes --scale actually supersample rather than being decoration.
+                 */
+                &format!("--window-size={dev_w},{dev_h}"),
+                &format!("--force-device-scale-factor={scale}"),
                 "--no-first-run",
                 "--no-default-browser-check",
                 "--disable-extensions",
@@ -187,7 +313,12 @@ impl Cdp {
             responses: HashMap::new(),
             ack_ids: HashSet::new(),
             events: VecDeque::new(),
-            frames: Vec::new(),
+            frames: FrameSpool::new(),
+            capture: Capture::Screencast,
+            last_shot: None,
+            css_w,
+            css_h,
+            scale,
             rec_t0: None,
             recording: false,
             _profile_dir: profile_dir,
@@ -290,10 +421,7 @@ impl Cdp {
             if self.recording {
                 if let (Some(data), Some(t0)) = (params["data"].as_str(), self.rec_t0) {
                     if let Ok(jpeg) = base64::engine::general_purpose::STANDARD.decode(data) {
-                        self.frames.push(Frame {
-                            t: t0.elapsed().as_secs_f64(),
-                            jpeg,
-                        });
+                        self.frames.push(t0.elapsed().as_secs_f64(), &jpeg)?;
                     }
                 }
             }
@@ -347,6 +475,12 @@ impl Cdp {
         let deadline = Instant::now() + Duration::from_millis(ms);
         while Instant::now() < deadline {
             self.pump()?;
+            /*
+             * Every wait in the op protocol lands here, so this is where the screenshot
+             * pump gets its cadence: no separate thread, no second CDP connection, and
+             * the frame clock stays the recording clock.
+             */
+            self.shoot_if_due()?;
             std::thread::sleep(Duration::from_millis(5));
         }
         Ok(())
@@ -364,28 +498,104 @@ impl Cdp {
         Ok(r["result"]["value"].clone())
     }
 
-    pub fn start_screencast(&mut self, max_w: u32, max_h: u32) -> Result<(), String> {
+    /// Begin capturing. `scale` above 1 switches to the screenshot pump, which is the
+    /// only path that yields more pixels than the CSS viewport has.
+    pub fn start_capture(&mut self, max_w: u32, max_h: u32, scale: f64) -> Result<(), String> {
         self.rec_t0 = Some(Instant::now());
         self.recording = true;
-        self.frames.clear();
-        self.send(
-            "Page.startScreencast",
-            json!({"format": "jpeg", "quality": 82, "maxWidth": max_w, "maxHeight": max_h, "everyNthFrame": 1}),
-        )?;
+        self.frames.reset()?;
+        self.last_shot = None;
+        if scale > 1.0 {
+            /*
+             * 25ms is a target, not a guarantee: a screenshot of a heavy page takes
+             * longer than that and the pump simply falls behind, which the CFR pass
+             * absorbs. Asking for 30fps here would only queue round trips.
+             */
+            self.capture = Capture::Screenshot(Duration::from_millis(25));
+            self.shoot()?;
+        } else {
+            self.capture = Capture::Screencast;
+            self.send(
+                "Page.startScreencast",
+                json!({"format": "jpeg", "quality": 82, "maxWidth": max_w, "maxHeight": max_h, "everyNthFrame": 1}),
+            )?;
+        }
         Ok(())
     }
 
-    pub fn stop_screencast(&mut self) -> Result<(), String> {
-        self.send("Page.stopScreencast", json!({}))?;
+    /// Take one screenshot and spool it. Errors are swallowed on purpose: a frame lost
+    /// to a navigation in flight should not end a take.
+    fn shoot(&mut self) -> Result<(), String> {
+        let t0 = match self.rec_t0 {
+            Some(t) => t,
+            None => return Ok(()),
+        };
+        let t = t0.elapsed().as_secs_f64();
+        /*
+         * `clip.scale` is the part that matters. Without it the screenshot comes back
+         * at the emulated CSS size no matter what the device scale factor is, which is
+         * the trap the screencast path falls into; with it, the frame is rendered at
+         * css * scale device pixels and the zoom has real detail to crop into.
+         */
+        let clip = json!({
+            "x": 0, "y": 0,
+            "width": self.css_w, "height": self.css_h,
+            "scale": self.scale,
+        });
+        let r = match self.send(
+            "Page.captureScreenshot",
+            json!({
+                "format": "jpeg", "quality": 82,
+                "optimizeForSpeed": true,
+                "captureBeyondViewport": false,
+                "clip": clip,
+            }),
+        ) {
+            Ok(r) => r,
+            Err(_) => {
+                self.last_shot = Some(Instant::now());
+                return Ok(());
+            }
+        };
+        if let Some(data) = r["data"].as_str() {
+            if let Ok(jpeg) = base64::engine::general_purpose::STANDARD.decode(data) {
+                self.frames.push(t, &jpeg)?;
+            }
+        }
+        self.last_shot = Some(Instant::now());
+        Ok(())
+    }
+
+    /// Take a screenshot if one is due. No-op in screencast mode.
+    fn shoot_if_due(&mut self) -> Result<(), String> {
+        let interval = match self.capture {
+            Capture::Screenshot(i) if self.recording => i,
+            _ => return Ok(()),
+        };
+        let due = self.last_shot.map(|t| t.elapsed() >= interval).unwrap_or(true);
+        if due {
+            self.shoot()?;
+        }
+        Ok(())
+    }
+
+    pub fn stop_capture(&mut self) -> Result<(), String> {
+        if self.capture == Capture::Screencast {
+            self.send("Page.stopScreencast", json!({}))?;
+        } else {
+            // One last frame so the tail is the page as it finally looked.
+            self.shoot()?;
+        }
         // Drain stragglers.
         self.sleep_pump(150)?;
         // The screencast only sends frames on paint, so a static tail would
         // otherwise be cut off: hold the last frame until stop time.
-        if let Some(last) = self.frames.last() {
+        let tail = self.frames.frames().last().map(|f| f.t);
+        if let Some(last_t) = tail {
             let t_stop = self.now_rec();
-            if t_stop > last.t + 0.05 {
-                let jpeg = last.jpeg.clone();
-                self.frames.push(Frame { t: t_stop, jpeg });
+            if t_stop > last_t + 0.05 {
+                let jpeg = self.frames.read(self.frames.len() - 1)?;
+                self.frames.push(t_stop, &jpeg)?;
             }
         }
         self.recording = false;

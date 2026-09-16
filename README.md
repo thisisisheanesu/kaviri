@@ -30,6 +30,32 @@ lensa serve                                          # NDJSON ops on stdin, resu
 lensa serve --port 9222                              # same protocol over TCP
 ```
 
+## Presets
+
+A take has three sizes, and they are not the same number: the **viewport** the page lays
+out in, the **capture** resolution (viewport x scale), and the **video** it renders to. A
+vertical take wants a phone-width viewport so the site lays out like a phone, a high
+capture so zooms crop into real pixels, and a 1080x1920 file. `--preset` sets all three.
+
+```
+lensa presets                                   # list them
+lensa record --preset tiktok --script s.jsonl --out s.mp4
+```
+
+| preset | viewport | video | for |
+|---|---|---|---|
+| `desktop` | 1470x830 | 1470x830 | the default: a laptop window |
+| `tiktok` / `reels` / `shorts` | 432x768 | 1080x1920 | 9:16 vertical, phone layout |
+| `square` | 540x540 | 1080x1080 | 1:1 feed posts |
+| `landscape` | 960x540 | 1920x1080 | 16:9 1080p, large type for a projector |
+| `readme` | 1100x620 | 1100x620 | sits in a README without scaling |
+| `phone` | 390x844 | 1170x2532 | a real phone's viewport and pixels, for device mocks |
+
+A preset is a starting point: `--width`, `--height`, `--scale`, `--out-width` and
+`--out-height` after it still win. A vertical frame also wants its own shot list:
+scroll rather than pan, open on the most legible image, and keep every beat short.
+`examples/ngano-vertical.jsonl` is one.
+
 ## Op protocol (one JSON object per line)
 
 ```jsonc
@@ -82,9 +108,12 @@ any Linux including Wayland-only boxes). An embedded-webview backend
 
 - Audio capture (`--audio`) is not implemented yet; the plan is a dedicated
   PipeWire/Pulse sink for the browser process, muxed against the same clock.
-- `serve` handles one TCP connection at a time.
-- Frames are buffered in memory (fine for demo-length takes; spool-to-disk
-  planned for long recordings).
-- Capture resolution equals the logical viewport (the DevTools screencast
-  caps frames at the emulated viewport size); supersampled 2x capture is a
-  v2 item, likely via a `Page.captureScreenshot` pump or the wry backend.
+- `serve` takes concurrent connections, one thread each, serialized onto the
+  single browser by a mutex held for one op at a time.
+- Frames spool to one append-only temp file as they arrive, and the render pass
+  holds one frame at a time, so memory no longer grows with take length.
+- Supersampling works when `--scale` is above 1: capture switches from the
+  DevTools screencast, which caps frames at the CSS viewport no matter what
+  `maxWidth` asks for, to a `Page.captureScreenshot` pump with `clip.scale`,
+  which does not. The pump costs a round trip per frame, so at 1x the cheaper
+  push-based screencast is still used.

@@ -22,6 +22,9 @@ pub struct Session {
     pub css_w: u32,
     pub css_h: u32,
     pub scale: f64,
+    /// The video's size. Independent of the viewport, so a phone-shaped take can still
+    /// be a 1080p file.
+    pub out_size: (u32, u32),
     pub out_path: Option<String>,
     pub keep_temp: bool,
     pub rendered: Option<(f64, usize)>,
@@ -77,6 +80,7 @@ impl Session {
         css_w: u32,
         css_h: u32,
         scale: f64,
+        out_size: (u32, u32),
         keep_temp: bool,
     ) -> Result<Session, String> {
         let mut cdp = Cdp::launch(chromium, css_w, css_h, scale)?;
@@ -90,6 +94,7 @@ impl Session {
             css_w,
             css_h,
             scale,
+            out_size,
             out_path: None,
             keep_temp,
             rendered: None,
@@ -273,21 +278,22 @@ impl Session {
                 }
                 let max_w = (self.css_w as f64 * self.scale) as u32;
                 let max_h = (self.css_h as f64 * self.scale) as u32;
-                self.cdp.start_screencast(max_w, max_h)?;
+                self.cdp.start_capture(max_w, max_h, self.scale)?;
                 // Nudge a paint so the first frame arrives promptly.
                 let _ = self.cdp.evaluate("void 0");
                 self.cdp.sleep_pump(200)?;
                 Ok(json!({"event": "recording_started"}))
             }
             "stop_recording" => {
-                self.cdp.stop_screencast()?;
+                self.cdp.stop_capture()?;
                 let out = self
                     .out_path
                     .clone()
                     .unwrap_or_else(|| "lensa-out.mp4".to_string());
                 eprintln!(
-                    "lensa: captured {} frames, rendering {out} ...",
-                    self.cdp.frames.len()
+                    "lensa: captured {} frames ({:.1} MB spooled), rendering {out} ...",
+                    self.cdp.frames.len(),
+                    self.cdp.frames.bytes() as f64 / 1_048_576.0
                 );
                 let (dur, n_ev) = crate::zoom::render(
                     &self.cdp.frames,
@@ -295,6 +301,7 @@ impl Session {
                     &out,
                     self.css_w,
                     self.css_h,
+                    self.out_size,
                     self.keep_temp,
                 )?;
                 self.rendered = Some((dur, n_ev));
@@ -302,6 +309,7 @@ impl Session {
                     "event": "recording_rendered", "path": out,
                     "duration": dur, "zoom_events": n_ev,
                     "frames": self.cdp.frames.len(),
+                    "spooled_bytes": self.cdp.frames.bytes(),
                 }))
             }
             other => Err(format!("unknown op: {other}")),

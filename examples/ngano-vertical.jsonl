@@ -1,0 +1,48 @@
+# ngano.dev, shot vertical for TikTok / Reels / Shorts.
+#   lensa record --preset tiktok --script examples/ngano-vertical.jsonl --out ngano-tiktok.mp4
+#
+# A vertical frame is narrow and tall, so this is a different shot list from the desktop
+# take: scrolls read better than side-by-side panels, the map is the opening image rather
+# than something reached halfway down, and every beat is short because the format is.
+{"op":"navigate","url":"https://ngano.dev/map"}
+{"op":"wait","selector":"svg.africa"}
+{"op":"wait","ms":900}
+{"op":"start_recording"}
+
+# Open on the map. It is the one frame that says what this is without reading.
+{"op":"mark","label":"the map"}
+{"op":"wait","ms":700}
+{"op":"click","selector":"[data-metricbar] button[data-metric=\"datasets\"]"}
+{"op":"wait","ms":500}
+{"op":"click","selector":"[data-metricbar] button[data-metric=\"languages\"]"}
+{"op":"wait","ms":500}
+
+# Into one country.
+{"op":"click","selector":"svg.africa a[href=\"/countries/zw\"]"}
+{"op":"wait","selector":"h1.title"}
+{"op":"wait","ms":500}
+{"op":"scroll","y":520,"smooth":true}
+{"op":"wait","ms":700}
+
+# The language directory, narrowing as it types.
+{"op":"navigate","url":"https://ngano.dev/languages"}
+{"op":"wait","selector":"#lang-filter"}
+{"op":"wait","ms":300}
+{"op":"click","selector":"#lang-filter"}
+{"op":"type","selector":"#lang-filter","text":"shona","typewriter_ms":55}
+{"op":"wait","ms":600}
+
+# One language page, which is where the datasets actually are.
+{"op":"navigate","url":"https://ngano.dev/languages/sna"}
+{"op":"wait","selector":"h1.title"}
+{"op":"wait","ms":400}
+{"op":"scroll","y":620,"smooth":true}
+{"op":"wait","ms":700}
+
+# Close on the install line: the whole point is that you can have it in one command.
+{"op":"navigate","url":"https://ngano.dev/"}
+{"op":"wait","selector":"h1.title"}
+{"op":"wait","ms":300}
+{"op":"scroll","y":2400,"smooth":true}
+{"op":"wait","ms":1100}
+{"op":"stop_recording"}
