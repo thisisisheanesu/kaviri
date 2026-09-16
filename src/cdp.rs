@@ -537,10 +537,16 @@ impl Cdp {
          * the trap the screencast path falls into; with it, the frame is rendered at
          * css * scale device pixels and the zoom has real detail to crop into.
          */
+        /*
+         * The device scale factor already renders the page at css * scale, so the clip
+         * scale stays 1. Setting it to `scale` as well compounds the two: a 2.5x take came
+         * back at 6.25x, 2700x4800 instead of 1080x1920, four times the pixels and the
+         * spool for nothing.
+         */
         let clip = json!({
             "x": 0, "y": 0,
             "width": self.css_w, "height": self.css_h,
-            "scale": self.scale,
+            "scale": 1,
         });
         let r = match self.send(
             "Page.captureScreenshot",
