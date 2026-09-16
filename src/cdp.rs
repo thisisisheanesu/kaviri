@@ -149,7 +149,6 @@ pub struct Cdp {
     last_shot: Option<Instant>,
     css_w: u32,
     css_h: u32,
-    scale: f64,
     _profile_dir: PathBuf,
 }
 
@@ -260,6 +259,14 @@ impl Cdp {
                 "--disable-extensions",
                 "--disable-gpu",
                 "--hide-scrollbars",
+                /*
+                 * No speculative prerendering. A site with speculation rules builds the
+                 * next page in a hidden target, and a click activates that target in
+                 * place of the one lensa is attached to: the take then freezes on the
+                 * old page while the browser moves on, with a 30s CDP stall at the
+                 * swap. One page, one target, for the whole recording.
+                 */
+                "--disable-features=Prerender2",
                 "--mute-audio",
                 "--force-color-profile=srgb",
                 "about:blank",
@@ -318,7 +325,6 @@ impl Cdp {
             last_shot: None,
             css_w,
             css_h,
-            scale,
             rec_t0: None,
             recording: false,
             _profile_dir: profile_dir,
@@ -355,6 +361,16 @@ impl Cdp {
         params: Value,
         session: Option<&str>,
     ) -> Result<Value, String> {
+        self.send_raw_within(method, params, session, Duration::from_secs(30))
+    }
+
+    fn send_raw_within(
+        &mut self,
+        method: &str,
+        params: Value,
+        session: Option<&str>,
+        timeout: Duration,
+    ) -> Result<Value, String> {
         let id = self.next_id;
         self.next_id += 1;
         let mut msg = json!({"id": id, "method": method, "params": params});
@@ -366,7 +382,7 @@ impl Cdp {
         self.ws
             .send(Message::Text(msg.to_string()))
             .map_err(|e| format!("ws send: {e}"))?;
-        let deadline = Instant::now() + Duration::from_secs(30);
+        let deadline = Instant::now() + timeout;
         loop {
             if let Some(resp) = self.responses.remove(&id) {
                 if let Some(err) = resp.get("error") {
@@ -375,6 +391,8 @@ impl Cdp {
                 return Ok(resp["result"].clone());
             }
             if Instant::now() > deadline {
+                /* A late answer is discarded on arrival rather than piling up unread. */
+                self.ack_ids.insert(id);
                 return Err(format!("{method}: timed out waiting for response"));
             }
             self.pump()?;
@@ -384,6 +402,12 @@ impl Cdp {
     pub fn send(&mut self, method: &str, params: Value) -> Result<Value, String> {
         let session = self.session_id.clone();
         self.send_raw(method, params, Some(&session))
+    }
+
+    /// As `send`, but gives up after `timeout`. For calls that are cheap to lose.
+    pub fn send_within(&mut self, method: &str, params: Value, timeout: Duration) -> Result<Value, String> {
+        let session = self.session_id.clone();
+        self.send_raw_within(method, params, Some(&session), timeout)
     }
 
     /// Drain any pending websocket messages (non-blocking beyond the socket's
@@ -548,7 +572,13 @@ impl Cdp {
             "width": self.css_w, "height": self.css_h,
             "scale": 1,
         });
-        let r = match self.send(
+        /*
+         * Short timeout. While a navigation is in flight the screenshot cannot answer until
+         * the new page paints, and under the general 30s timeout that one lost frame froze
+         * the take for half a minute. A frame is cheap to skip; the pump tries again 25ms
+         * later and the CFR pass holds the previous one in between.
+         */
+        let r = match self.send_within(
             "Page.captureScreenshot",
             json!({
                 "format": "jpeg", "quality": 82,
@@ -556,6 +586,7 @@ impl Cdp {
                 "captureBeyondViewport": false,
                 "clip": clip,
             }),
+            Duration::from_millis(700),
         ) {
             Ok(r) => r,
             Err(_) => {
