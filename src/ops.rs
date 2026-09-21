@@ -451,7 +451,10 @@ impl Session {
             }
             "type" => {
                 let text = op["text"].as_str().ok_or("type needs text")?.to_string();
-                let per_char = op["typewriter_ms"].as_u64().unwrap_or(45);
+                // Fast by default. 45ms per character is a person hunting for keys; an agent
+                // does not hunt, and a viewer does not want to watch one. A take can still ask
+                // for slower with typewriter_ms when the point is to read along.
+                let per_char = op["typewriter_ms"].as_u64().unwrap_or(18);
                 let bbox = if let Some(sel) = op["selector"].as_str() {
                     let aim = self.resolve_box(sel)?;
                     let (x, y) = aim.point;
