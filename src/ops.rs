@@ -112,9 +112,9 @@ const CARET_JS: &str = r#"(() => {
   return [r.left + ox - (el.scrollLeft || 0), r.top + oy - (el.scrollTop || 0), lh];
 })()"#;
 
-/// How often to re-measure the caret while typing. Often enough that the pan follows the words
-/// rather than jumping after them, rarely enough not to slow the typing down.
-const CARET_EVERY_MS: u64 = 220;
+/// Spacing of the synthetic pan samples laid down across a typing op, in seconds. Close enough
+/// that the movement reads as continuous, far enough apart not to bloat the filter expression.
+const CARET_SAMPLE_S: f64 = 0.12;
 
 impl Default for CursorCfg {
     fn default() -> CursorCfg {
@@ -301,6 +301,14 @@ impl Session {
         })
     }
 
+    /// Where the caret sits horizontally, in CSS pixels, or None if nothing is focused.
+    fn caret_x(&mut self) -> Option<f64> {
+        self.cdp
+            .evaluate(CARET_JS)
+            .ok()
+            .and_then(|v| v.as_array().and_then(|a| a.first().and_then(|x| x.as_f64())))
+    }
+
     fn mark(&mut self, kind: &str, label: &str, bbox: Option<(f64, f64, f64, f64)>) -> Value {
         let t = self.cdp.now_rec();
         if self.cdp.is_recording() {
@@ -456,11 +464,16 @@ impl Session {
                 };
                 let sel = op["selector"].as_str().unwrap_or("").to_string();
                 let m = self.mark("type", &sel, bbox);
-                // Height comes from the field, so the zoom stays as wide as it was; only the
-                // horizontal position tracks the caret.
                 let field_h = bbox.map(|(_, _, _, h)| h).unwrap_or(24.0);
                 let field_y = bbox.map(|(_, y, _, _)| y).unwrap_or(0.0);
-                let mut since_mark: u64 = 0;
+                // Measure the caret either side of the typing, never during it. Asking the page
+                // where the caret is costs a round trip, and doing that between keystrokes put
+                // the round trip INSIDE the typing rhythm: the words came out slower than the
+                // requested speed, and the camera moved in steps because the samples were as
+                // uneven as the latency. Two measurements and an interpolation give a smooth
+                // pan and typing that runs at the speed that was asked for.
+                let t_start = self.cdp.now_rec();
+                let caret_start = self.caret_x();
                 for ch in text.chars() {
                     if ch == '\n' {
                         for t in ["rawKeyDown", "char", "keyUp"] {
@@ -475,26 +488,25 @@ impl Session {
                             .send("Input.insertText", json!({"text": ch.to_string()}))?;
                     }
                     self.cdp.sleep_pump(per_char)?;
-                    since_mark += per_char;
-                    if since_mark >= CARET_EVERY_MS && self.cdp.is_recording() {
-                        since_mark = 0;
-                        if let Ok(v) = self.cdp.evaluate(CARET_JS) {
-                            if let Some(a) = v.as_array() {
-                                if a.len() == 3 {
-                                    let (cx, cy, h) = (
-                                        a[0].as_f64().unwrap_or(0.0),
-                                        a[1].as_f64().unwrap_or(field_y),
-                                        a[2].as_f64().unwrap_or(field_h),
-                                    );
-                                    // A caret is a line, not a box: give it a sliver of width so
-                                    // the framing maths has something to centre on, and the
-                                    // field's height so the zoom level does not tighten.
-                                    let _ = self.mark(
-                                        "type",
-                                        &sel,
-                                        Some((cx, cy.min(field_y), 2.0, field_h.max(h))),
-                                    );
-                                }
+                }
+                // Lay the pan down after the fact, evenly spaced across the time the typing
+                // actually took. A caret is a line, not a box: it gets a sliver of width so the
+                // framing has something to sit against, and the field's height so following it
+                // does not tighten the zoom to one line of text.
+                if self.cdp.is_recording() {
+                    let t_end = self.cdp.now_rec();
+                    if let (Some(x0), Some(x1)) = (caret_start, self.caret_x()) {
+                        let span = t_end - t_start;
+                        if span > 0.2 && (x1 - x0).abs() > 1.0 {
+                            let steps = ((span / CARET_SAMPLE_S).round() as usize).clamp(2, 40);
+                            for k in 1..=steps {
+                                let f = k as f64 / steps as f64;
+                                self.marks.push(Mark {
+                                    t: t_start + span * f,
+                                    kind: "type".into(),
+                                    label: sel.clone(),
+                                    bbox: Some((x0 + (x1 - x0) * f, field_y, 2.0, field_h)),
+                                });
                             }
                         }
                     }
@@ -516,7 +528,13 @@ impl Session {
                     Ok(self.mark("wait", &format!("{ms}ms"), None))
                 } else if let Some(sel) = op["selector"].as_str() {
                     let sel_js = js_string(sel);
-                    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+                    // 20 seconds is fine for a page to render something and far too short for
+                    // anything that has to think first. A take that waits on a model finishing
+                    // its answer should say how long it is prepared to wait, and get told how
+                    // long it actually waited when it gives up.
+                    let budget = op["timeout_ms"].as_u64().unwrap_or(20_000);
+                    let started = std::time::Instant::now();
+                    let deadline = started + Duration::from_millis(budget);
                     loop {
                         let v = self
                             .cdp
@@ -525,7 +543,11 @@ impl Session {
                             break;
                         }
                         if std::time::Instant::now() > deadline {
-                            return Err(format!("wait: selector never appeared: {sel}"));
+                            return Err(format!(
+                                "wait: selector never appeared after {:.1}s: {sel}\n  \
+                                 raise it with {{\"op\":\"wait\",\"selector\":\"...\",\"timeout_ms\":60000}}",
+                                started.elapsed().as_secs_f64()
+                            ));
                         }
                         self.cdp.sleep_pump(100)?;
                     }

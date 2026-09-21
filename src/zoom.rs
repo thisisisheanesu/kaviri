@@ -109,7 +109,7 @@ pub fn events_from_marks(
                 ((next.cx - ev.cx).powi(2) + (next.cy - ev.cy).powi(2)).sqrt();
             let last_wp_t = ev.path.last().map(|p| p.0).unwrap_or(ev.t + EASE);
             let wp_t = next.t.max(last_wp_t + 0.15);
-            if dist > 30.0 {
+            if dist > 6.0 {
                 ev.path.push((wp_t, next.cx, next.cy));
             }
             ev.end = wp_t + hold_after;
@@ -126,6 +126,13 @@ pub fn events_from_marks(
         i = j;
     }
     events
+}
+
+/// Constant-rate move from a to b. Used between pan waypoints, where easing every segment
+/// would make the camera stop at each one.
+fn linear(a: &str, b: &str, t0: f64, t1: f64) -> String {
+    let p = format!("clip((it-{t0:.3})/({:.3}),0,1)", (t1 - t0).max(0.001));
+    format!("({a}+({b}-{a})*{p})")
 }
 
 fn smooth(a: &str, b: &str, t0: f64, t1: f64) -> String {
@@ -173,11 +180,15 @@ pub fn build_expr(events: &[ZoomEvent], which: &str) -> String {
             let v_last = format!("{:.2}", pts[pts.len() - 1].1);
             let ease_in = smooth(base, &v_first, t0, t0 + EASE);
             let ease_out = smooth(&v_last, base, t1 - EASE, t1);
+            // Straight lines between waypoints, not a smoothstep per segment. Easing each
+            // segment separately drives the velocity to zero at every waypoint, so a run of
+            // close samples reads as stepping rather than gliding. The ease belongs at the two
+            // ends of the whole move, which is where it already is.
             let mut mid = v_last.clone();
             for k in (0..pts.len() - 1).rev() {
                 let (ta, va) = pts[k];
                 let (tb, vb) = pts[k + 1];
-                let seg = smooth(&format!("{va:.2}"), &format!("{vb:.2}"), ta, tb);
+                let seg = linear(&format!("{va:.2}"), &format!("{vb:.2}"), ta, tb);
                 mid = format!("if(lt(it,{tb:.3}),{seg},{mid})");
             }
             format!(
@@ -191,30 +202,62 @@ pub fn build_expr(events: &[ZoomEvent], which: &str) -> String {
     expr
 }
 
+/// Find an ffmpeg to shell out to.
+///
+/// Deliberately not bundled: shipping ffmpeg means shipping its licence, and the builds that
+/// can write H.264 are the GPL ones. Using whichever the machine already has keeps lensa's own
+/// terms its own business.
 pub fn find_ffmpeg() -> Result<String, String> {
     if let Ok(p) = std::env::var("LENSA_FFMPEG") {
-        return Ok(p);
+        if Path::new(&p).exists() {
+            return Ok(p);
+        }
+        return Err(format!("LENSA_FFMPEG points at {p}, which does not exist"));
     }
-    for cand in ["ffmpeg"] {
-        if Command::new(cand)
-            .arg("-version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-        {
-            return Ok(cand.to_string());
+    if runs("ffmpeg") {
+        return Ok("ffmpeg".into());
+    }
+    let mut tried: Vec<String> = vec!["ffmpeg (on PATH)".into()];
+    let mut cands: Vec<std::path::PathBuf> = vec![
+        "/usr/bin/ffmpeg".into(),
+        "/usr/local/bin/ffmpeg".into(),
+        "/opt/homebrew/bin/ffmpeg".into(),
+        "/snap/bin/ffmpeg".into(),
+    ];
+    if let Some(home) = std::env::var_os("HOME") {
+        let h = Path::new(&home);
+        cands.push(h.join(".local/bin/ffmpeg"));
+        // Static tarballs unpack into a versioned directory and people leave them there.
+        if let Ok(rd) = std::fs::read_dir(h.join(".local/opt")) {
+            for e in rd.flatten() {
+                let p = e.path().join("ffmpeg");
+                if p.is_file() {
+                    cands.push(p);
+                }
+            }
         }
     }
-    // Common no-sudo static install location.
-    if let Some(home) = std::env::var_os("HOME") {
-        let p = std::path::Path::new(&home).join(".local/bin/ffmpeg");
-        if p.exists() {
+    for p in cands {
+        if p.is_file() {
             return Ok(p.display().to_string());
         }
+        tried.push(p.display().to_string());
     }
-    Err("ffmpeg not found (install a static build or set LENSA_FFMPEG)".into())
+    Err(format!(
+        "ffmpeg not found. Looked in:\n  {}\nInstall one (apt install ffmpeg, brew install \
+         ffmpeg, or a static build) or point LENSA_FFMPEG at it.",
+        tried.join("\n  ")
+    ))
+}
+
+fn runs(cmd: &str) -> bool {
+    Command::new(cmd)
+        .arg("-version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 /// Pass 1: VFR screencast frames -> CFR 30fps H.264 intermediate.
@@ -539,6 +582,34 @@ mod tests {
                 bbox.0 + bbox.2
             );
         }
+    }
+
+    /// Waypoints are joined by straight lines. Easing each segment separately brings the
+    /// camera to a stop at every sample, which over a typing pan reads as stepping.
+    #[test]
+    fn a_pan_moves_at_a_constant_rate_between_waypoints() {
+        let marks: Vec<Mark> = (0..6)
+            .map(|k| {
+                let t = 3.0 + k as f64 * 0.12;
+                mark("type", t, (200.0 + k as f64 * 40.0, 300.0, 2.0, 40.0))
+            })
+            .collect();
+        let evs = events_from_marks(&marks, 1.0, 1000.0, 800.0, 20.0);
+        assert_eq!(evs.len(), 1, "close samples merge into one move");
+        assert!(evs[0].path.len() >= 3, "and keep their waypoints: {:?}", evs[0].path.len());
+
+        // Exactly two eases in the horizontal move: into the zoom and back out of it. One per
+        // segment as well would be the stepping, and would grow with the number of samples.
+        let cx = build_expr(&evs, "cx");
+        let eases = cx.matches("*(3-2*").count();
+        assert_eq!(
+            eases, 2,
+            "expected an ease at each end of the move and straight lines between, got {eases} \
+             across {} waypoints",
+            evs[0].path.len()
+        );
+        let z = build_expr(&evs, "z");
+        assert_eq!(z.matches("*(3-2*").count(), 2, "the zoom itself still eases in and out");
     }
 
     /// Every zoom returns to the wide shot: the expression falls back to its base outside the
