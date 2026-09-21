@@ -65,6 +65,57 @@ pub struct CursorCfg {
     pub enabled: bool,
 }
 
+/// Where the text is being entered, in CSS pixels, as [x, y, height].
+///
+/// lensa records agents, not people. There is no hand on a mouse to follow, and the pointer it
+/// draws is a prop: it is parked wherever the field was clicked and stays there while a whole
+/// sentence is typed. The thing that actually moves, and the thing a viewer is reading, is the
+/// caret. So that is what the camera follows.
+///
+/// Works for contenteditable through the selection, and for input and textarea by mirroring the
+/// text up to the caret into a hidden element with the same typography and measuring where it
+/// ends. Returns null when there is nothing focused to measure.
+const CARET_JS: &str = r#"(() => {
+  const el = document.activeElement;
+  if (!el) return null;
+  if (el.isContentEditable) {
+    const s = getSelection();
+    if (s && s.rangeCount) {
+      const r = s.getRangeAt(0).getBoundingClientRect();
+      if (r.height) return [r.left, r.top, r.height];
+    }
+    const r = el.getBoundingClientRect();
+    return [r.left, r.top, r.height];
+  }
+  if (el.value === undefined) return null;
+  const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+  const d = document.createElement('div');
+  for (const k of ['fontFamily','fontSize','fontWeight','fontStyle','letterSpacing',
+                   'textTransform','paddingLeft','paddingTop','borderLeftWidth','borderTopWidth',
+                   'width','lineHeight','textIndent'])
+    d.style[k] = cs[k];
+  d.style.position = 'absolute';
+  d.style.left = '-9999px';
+  d.style.top = '0';
+  d.style.visibility = 'hidden';
+  d.style.whiteSpace = el.tagName === 'TEXTAREA' ? 'pre-wrap' : 'pre';
+  d.style.wordWrap = 'break-word';
+  const upto = el.selectionEnd == null ? el.value.length : el.selectionEnd;
+  d.textContent = el.value.slice(0, upto);
+  const tip = document.createElement('span');
+  tip.textContent = '\u200b';
+  d.appendChild(tip);
+  document.body.appendChild(d);
+  const ox = tip.offsetLeft, oy = tip.offsetTop;
+  d.remove();
+  const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2 || 16;
+  return [r.left + ox - (el.scrollLeft || 0), r.top + oy - (el.scrollTop || 0), lh];
+})()"#;
+
+/// How often to re-measure the caret while typing. Often enough that the pan follows the words
+/// rather than jumping after them, rarely enough not to slow the typing down.
+const CARET_EVERY_MS: u64 = 220;
+
 impl Default for CursorCfg {
     fn default() -> CursorCfg {
         CursorCfg { shape: None, scale: DEFAULT_CURSOR_SCALE, enabled: true }
@@ -403,7 +454,13 @@ impl Session {
                 } else {
                     None
                 };
-                let m = self.mark("type", op["selector"].as_str().unwrap_or(""), bbox);
+                let sel = op["selector"].as_str().unwrap_or("").to_string();
+                let m = self.mark("type", &sel, bbox);
+                // Height comes from the field, so the zoom stays as wide as it was; only the
+                // horizontal position tracks the caret.
+                let field_h = bbox.map(|(_, _, _, h)| h).unwrap_or(24.0);
+                let field_y = bbox.map(|(_, y, _, _)| y).unwrap_or(0.0);
+                let mut since_mark: u64 = 0;
                 for ch in text.chars() {
                     if ch == '\n' {
                         for t in ["rawKeyDown", "char", "keyUp"] {
@@ -418,6 +475,29 @@ impl Session {
                             .send("Input.insertText", json!({"text": ch.to_string()}))?;
                     }
                     self.cdp.sleep_pump(per_char)?;
+                    since_mark += per_char;
+                    if since_mark >= CARET_EVERY_MS && self.cdp.is_recording() {
+                        since_mark = 0;
+                        if let Ok(v) = self.cdp.evaluate(CARET_JS) {
+                            if let Some(a) = v.as_array() {
+                                if a.len() == 3 {
+                                    let (cx, cy, h) = (
+                                        a[0].as_f64().unwrap_or(0.0),
+                                        a[1].as_f64().unwrap_or(field_y),
+                                        a[2].as_f64().unwrap_or(field_h),
+                                    );
+                                    // A caret is a line, not a box: give it a sliver of width so
+                                    // the framing maths has something to centre on, and the
+                                    // field's height so the zoom level does not tighten.
+                                    let _ = self.mark(
+                                        "type",
+                                        &sel,
+                                        Some((cx, cy.min(field_y), 2.0, field_h.max(h))),
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
                 Ok(m)
             }
