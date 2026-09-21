@@ -1,0 +1,117 @@
+name: lensa
+description: Record a product demo from a script, in CI, so it is never out of date.
+author: Vambo AI
+
+branding:
+  icon: video
+  color: purple
+
+# A demo video goes stale the moment the UI moves, and nobody re-records it because that means
+# blocking out an afternoon. This makes the video a build artifact: the script is in the repo
+# next to the code it films, so the demo changes when the product does.
+
+inputs:
+  script:
+    description: Path to the .jsonl script of ops to run.
+    required: true
+  out:
+    description: Where to write the MP4.
+    required: false
+    default: demo.mp4
+  preset:
+    description: >-
+      Shape of the take: desktop, tiktok, reels, shorts, square, landscape, readme, phone.
+      Run `lensa presets` to see the sizes.
+    required: false
+    default: desktop
+  background:
+    description: Backdrop to composite onto - a name, auto, or none.
+    required: false
+    default: auto
+  scale:
+    description: Capture supersampling. 2 is crisp, 1 is faster and lighter on CPU.
+    required: false
+    default: '2'
+  upload:
+    description: Upload the MP4 as a workflow artifact.
+    required: false
+    default: 'true'
+  artifact-name:
+    description: Name for the uploaded artifact.
+    required: false
+    default: demo
+  ref:
+    description: Git ref of lensa to build. Pin this for reproducible video.
+    required: false
+    default: main
+
+outputs:
+  video:
+    description: Path to the recorded MP4.
+    value: ${{ inputs.out }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install ffmpeg and a browser
+      shell: bash
+      run: |
+        set -euo pipefail
+        # ffmpeg does the encoding and lensa shells out to it; it is deliberately not bundled,
+        # because the builds that can write H.264 are the GPL ones.
+        if ! command -v ffmpeg >/dev/null; then
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+        fi
+        if ! command -v chromium >/dev/null && ! command -v google-chrome >/dev/null; then
+          sudo apt-get install -y -qq chromium-browser || sudo apt-get install -y -qq chromium
+        fi
+        ffmpeg -version | head -1
+
+    - name: Get lensa
+      shell: bash
+      run: |
+        set -euo pipefail
+        git clone --depth 1 --branch "${{ inputs.ref }}" \
+          https://github.com/vamboai/lensa.git "$RUNNER_TEMP/lensa-src"
+
+    - name: Cache the build
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          ${{ runner.temp }}/lensa-src/target
+        key: lensa-${{ runner.os }}-${{ inputs.ref }}
+        restore-keys: lensa-${{ runner.os }}-
+
+    - name: Build lensa
+      shell: bash
+      working-directory: ${{ runner.temp }}/lensa-src
+      run: cargo build --release --quiet
+
+    - name: Record
+      shell: bash
+      env:
+        # Chromium's sandbox cannot start inside a CI container. This is a real reduction in
+        # isolation, which is why lensa does not do it by default and the runner opts in.
+        LENSA_CHROMIUM_ARGS: --no-sandbox --disable-dev-shm-usage
+        # /tmp on a runner is small and shared. Spool beside the workspace instead.
+        TMPDIR: ${{ runner.temp }}
+      run: |
+        set -euo pipefail
+        "$RUNNER_TEMP/lensa-src/target/release/lensa" record \
+          --script "${{ inputs.script }}" \
+          --out "${{ inputs.out }}" \
+          --preset "${{ inputs.preset }}" \
+          --background "${{ inputs.background }}" \
+          --scale "${{ inputs.scale }}"
+        ls -lh "${{ inputs.out }}"
+
+    - name: Upload
+      if: ${{ inputs.upload == 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.out }}
+        if-no-files-found: error

@@ -267,8 +267,20 @@ impl Cdp {
                 "--disable-features=Prerender2",
                 "--mute-audio",
                 "--force-color-profile=srgb",
-                "about:blank",
             ])
+            // Extra flags for the machine this is running on, not for lensa to decide.
+            // CI is the reason this exists: Chromium's sandbox cannot start inside most
+            // containers, so a runner needs --no-sandbox. That is a real reduction in
+            // isolation and belongs to whoever owns the machine, so it is opt in here rather
+            // than a default that quietly weakens every local recording too.
+            .args(
+                std::env::var("LENSA_CHROMIUM_ARGS")
+                    .unwrap_or_default()
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect::<Vec<_>>(),
+            )
+            .arg("about:blank")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()

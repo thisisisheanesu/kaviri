@@ -1,0 +1,59 @@
+name: demo
+
+# lensa records its own demo. If the recorder breaks, this workflow is the thing that says so,
+# and the README video is never older than the last commit that changed behaviour.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/**
+      - examples/**
+      - action.yml
+      - .github/workflows/demo.yml
+  pull_request:
+    paths:
+      - src/**
+      - examples/**
+  workflow_dispatch:
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - preset: readme
+            out: lensa-readme.mp4
+          - preset: tiktok
+            out: lensa-vertical.mp4
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Serve the example page
+        run: |
+          python3 -m http.server 8099 --directory examples &
+          for _ in $(seq 1 40); do
+            curl -sf http://127.0.0.1:8099/ >/dev/null && break
+            sleep 0.25
+          done
+          curl -sf -o /dev/null -w 'example page: %{http_code}\n' http://127.0.0.1:8099/
+
+      - name: Record
+        uses: ./
+        with:
+          script: examples/demo.jsonl
+          out: ${{ matrix.out }}
+          preset: ${{ matrix.preset }}
+          artifact-name: demo-${{ matrix.preset }}
+          ref: ${{ github.sha }}
+
+      - name: Check it is a real video
+        run: |
+          set -euo pipefail
+          dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "${{ matrix.out }}")
+          echo "duration: ${dur}s"
+          # A take that produced a file but no frames still "succeeds" without this.
+          awk -v d="$dur" 'BEGIN { exit (d > 2.0) ? 0 : 1 }' \
+            || { echo "recording is too short to be real"; exit 1; }
