@@ -4,6 +4,7 @@
 //! carrying the target element's bounding box in CSS pixels; the zoom
 //! generator consumes these.
 
+use crate::backdrop::Choice;
 use crate::cdp::Cdp;
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -14,6 +15,15 @@ pub struct Mark {
     pub label: String,
     /// CSS-pixel viewport box (x, y, w, h) of the interaction target.
     pub bbox: Option<(f64, f64, f64, f64)>,
+}
+
+/// Where an interaction lands, in CSS pixels: the point the mouse event goes
+/// to, the target's box if it has one (the zoom generator's input), and the
+/// pointer shape the OS would show over it.
+struct Aim {
+    point: (f64, f64),
+    bbox: Option<(f64, f64, f64, f64)>,
+    cursor: String,
 }
 
 pub struct Session {
@@ -27,30 +37,159 @@ pub struct Session {
     pub out_size: (u32, u32),
     pub out_path: Option<String>,
     pub keep_temp: bool,
+    pub cursor: CursorCfg,
+    /// Backdrop for the finished video; resolved at render time.
+    pub background: Choice,
     pub rendered: Option<(f64, usize)>,
 }
 
-/// Injected into every document: a fake cursor + click ripple so the video
-/// shows pointer motion (headless screencast has no OS cursor).
+/// The pointer shapes lensa can draw, in the macOS idiom.
+pub const CURSOR_SHAPES: &[(&str, &str)] = &[
+    ("arrow", "the classic pointer; the fallback for anything else"),
+    ("hand", "pointing hand, for links and buttons"),
+    ("text", "I-beam, for text fields and editable content"),
+];
+
+/// A 1x pointer is a 24 CSS px arrow, which is a speck once a 1470px take is
+/// scaled into a phone-sized player. Just under 2x reads clearly without
+/// covering the thing it is pointing at.
+pub const DEFAULT_CURSOR_SCALE: f64 = 1.75;
+
+/// Which pointer to draw, and how big.
+#[derive(Clone, Copy)]
+pub struct CursorCfg {
+    /// `None` follows whatever is under the pointer; `Some` pins one shape.
+    pub shape: Option<&'static str>,
+    /// Multiplier over a 1x system pointer.
+    pub scale: f64,
+    pub enabled: bool,
+}
+
+impl Default for CursorCfg {
+    fn default() -> CursorCfg {
+        CursorCfg { shape: None, scale: DEFAULT_CURSOR_SCALE, enabled: true }
+    }
+}
+
+/// The `--cursor` values, for help and error text.
+pub fn cursor_help() -> String {
+    let mut s = CURSOR_SHAPES
+        .iter()
+        .map(|(n, d)| format!("  {n:<10} {d}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    s.push_str("\n  auto       follow the element under the pointer (default)");
+    s.push_str("\n  none       draw no pointer at all");
+    s
+}
+
+impl CursorCfg {
+    pub fn parse(name: &str, scale: f64) -> Result<CursorCfg, String> {
+        if !(scale.is_finite() && (0.2..=8.0).contains(&scale)) {
+            return Err("--cursor-scale must be between 0.2 and 8".into());
+        }
+        match name {
+            "none" | "off" => Ok(CursorCfg { shape: None, scale, enabled: false }),
+            "auto" => Ok(CursorCfg { shape: None, scale, enabled: true }),
+            n => match CURSOR_SHAPES.iter().find(|(s, _)| *s == n) {
+                Some((s, _)) => Ok(CursorCfg { shape: Some(s), scale, enabled: true }),
+                None => Err(format!("unknown cursor: {n}\n\nCursors:\n{}", cursor_help())),
+            },
+        }
+    }
+}
+
+/// Classify an element the way the OS would: what shape should be over it.
+/// Shared by the selector and point paths, and deliberately independent of the
+/// injected overlay so it still answers when the cursor is turned off.
+const KIND_FN: &str = "((el) => { const cs = getComputedStyle(el).cursor, \
+    tag = el.tagName.toLowerCase(); \
+  if (cs === 'pointer' || cs === 'grab' || cs === 'grabbing') return 'hand'; \
+  if (cs === 'text' || cs === 'vertical-text') return 'text'; \
+  if (tag === 'textarea' || el.isContentEditable) return 'text'; \
+  if (tag === 'input') return /^(button|submit|reset|checkbox|radio|range|color|file|image)$/ \
+    .test(el.type || 'text') ? 'hand' : 'text'; \
+  if (tag === 'a' || tag === 'button' || tag === 'select' || \
+      el.getAttribute('role') === 'button') return 'hand'; \
+  return 'arrow'; })";
+
+/// Injected into every document: a large macOS-style cursor + click ripple, so
+/// the video shows pointer intent (headless capture has no OS cursor).
+///
+/// Drawn as vector SVG at the requested size rather than an upscaled bitmap, so
+/// it stays crisp when a zoom crops into it. It lives in the page, which means
+/// it is captured as part of the frame and the zoom transform carries it along
+/// for free: no second compositing path, no chance of the pointer and the
+/// content disagreeing about where the click happened.
+///
+/// Each shape is painted twice over the same geometry, a thick white pass and
+/// then the black body, so a shape built from several overlapping pieces (the
+/// hand) gets one clean outline around the union rather than seams between the
+/// pieces.
 const CURSOR_JS: &str = r##"
 (() => {
+  const S = __LENSA_SCALE__;
+  const PIN = __LENSA_SHAPE__;
+  const SHAPES = {
+    arrow: {
+      w: 16, h: 24, vb: '-2 -2 16 24', ox: 2, oy: 2, fill: 1, hw: 3, bw: 0,
+      parts: '<path d="M0 0L0 16.8L4.2 12.9L6.3 19.4L9.1 19.7L7 13.25L9.8 13.6Z"/>'
+    },
+    hand: {
+      /* An index finger, three shorter knuckles, a thumb and a fist, drawn as
+         overlapping rounded rects: the two-pass paint turns their union into one
+         outlined silhouette, so the pieces never show as seams. */
+      w: 22, h: 27, vb: '-2 -1 22 27', ox: 8, oy: 2, fill: 1, hw: 3, bw: 0,
+      parts:
+        '<rect x="4" y="1" width="4" height="13" rx="2"/>' +
+        '<rect x="7.6" y="8.5" width="3.8" height="6" rx="1.9"/>' +
+        '<rect x="11" y="9.6" width="3.7" height="5.4" rx="1.85"/>' +
+        '<rect x="14.3" y="10.9" width="3.4" height="4.9" rx="1.7"/>' +
+        '<rect x="0.3" y="13.5" width="4" height="7" rx="2"/>' +
+        '<rect x="2.6" y="12.8" width="15.1" height="10.2" rx="4.5"/>'
+    },
+    text: {
+      w: 12, h: 24, vb: '-6 -12 12 24', ox: 6, oy: 12, fill: 0, hw: 4.2, bw: 1.7,
+      parts: '<path d="M-3.2 -8.8H3.2M0 -8.8V8.8M-3.2 8.8H3.2"/>'
+    }
+  };
+  const svg = (s) =>
+    '<svg xmlns="http://www.w3.org/2000/svg" width="' + (s.w * S) + '" height="' +
+    (s.h * S) + '" viewBox="' + s.vb +
+    '" style="position:absolute;left:0;top:0;display:block;overflow:visible">' +
+    '<g fill="' + (s.fill ? '#fff' : 'none') + '" stroke="#fff" stroke-width="' + s.hw +
+    '" stroke-linejoin="round" stroke-linecap="round">' + s.parts + '</g>' +
+    '<g fill="' + (s.fill ? '#0b0b0c' : 'none') + '" stroke="' +
+    (s.bw ? '#0b0b0c' : 'none') + '" stroke-width="' + s.bw +
+    '" stroke-linejoin="round" stroke-linecap="round">' + s.parts + '</g></svg>';
+  const state = { k: null, x: -400, y: -400 };
   const ensure = () => {
     let c = document.getElementById('__lensa_cursor');
     if (c) return c;
     c = document.createElement('div');
     c.id = '__lensa_cursor';
-    c.style.cssText = 'position:fixed;left:0;top:0;width:24px;height:24px;' +
+    /* Zero-sized box: the SVG hangs off its top-left, so one translate puts the
+       hot spot of any shape exactly on the point being clicked. */
+    c.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;' +
       'z-index:2147483647;pointer-events:none;' +
       'transition:transform .45s cubic-bezier(.22,.61,.36,1);' +
-      'transform:translate(-100px,-100px);will-change:transform';
-    c.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24">' +
-      '<path d="M4 2 L4 19 L8.5 15.5 L11.5 22 L14.5 20.5 L11.5 14 L17 13.5 Z"' +
-      ' fill="#111" stroke="#fff" stroke-width="1.5"/></svg>';
+      'transform:translate(-400px,-400px);will-change:transform;' +
+      'filter:drop-shadow(0 ' + (1.2 * S) + 'px ' + (1.8 * S) + 'px rgba(0,0,0,.38))';
     (document.body || document.documentElement).appendChild(c);
     return c;
   };
+  const apply = (k) => {
+    const c = ensure();
+    k = PIN || k || state.k || 'arrow';
+    if (!SHAPES[k]) k = 'arrow';
+    if (k !== state.k) { state.k = k; c.innerHTML = svg(SHAPES[k]); }
+    const s = SHAPES[k];
+    c.style.transform =
+      'translate(' + (state.x - s.ox * S) + 'px,' + (state.y - s.oy * S) + 'px)';
+  };
   window.__lensa = {
-    move(x, y) { ensure().style.transform = `translate(${x-4}px,${y-2}px)`; },
+    move(x, y, k) { state.x = x; state.y = y; apply(k); },
+    shape(k) { apply(k); },
     ripple(x, y) {
       if (!document.getElementById('__lensa_style')) {
         const s = document.createElement('style'); s.id = '__lensa_style';
@@ -58,11 +197,13 @@ const CURSOR_JS: &str = r##"
           'to{transform:scale(1.7);opacity:0}}';
         (document.head || document.documentElement).appendChild(s);
       }
+      const R = 18 * Math.max(1, S * 0.85);
       const r = document.createElement('div');
-      r.style.cssText = `position:fixed;left:${x-18}px;top:${y-18}px;` +
-        'width:36px;height:36px;border-radius:50%;' +
-        'border:3px solid rgba(59,130,246,.85);z-index:2147483646;' +
-        'pointer-events:none;animation:__lensa_r .5s ease-out forwards';
+      r.style.cssText = 'position:fixed;left:' + (x - R) + 'px;top:' + (y - R) + 'px;' +
+        'width:' + (2 * R) + 'px;height:' + (2 * R) + 'px;border-radius:50%;' +
+        'border:' + Math.max(3, 1.7 * S) + 'px solid rgba(59,130,246,.85);' +
+        'z-index:2147483646;pointer-events:none;' +
+        'animation:__lensa_r .5s ease-out forwards';
       (document.body || document.documentElement).appendChild(r);
       setTimeout(() => r.remove(), 600);
     }
@@ -82,12 +223,18 @@ impl Session {
         scale: f64,
         out_size: (u32, u32),
         keep_temp: bool,
+        cursor: CursorCfg,
     ) -> Result<Session, String> {
         let mut cdp = Cdp::launch(chromium, css_w, css_h, scale)?;
-        cdp.send(
-            "Page.addScriptToEvaluateOnNewDocument",
-            json!({"source": CURSOR_JS}),
-        )?;
+        if cursor.enabled {
+            let source = CURSOR_JS
+                .replace("__LENSA_SCALE__", &format!("{:.4}", cursor.scale))
+                .replace("__LENSA_SHAPE__", &js_string(cursor.shape.unwrap_or("")));
+            cdp.send(
+                "Page.addScriptToEvaluateOnNewDocument",
+                json!({ "source": source }),
+            )?;
+        }
         Ok(Session {
             cdp,
             marks: Vec::new(),
@@ -97,6 +244,8 @@ impl Session {
             out_size,
             out_path: None,
             keep_temp,
+            cursor,
+            background: Choice::Auto,
             rendered: None,
         })
     }
@@ -118,8 +267,10 @@ impl Session {
         })
     }
 
-    /// Scroll element into view, settle, return its viewport box (CSS px).
-    fn resolve_box(&mut self, selector: &str) -> Result<(f64, f64, f64, f64), String> {
+    /// Scroll element into view, settle, and describe where the interaction
+    /// lands: the point, the target's box (CSS px), and the pointer shape that
+    /// belongs over it.
+    fn resolve_box(&mut self, selector: &str) -> Result<Aim, String> {
         let sel = js_string(selector);
         let js = format!(
             "(() => {{ const el = document.querySelector({sel}); if (!el) return null; \
@@ -134,27 +285,58 @@ impl Session {
         let js = format!(
             "(() => {{ const el = document.querySelector({sel}); if (!el) return null; \
              const r = el.getBoundingClientRect(); \
-             return [r.x, r.y, r.width, r.height]; }})()"
+             return [r.x, r.y, r.width, r.height, {KIND_FN}(el)]; }})()"
         );
         let v = self.cdp.evaluate(&js)?;
         let a = v.as_array().ok_or_else(|| format!("selector vanished: {selector}"))?;
-        Ok((
+        let b = (
             a[0].as_f64().unwrap_or(0.0),
             a[1].as_f64().unwrap_or(0.0),
             a[2].as_f64().unwrap_or(0.0),
             a[3].as_f64().unwrap_or(0.0),
-        ))
+        );
+        Ok(Aim {
+            point: (b.0 + b.2 / 2.0, b.1 + b.3 / 2.0),
+            bbox: Some(b),
+            cursor: a
+                .get(4)
+                .and_then(|k| k.as_str())
+                .unwrap_or("arrow")
+                .to_string(),
+        })
     }
 
-    fn cursor_to(&mut self, x: f64, y: f64) -> Result<(), String> {
-        let js = format!("window.__lensa && __lensa.move({x:.1},{y:.1})");
-        let _ = self.cdp.evaluate(&js);
+    /// The pointer shape for a bare x/y click: whatever is under that point.
+    fn kind_at(&mut self, x: f64, y: f64) -> String {
+        let js = format!(
+            "(() => {{ const el = document.elementFromPoint({x:.1},{y:.1}); \
+             return el ? {KIND_FN}(el) : 'arrow'; }})()"
+        );
+        self.cdp
+            .evaluate(&js)
+            .ok()
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| "arrow".into())
+    }
+
+    /// Glide the pointer to a point, in the shape that belongs there.
+    ///
+    /// The settle always happens, cursor or no cursor: the pause before a click
+    /// is part of the pacing the zoom is cut against, not just cursor travel.
+    fn cursor_to(&mut self, x: f64, y: f64, kind: &str) -> Result<(), String> {
+        if self.cursor.enabled {
+            let k = js_string(kind);
+            let js = format!("window.__lensa && __lensa.move({x:.1},{y:.1},{k})");
+            let _ = self.cdp.evaluate(&js);
+        }
         self.cdp.sleep_pump(500) // matches the CSS transition
     }
 
     fn mouse_click(&mut self, x: f64, y: f64) -> Result<(), String> {
-        let js = format!("window.__lensa && __lensa.ripple({x:.1},{y:.1})");
-        let _ = self.cdp.evaluate(&js);
+        if self.cursor.enabled {
+            let js = format!("window.__lensa && __lensa.ripple({x:.1},{y:.1})");
+            let _ = self.cdp.evaluate(&js);
+        }
         for (t, clicks) in [("mouseMoved", 0), ("mousePressed", 1), ("mouseReleased", 1)] {
             self.cdp.send(
                 "Input.dispatchMouseEvent",
@@ -164,14 +346,17 @@ impl Session {
         Ok(())
     }
 
-    fn click_target(&mut self, op: &Value) -> Result<((f64, f64), Option<(f64, f64, f64, f64)>), String> {
+    fn click_target(&mut self, op: &Value) -> Result<Aim, String> {
         if let Some(sel) = op["selector"].as_str() {
-            let b = self.resolve_box(sel)?;
-            Ok(((b.0 + b.2 / 2.0, b.1 + b.3 / 2.0), Some(b)))
+            self.resolve_box(sel)
         } else {
             let x = op["x"].as_f64().ok_or("click needs selector or x/y")?;
             let y = op["y"].as_f64().ok_or("click needs selector or x/y")?;
-            Ok(((x, y), Some((x - 10.0, y - 10.0, 20.0, 20.0))))
+            Ok(Aim {
+                point: (x, y),
+                bbox: Some((x - 10.0, y - 10.0, 20.0, 20.0)),
+                cursor: self.kind_at(x, y),
+            })
         }
     }
 
@@ -197,9 +382,10 @@ impl Session {
                 Ok(self.mark("navigate", &url, None))
             }
             "click" => {
-                let ((x, y), bbox) = self.click_target(op)?;
-                self.cursor_to(x, y)?;
-                let m = self.mark("click", op["selector"].as_str().unwrap_or("point"), bbox);
+                let aim = self.click_target(op)?;
+                let (x, y) = aim.point;
+                self.cursor_to(x, y, &aim.cursor)?;
+                let m = self.mark("click", op["selector"].as_str().unwrap_or("point"), aim.bbox);
                 self.mouse_click(x, y)?;
                 self.cdp.sleep_pump(250)?;
                 Ok(m)
@@ -208,12 +394,12 @@ impl Session {
                 let text = op["text"].as_str().ok_or("type needs text")?.to_string();
                 let per_char = op["typewriter_ms"].as_u64().unwrap_or(45);
                 let bbox = if let Some(sel) = op["selector"].as_str() {
-                    let b = self.resolve_box(sel)?;
-                    let (x, y) = (b.0 + b.2 / 2.0, b.1 + b.3 / 2.0);
-                    self.cursor_to(x, y)?;
+                    let aim = self.resolve_box(sel)?;
+                    let (x, y) = aim.point;
+                    self.cursor_to(x, y, &aim.cursor)?;
                     self.mouse_click(x, y)?;
                     self.cdp.sleep_pump(150)?;
-                    Some(b)
+                    aim.bbox
                 } else {
                     None
                 };
@@ -302,6 +488,7 @@ impl Session {
                     self.css_w,
                     self.css_h,
                     self.out_size,
+                    self.background,
                     self.keep_temp,
                 )?;
                 self.rendered = Some((dur, n_ev));

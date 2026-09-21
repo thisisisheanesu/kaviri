@@ -4,11 +4,12 @@
 //!   lensa record --script demo.jsonl --out demo.mp4
 //!   lensa serve [--port 9222]
 
+mod backdrop;
 mod cdp;
 mod ops;
 mod zoom;
 
-use ops::Session;
+use ops::{CursorCfg, Session, DEFAULT_CURSOR_SCALE};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::sync::{Arc, Mutex};
@@ -19,6 +20,7 @@ lensa — programmable recording browser (Screen Studio for AI agents)
 USAGE:
   lensa record --script <file.jsonl> --out <file.mp4> [options]
   lensa serve [--port <n>] [--out <file.mp4>] [options]
+  lensa presets | lensa backgrounds
 
 OPTIONS:
   --script <path>     newline-delimited JSON ops to run (record mode)
@@ -30,6 +32,11 @@ OPTIONS:
   --preset <name>     a named viewport/capture/output shape; --presets lists them
   --out-width <px>    video width  (default: the viewport width)
   --out-height <px>   video height (default: the viewport height)
+  --background <name> backdrop the take is composited onto: a name, auto or
+                      none (default auto); --backgrounds lists the names
+  --cursor <name>     pointer shape: auto, arrow, hand, text or none
+                      (default auto: whatever the OS would show)
+  --cursor-scale <f>  pointer size against a 1x system cursor (default 1.75)
   --chromium <path>   browser binary (default: autodetect / $LENSA_CHROMIUM)
   --keep-temp         keep the intermediate CFR video (.lensa-tmp/)
   --audio             reserved; audio capture is not yet implemented
@@ -147,6 +154,8 @@ struct Args {
     scale: f64,
     out_w: Option<u32>,
     out_h: Option<u32>,
+    background: backdrop::Choice,
+    cursor: CursorCfg,
     chromium: Option<String>,
     keep_temp: bool,
 }
@@ -160,6 +169,21 @@ fn parse_args() -> Result<Args, String> {
     if mode == "--presets" || mode == "presets" {
         return Err(format!("Presets:\n{}\n\nUse one with: lensa record --preset <name> ...", preset_help()));
     }
+    if mode == "--backgrounds" || mode == "backgrounds" {
+        return Err(format!(
+            "Backgrounds:\n{}\n\nUse one with: lensa record --background <name> ...\n\nCursors (--cursor):\n{}",
+            backdrop::help(),
+            ops::cursor_help()
+        ));
+    }
+    /*
+     * Held as text until the whole line has been read, so --cursor-scale works
+     * whichever side of --cursor it lands on and a bad name is reported once,
+     * with the list, rather than at the point it was parsed.
+     */
+    let mut background = "auto".to_string();
+    let mut cursor = "auto".to_string();
+    let mut cursor_scale = DEFAULT_CURSOR_SCALE;
     let mut a = Args {
         mode,
         script: None,
@@ -170,6 +194,8 @@ fn parse_args() -> Result<Args, String> {
         scale: 2.0,
         out_w: None,
         out_h: None,
+        background: backdrop::Choice::Auto,
+        cursor: CursorCfg::default(),
         chromium: None,
         keep_temp: false,
     };
@@ -204,12 +230,24 @@ fn parse_args() -> Result<Args, String> {
             "--presets" => {
                 return Err(format!("Presets:\n{}", preset_help()));
             }
+            "--background" => background = val("--background")?,
+            "--backgrounds" => {
+                return Err(format!("Backgrounds:\n{}", backdrop::help()));
+            }
+            "--cursor" => cursor = val("--cursor")?,
+            "--cursor-scale" => {
+                cursor_scale = val("--cursor-scale")?
+                    .parse()
+                    .map_err(|_| "bad --cursor-scale")?
+            }
             "--chromium" => a.chromium = Some(val("--chromium")?),
             "--keep-temp" => a.keep_temp = true,
             "--audio" => eprintln!("lensa: --audio is not implemented yet (headless backend); ignoring"),
             other => return Err(format!("unknown flag: {other}\n\n{USAGE}")),
         }
     }
+    a.background = backdrop::parse_choice(&background)?;
+    a.cursor = CursorCfg::parse(&cursor, cursor_scale)?;
     Ok(a)
 }
 
@@ -235,8 +273,10 @@ fn run_record(a: &Args) -> Result<(), String> {
         a.chromium.as_deref(), a.width, a.height, a.scale,
         (a.out_w.unwrap_or(a.width), a.out_h.unwrap_or(a.height)),
         a.keep_temp,
+        a.cursor,
     )?;
     s.out_path = Some(a.out.clone());
+    s.background = a.background;
 
     if !has_start {
         report(&s.exec(&json!({"op": "start_recording"}))?);
@@ -305,8 +345,10 @@ fn run_serve(a: &Args) -> Result<(), String> {
         a.chromium.as_deref(), a.width, a.height, a.scale,
         (a.out_w.unwrap_or(a.width), a.out_h.unwrap_or(a.height)),
         a.keep_temp,
+        a.cursor,
     )?;
     session.out_path = Some(a.out.clone());
+    session.background = a.background;
     let s = Arc::new(Mutex::new(session));
     match a.port {
         Some(port) => {

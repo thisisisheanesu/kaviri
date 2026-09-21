@@ -8,13 +8,27 @@
 //! - VFR frames are normalized to CFR 30fps BEFORE any time-based math
 //!   (pass 1), then a zoompan expression does the zooms (pass 2).
 
+use crate::backdrop::{self, Choice, Plate};
 use crate::cdp::FrameSpool;
 use crate::ops::Mark;
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 pub const EASE: f64 = 0.7;
 pub const FPS: u32 = 30;
+/// How far left of an interaction to sit the crop, as a fraction of the cropped width.
+///
+/// Centring on the thing being interacted with is the obvious choice and the wrong one. A
+/// control sits to the RIGHT of whatever it acts on: the send button after the message, the
+/// caret after the words already typed. Centre on the control and the frame fills with empty
+/// space on its right while the thing you wanted to read falls off the left. Sitting the crop
+/// a little left of the target keeps both. Typing leans further because a line of text grows
+/// away to the right as it is written.
+const LEFT_BIAS_TYPE: f64 = 0.18;
+const LEFT_BIAS_CLICK: f64 = 0.12;
+/// Never lean so far that the target itself leaves the frame.
+const KEEP_IN_FRAME: f64 = 0.06;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ZoomEvent {
@@ -48,7 +62,6 @@ pub fn events_from_marks(
         .filter(|m| matches!(m.kind.as_str(), "click" | "type"))
         .filter_map(|m| {
             let (x, y, w, h) = m.bbox?;
-            let cx = (x + w / 2.0) * scale;
             let cy = (y + h / 2.0) * scale;
             // Bigger targets get gentler zoom.
             let z = if h * scale > frame_h * 0.45 {
@@ -58,6 +71,12 @@ pub fn events_from_marks(
             } else {
                 1.85
             };
+            let crop_w = frame_w / z;
+            let want = if m.kind == "type" { LEFT_BIAS_TYPE } else { LEFT_BIAS_CLICK };
+            // Cap the lean so the target's own right edge stays comfortably inside the crop.
+            let room = 0.5 - (w * scale / 2.0) / crop_w - KEEP_IN_FRAME;
+            let bias = want.min(room.max(0.0));
+            let cx = (x + w / 2.0) * scale - crop_w * bias;
             Some(Target {
                 t: m.t,
                 cx: cx.clamp(0.0, frame_w),
@@ -261,17 +280,26 @@ fn render_cfr(spool: &FrameSpool, raw_path: &str, ffmpeg: &str) -> Result<f64, S
     Ok(t_last)
 }
 
-/// Pass 2: zoompan with generated expressions -> final MP4.
+/// Pass 2: zoompan with generated expressions, composited onto the backdrop
+/// plate if there is one -> final MP4.
 fn render_zoom(
     raw_path: &str,
     out_path: &str,
     events: &[ZoomEvent],
     out_w: u32,
     out_h: u32,
+    plate: Option<&Plate>,
     ffmpeg: &str,
 ) -> Result<(), String> {
-    let vf = if events.is_empty() {
-        format!("fps={FPS},scale={out_w}:{out_h},format=yuv420p")
+    /*
+     * With a backdrop the content is no longer the frame: it is scaled to the
+     * plate's window instead, padded out to the frame, and the plate is laid
+     * over it. The plate is opaque everywhere except that window, so one
+     * overlay draws background, drop shadow and rounded corners together.
+     */
+    let (cw, ch) = plate.map(|p| p.content).unwrap_or((out_w, out_h));
+    let core = if events.is_empty() {
+        format!("fps={FPS},scale={cw}:{ch}")
     } else {
         let z = build_expr(events, "z");
         let cx = build_expr(events, "cx");
@@ -280,28 +308,46 @@ fn render_zoom(
             "fps={FPS},zoompan=z='({z})':\
              x='clip(({cx})-iw/(2*({z})),0,iw-iw/({z}))':\
              y='clip(({cy})-ih/(2*({z})),0,ih-ih/({z}))':\
-             d=1:fps={FPS}:s={out_w}x{out_h},format=yuv420p"
+             d=1:fps={FPS}:s={cw}x{ch}"
         )
     };
-    let status = Command::new(ffmpeg)
-        .args([
-            "-y",
-            "-loglevel",
-            "error",
-            "-i",
-            raw_path,
-            "-filter:v",
-            &vf,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "medium",
-            "-crf",
-            "19",
-            "-movflags",
-            "+faststart",
+
+    let mut args: Vec<String> = vec![
+        "-y".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-i".into(),
+        raw_path.into(),
+    ];
+    match plate {
+        Some(p) => {
+            let (x, y) = p.origin;
+            args.push("-i".into());
+            args.push(p.path.display().to_string());
+            args.push("-filter_complex".into());
+            args.push(format!(
+                "[0:v]{core},format=rgba,pad={out_w}:{out_h}:{x}:{y}[c];\
+                 [c][1:v]overlay=0:0:format=auto,format=yuv420p[v]"
+            ));
+            args.push("-map".into());
+            args.push("[v]".into());
+        }
+        None => {
+            args.push("-filter:v".into());
+            args.push(format!("{core},format=yuv420p"));
+        }
+    }
+    args.extend(
+        [
+            "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-movflags", "+faststart",
             out_path,
-        ])
+        ]
+        .iter()
+        .map(|s| s.to_string()),
+    );
+
+    let status = Command::new(ffmpeg)
+        .args(&args)
         .status()
         .map_err(|e| format!("spawn ffmpeg: {e}"))?;
     if !status.success() {
@@ -310,7 +356,55 @@ fn render_zoom(
     Ok(())
 }
 
+/// Resolve `--background` into a rendered plate.
+///
+/// A backdrop is decoration, so nothing here is fatal: a failed probe falls
+/// back to the deterministic default, and a failed render falls back to the
+/// full-frame take that lensa produced before backdrops existed.
+fn plate_for(
+    choice: Choice,
+    tmp_dir: &Path,
+    raw_path: &str,
+    ffmpeg: &str,
+    out_w: u32,
+    out_h: u32,
+    aspect: f64,
+) -> Option<Plate> {
+    let (bg, how) = match choice {
+        Choice::Off => return None,
+        Choice::Named(bg) => (bg, String::from("--background")),
+        Choice::Auto => {
+            let probe = backdrop::probe(raw_path, ffmpeg);
+            let how = match probe.as_ref() {
+                Some(p) => match p.hue {
+                    Some(h) => format!("auto, content hue {h:.0}\u{b0} / lightness {:.2}", p.lum),
+                    None => format!("auto, colourless content / lightness {:.2}", p.lum),
+                },
+                None => "auto, probe failed - default".to_string(),
+            };
+            (backdrop::choose(probe.as_ref()), how)
+        }
+    };
+    match backdrop::build(tmp_dir, bg, out_w, out_h, aspect) {
+        Ok(p) => {
+            eprintln!(
+                "lensa: backdrop {} ({how}), content {}x{} at {},{}",
+                p.name, p.content.0, p.content.1, p.origin.0, p.origin.1
+            );
+            Some(p)
+        }
+        Err(e) => {
+            eprintln!("lensa: backdrop unavailable ({e}); rendering full-frame");
+            None
+        }
+    }
+}
+
 /// Full pipeline: frames + marks -> zoomed MP4. Returns (duration, n_events).
+// Every one of these is a genuinely independent knob on the take, and the three
+// sizes are deliberately not collapsed into one; a struct here would only move
+// the list somewhere else.
+#[allow(clippy::too_many_arguments)]
 pub fn render(
     spool: &FrameSpool,
     marks: &[Mark],
@@ -324,6 +418,8 @@ pub fn render(
      * css * scale pixels, cropped by the zoom, then resampled to this.
      */
     out_size: (u32, u32),
+    /* The backdrop the content is composited onto, if any. */
+    background: Choice,
     keep_temp: bool,
 ) -> Result<(f64, usize), String> {
     let ffmpeg = find_ffmpeg()?;
@@ -352,6 +448,20 @@ pub fn render(
 
     let duration = render_cfr(spool, &raw_path, &ffmpeg)?;
     let events = events_from_marks(marks, scale, fw as f64, fh as f64, duration);
+    /*
+     * After pass 1, not before: the auto picker measures the take itself, and
+     * the CFR intermediate is the only place the captured pixels exist in a
+     * form ffmpeg can read cheaply.
+     */
+    let plate = plate_for(
+        background,
+        &tmp_dir,
+        &raw_path,
+        &ffmpeg,
+        out_w,
+        out_h,
+        fw as f64 / fh as f64,
+    );
 
     // Telemetry sidecar for debugging / re-rendering.
     let sidecar = format!("{out_path}.telemetry.json");
@@ -360,6 +470,8 @@ pub fn render(
         "frame_size": [fw, fh],
         "css_size": [css_w, css_h],
         "scale": scale,
+        "background": plate.as_ref().map(|p| p.name),
+        "content_box": plate.as_ref().map(|p| vec![p.origin.0, p.origin.1, p.content.0, p.content.1]),
         "marks": marks.iter().map(|m| serde_json::json!({
             "t": m.t, "kind": m.kind, "label": m.label,
             "box": m.bbox.map(|(x,y,w,h)| vec![x,y,w,h]),
@@ -368,9 +480,184 @@ pub fn render(
     });
     let _ = std::fs::write(&sidecar, serde_json::to_string_pretty(&telemetry).unwrap());
 
-    render_zoom(&raw_path, out_path, &events, out_w, out_h, &ffmpeg)?;
+    render_zoom(
+        &raw_path,
+        out_path,
+        &events,
+        out_w,
+        out_h,
+        plate.as_ref(),
+        &ffmpeg,
+    )?;
     if !keep_temp {
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }
     Ok((duration, events.len()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mark(kind: &str, t: f64, bbox: (f64, f64, f64, f64)) -> Mark {
+        Mark {
+            kind: kind.into(),
+            label: String::new(),
+            t,
+            bbox: Some(bbox),
+        }
+    }
+
+    /// A button is a point: centre on it. A text field is read from its left edge, so the
+    /// crop is anchored there instead, or the beginning of the line ends up off screen.
+    #[test]
+    fn the_crop_leans_left_of_an_interaction() {
+        let (fw, fh, dur) = (1000.0, 800.0, 20.0);
+        // Same box either way, far enough right that centring would cut its left edge off.
+        let bbox = (600.0, 300.0, 300.0, 60.0);
+
+        let typed = events_from_marks(&[mark("type", 3.0, bbox)], 1.0, fw, fh, dur);
+        let clicked = events_from_marks(&[mark("click", 3.0, bbox)], 1.0, fw, fh, dur);
+        assert_eq!(typed.len(), 1);
+        assert_eq!(clicked.len(), 1);
+
+        let t = &typed[0];
+        let c = &clicked[0];
+        let centre = bbox.0 + bbox.2 / 2.0;
+
+        assert!(t.cx < c.cx, "typing leans further left than a click: {} vs {}", t.cx, c.cx);
+        assert!(c.cx < centre, "even a click sits left of dead centre: {} vs {centre}", c.cx);
+
+        // Whatever the lean, the target has to stay in the crop.
+        for (name, ev) in [("type", t), ("click", c)] {
+            let crop_w = fw / ev.z;
+            let (l, r) = (ev.cx - crop_w / 2.0, ev.cx + crop_w / 2.0);
+            assert!(
+                bbox.0 >= l && bbox.0 + bbox.2 <= r,
+                "{name}: target [{}, {}] escaped crop [{l}, {r}]",
+                bbox.0,
+                bbox.0 + bbox.2
+            );
+        }
+    }
+
+    /// Every zoom returns to the wide shot: the expression falls back to its base outside the
+    /// event window, so nothing is left cropped once an interaction is over.
+    #[test]
+    fn the_view_returns_to_wide_after_an_interaction() {
+        let evs = events_from_marks(
+            &[mark("click", 4.0, (100.0, 100.0, 80.0, 40.0))],
+            1.0,
+            1000.0,
+            800.0,
+            20.0,
+        );
+        assert_eq!(evs.len(), 1);
+        let z = build_expr(&evs, "z");
+        assert!(z.starts_with("if(between(it,"), "guarded by the event window");
+        assert!(z.ends_with(",1)"), "falls back to z=1 outside it, got tail {}", &z[z.len() - 12..]);
+        assert!(evs[0].end < 20.0, "the event ends inside the recording");
+    }
+
+    fn run(ffmpeg: &str, args: &[&str]) -> bool {
+        Command::new(ffmpeg)
+            .args(args)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+
+    /// Decode one frame of a video as raw RGB.
+    fn first_frame(ffmpeg: &str, path: &str) -> Vec<u8> {
+        let out = Command::new(ffmpeg)
+            .args([
+                "-v", "error", "-nostdin", "-i", path, "-frames:v", "1", "-pix_fmt", "rgb24",
+                "-f", "rawvideo", "-",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output()
+            .expect("decode");
+        out.stdout
+    }
+
+    /// The generated filter graph, and the hand-rolled PNG the plate is written
+    /// as, are the two things only ffmpeg can actually validate. Skipped rather
+    /// than failed where ffmpeg is not installed.
+    #[test]
+    fn composites_the_take_onto_its_plate() {
+        let ffmpeg = match find_ffmpeg() {
+            Ok(f) => f,
+            Err(_) => return,
+        };
+        let dir = std::env::temp_dir().join("lensa-composite-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let raw = dir.join("raw.mp4");
+        let raw_s = raw.display().to_string();
+        assert!(run(
+            &ffmpeg,
+            &[
+                "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                "testsrc=size=320x180:rate=30:duration=1", "-c:v", "libx264", "-pix_fmt",
+                "yuv420p", &raw_s,
+            ],
+        ));
+
+        let (ow, oh) = (640u32, 360u32);
+        let bg = crate::backdrop::background("tide").unwrap();
+        let plate = crate::backdrop::build(&dir, bg, ow, oh, 320.0 / 180.0).unwrap();
+        let out = dir.join("out.mp4").display().to_string();
+        let events = vec![ZoomEvent {
+            t: 0.2,
+            end: 0.9,
+            cx: 160.0,
+            cy: 90.0,
+            z: 1.6,
+            path: Vec::new(),
+        }];
+        render_zoom(&raw_s, &out, &events, ow, oh, Some(&plate), &ffmpeg).unwrap();
+
+        let frame = first_frame(&ffmpeg, &out);
+        assert_eq!(
+            frame.len(),
+            (ow * oh * 3) as usize,
+            "output is not {ow}x{oh}"
+        );
+        // Top-left corner is backdrop: tide is much bluer than it is red. If the
+        // PNG were unreadable or the overlay a no-op this would be pad black.
+        let (r, b) = (frame[0] as i32, frame[2] as i32);
+        assert!(b > r + 30, "corner is not the backdrop: {r},{},{b}", frame[1]);
+        // The middle of the frame is the content, which testsrc makes bright.
+        let mid = ((oh / 2) * ow + ow / 2) as usize * 3;
+        let centre = &frame[mid..mid + 3];
+        assert!(
+            (centre[0] as i32 - r).abs() + (centre[2] as i32 - b).abs() > 20,
+            "centre looks like the backdrop, the content did not land: {centre:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Without a backdrop the take is still the old full-frame render.
+    #[test]
+    fn renders_full_frame_without_a_plate() {
+        let ffmpeg = match find_ffmpeg() {
+            Ok(f) => f,
+            Err(_) => return,
+        };
+        let dir = std::env::temp_dir().join("lensa-fullframe-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let raw = dir.join("raw.mp4").display().to_string();
+        assert!(run(
+            &ffmpeg,
+            &[
+                "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                "testsrc=size=320x180:rate=30:duration=1", "-c:v", "libx264", "-pix_fmt",
+                "yuv420p", &raw,
+            ],
+        ));
+        let out = dir.join("out.mp4").display().to_string();
+        render_zoom(&raw, &out, &[], 640, 360, None, &ffmpeg).unwrap();
+        assert_eq!(first_frame(&ffmpeg, &out).len(), 640 * 360 * 3);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
