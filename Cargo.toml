@@ -2,14 +2,27 @@
 name = "lensa"
 version = "0.1.0"
 edition = "2021"
+# No feature here needs a recent toolchain, and the whole point of the floor is
+# that a distro rustc builds lensa without a cryptic std error. Keep it low, and
+# raise it deliberately rather than by reaching for a new std method.
+rust-version = "1.75"
 description = "Programmable recording browser: agents drive it, it emits Screen Studio-style auto-zoomed videos"
 license = "MIT"
+readme = "README.md"
+keywords = ["screencast", "recording", "browser", "cdp", "video"]
+categories = ["command-line-utilities", "multimedia::video"]
 
 [dependencies]
 tungstenite = { version = "0.24", default-features = false, features = ["handshake"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
+# SIGINT/SIGTERM have to flip a flag rather than kill the process: every cleanup
+# lensa does (the browser, its profile, the frame spool) lives in a Drop.
+signal-hook = { version = "0.3", default-features = false }
+# statvfs, to refuse a take that has nowhere to spool, and killpg, because the
+# chromium a snap gives us is a wrapper script whose child is the real browser.
+libc = "0.2"
 
 [profile.release]
 opt-level = 2

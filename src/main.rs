@@ -1,8 +1,9 @@
-//! lensa — a programmable browser that records itself and produces
+//! lensa: a programmable browser that records itself and produces
 //! Screen Studio-style auto-zoomed videos. "Screen Studio for AI agents."
 //!
 //!   lensa record --script demo.jsonl --out demo.mp4
-//!   lensa serve [--port 9222]
+//!   lensa serve
+//!   lensa doctor
 
 mod backdrop;
 mod cdp;
@@ -11,45 +12,61 @@ mod zoom;
 
 use ops::{CursorCfg, Session, DEFAULT_CURSOR_SCALE};
 use serde_json::{json, Value};
-use std::io::{BufRead, BufReader, Write};
-use std::sync::{Arc, Mutex};
+use std::io::{BufRead, Read, Write};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 const USAGE: &str = "\
-lensa — programmable recording browser (Screen Studio for AI agents)
+lensa: programmable recording browser (Screen Studio for AI agents)
 
 USAGE:
   lensa record --script <file.jsonl> --out <file.mp4> [options]
   lensa serve [--port <n>] [--out <file.mp4>] [options]
-  lensa presets | lensa backgrounds
+  lensa doctor | lensa presets | lensa backgrounds | lensa --version
 
 OPTIONS:
   --script <path>     newline-delimited JSON ops to run (record mode)
   --out <path>        output MP4 (default lensa-out.mp4)
-  --port <n>          serve ops over TCP instead of stdin/stdout
-  --width <px>        logical viewport width  (default 1470)
-  --height <px>       logical viewport height (default 830)
-  --scale <f>         device scale factor / capture supersampling (default 2)
+  --port <n>          serve ops over TCP instead of stdin/stdout. Opt-in: see
+                      the token note below before using it
+  --width <px>        logical viewport width  (default 1470, 64..16384)
+  --height <px>       logical viewport height (default 830, 64..16384)
+  --scale <f>         device scale factor / capture supersampling
+                      (default 2, 0.5..4)
   --preset <name>     a named viewport/capture/output shape; --presets lists them
-  --out-width <px>    video width  (default: the viewport width)
-  --out-height <px>   video height (default: the viewport height)
+  --out-width <px>    video width  (default: the viewport width, 64..8192)
+  --out-height <px>   video height (default: the viewport height, 64..8192)
   --background <name> backdrop the take is composited onto: a name, auto or
                       none (default auto); --backgrounds lists the names
   --cursor <name>     pointer shape: auto, arrow, hand, text or none
                       (default auto: whatever the OS would show)
   --cursor-scale <f>  pointer size against a 1x system cursor (default 1.75)
   --chromium <path>   browser binary (default: autodetect / $LENSA_CHROMIUM)
-  --keep-temp         keep the intermediate CFR video (.lensa-tmp/)
+  --spool-dir <path>  where captured frames are spooled (default: a private
+                      directory under $TMPDIR)
+  --max-spool-bytes <n>
+                      ceiling on the frame spool; the take stops and renders
+                      what it has when it is reached (default 8 GiB)
+  --keep-temp         keep the intermediate CFR video and the frame spool
   --audio             reserved; audio capture is not yet implemented
+  --version, -V       print the version and exit
 
 OPS (one JSON object per line):
   {\"op\":\"start_recording\"[,\"path\":\"out.mp4\"]}
   {\"op\":\"navigate\",\"url\":\"https://…\"}       (bare paths become file://)
   {\"op\":\"click\",\"selector\":\"css\"}  or  {\"op\":\"click\",\"x\":.., \"y\":..}
-  {\"op\":\"type\",\"selector\":\"css\",\"text\":\"…\",\"typewriter_ms\":45}
+  {\"op\":\"type\",\"selector\":\"css\",\"text\":\"…\",\"typewriter_ms\":18}
   {\"op\":\"scroll\",\"y\":600,\"smooth\":true}
-  {\"op\":\"wait\",\"ms\":800}  or  {\"op\":\"wait\",\"selector\":\"css\"}
+  {\"op\":\"wait\",\"ms\":800}  or  {\"op\":\"wait\",\"selector\":\"css\"[,\"timeout_ms\":20000]}
   {\"op\":\"mark\",\"label\":\"checkout\"}
   {\"op\":\"stop_recording\"}
+
+Every op answers with one JSON line: {\"ok\":true,\"result\":{…}} or
+{\"ok\":false,\"error\":\"…\"}. With --port, the first line of a connection must be
+{\"op\":\"hello\",\"token\":\"…\"}; the token is printed on stderr at startup, or set
+it yourself with $LENSA_TOKEN.
 ";
 
 /// A named shape for a take: how the page lays out, how much is captured, and how big
@@ -158,23 +175,91 @@ struct Args {
     cursor: CursorCfg,
     chromium: Option<String>,
     keep_temp: bool,
+    spool_dir: Option<PathBuf>,
+    max_spool_bytes: Option<u64>,
 }
 
-fn parse_args() -> Result<Args, String> {
+/// What the command line asked for.
+///
+/// Help and the listing subcommands are not errors: they are the whole point of
+/// the invocation, so they go to stdout and exit 0. Only `Error` is a usage
+/// failure. Keeping the two apart is what makes `lensa presets > presets.txt`
+/// write a file rather than an empty one.
+enum Parsed {
+    Run(Box<Args>),
+    Help(String),
+    Error(String),
+}
+
+fn version_line() -> String {
+    format!("lensa {}", env!("CARGO_PKG_VERSION"))
+}
+
+/// Parse an integer flag, rejecting the values that only fail much later.
+///
+/// `--width 0` used to be accepted here and surfaced as ffmpeg rejecting a
+/// filter expression containing the literal `NaN`, after the whole take had been
+/// captured. The range is the flag's contract, so it belongs at the flag.
+fn dimension(flag: &str, raw: &str, lo: u32, hi: u32) -> Result<u32, String> {
+    let n: u32 = raw.parse().map_err(|_| {
+        format!("{flag} must be a whole number of pixels between {lo} and {hi}, got {raw}")
+    })?;
+    if !(lo..=hi).contains(&n) {
+        return Err(format!("{flag} must be between {lo} and {hi}, got {n}"));
+    }
+    Ok(n)
+}
+
+fn ratio(flag: &str, raw: &str, lo: f64, hi: f64) -> Result<f64, String> {
+    let v: f64 = raw
+        .parse()
+        .map_err(|_| format!("{flag} must be a number between {lo} and {hi}, got {raw}"))?;
+    if !(v.is_finite() && (lo..=hi).contains(&v)) {
+        return Err(format!("{flag} must be between {lo} and {hi}, got {raw}"));
+    }
+    Ok(v)
+}
+
+fn positive_u64(flag: &str, raw: &str) -> Result<u64, String> {
+    match raw.parse::<u64>() {
+        Ok(n) if n > 0 => Ok(n),
+        _ => Err(format!("{flag} must be a positive whole number, got {raw}")),
+    }
+}
+
+fn parse_args() -> Parsed {
+    // Everything below reports a usage failure the same way, so the fallible part
+    // is written with `?` and wrapped once here.
+    match parse_argv() {
+        Ok(p) => p,
+        Err(e) => Parsed::Error(e),
+    }
+}
+
+fn parse_argv() -> Result<Parsed, String> {
     let mut argv = std::env::args().skip(1);
-    let mode = argv.next().ok_or(USAGE.to_string())?;
+    let mode = match argv.next() {
+        Some(m) => m,
+        None => return Err(USAGE.to_string()),
+    };
     if mode == "--help" || mode == "-h" || mode == "help" {
-        return Err(USAGE.to_string());
+        return Ok(Parsed::Help(USAGE.to_string()));
+    }
+    if mode == "--version" || mode == "-V" || mode == "version" {
+        return Ok(Parsed::Help(version_line()));
     }
     if mode == "--presets" || mode == "presets" {
-        return Err(format!("Presets:\n{}\n\nUse one with: lensa record --preset <name> ...", preset_help()));
+        return Ok(Parsed::Help(format!(
+            "Presets:\n{}\n\nUse one with: lensa record --preset <name> ...",
+            preset_help()
+        )));
     }
     if mode == "--backgrounds" || mode == "backgrounds" {
-        return Err(format!(
+        return Ok(Parsed::Help(format!(
             "Backgrounds:\n{}\n\nUse one with: lensa record --background <name> ...\n\nCursors (--cursor):\n{}",
             backdrop::help(),
             ops::cursor_help()
-        ));
+        )));
     }
     /*
      * Held as text until the whole line has been read, so --cursor-scale works
@@ -198,20 +283,35 @@ fn parse_args() -> Result<Args, String> {
         cursor: CursorCfg::default(),
         chromium: None,
         keep_temp: false,
+        spool_dir: None,
+        max_spool_bytes: None,
     };
     while let Some(flag) = argv.next() {
         let mut val = |name: &str| -> Result<String, String> {
-            argv.next().ok_or(format!("{name} needs a value"))
+            argv.next().ok_or_else(|| format!("{name} needs a value"))
         };
         match flag.as_str() {
             "--script" => a.script = Some(val("--script")?),
             "--out" => a.out = val("--out")?,
-            "--port" => a.port = Some(val("--port")?.parse().map_err(|_| "bad --port")?),
-            "--width" => a.width = val("--width")?.parse().map_err(|_| "bad --width")?,
-            "--height" => a.height = val("--height")?.parse().map_err(|_| "bad --height")?,
-            "--scale" => a.scale = val("--scale")?.parse().map_err(|_| "bad --scale")?,
-            "--out-width" => a.out_w = Some(val("--out-width")?.parse().map_err(|_| "bad --out-width")?),
-            "--out-height" => a.out_h = Some(val("--out-height")?.parse().map_err(|_| "bad --out-height")?),
+            "--port" => {
+                let raw = val("--port")?;
+                let p: u16 = raw.parse().map_err(|_| {
+                    format!("--port must be a number between 1 and 65535, got {raw}")
+                })?;
+                if p == 0 {
+                    return Err("--port must be between 1 and 65535, got 0".into());
+                }
+                a.port = Some(p);
+            }
+            "--width" => a.width = dimension("--width", &val("--width")?, 64, 16384)?,
+            "--height" => a.height = dimension("--height", &val("--height")?, 64, 16384)?,
+            "--scale" => a.scale = ratio("--scale", &val("--scale")?, 0.5, 4.0)?,
+            "--out-width" => {
+                a.out_w = Some(dimension("--out-width", &val("--out-width")?, 64, 8192)?)
+            }
+            "--out-height" => {
+                a.out_h = Some(dimension("--out-height", &val("--out-height")?, 64, 8192)?)
+            }
             /*
              * Applied where it is read, so an explicit --width after --preset still wins
              * and the preset stays a starting point rather than a cage.
@@ -228,27 +328,146 @@ fn parse_args() -> Result<Args, String> {
                 a.out_h = Some(p.out.1);
             }
             "--presets" => {
-                return Err(format!("Presets:\n{}", preset_help()));
+                return Ok(Parsed::Help(format!("Presets:\n{}", preset_help())));
             }
             "--background" => background = val("--background")?,
             "--backgrounds" => {
-                return Err(format!("Backgrounds:\n{}", backdrop::help()));
+                return Ok(Parsed::Help(format!("Backgrounds:\n{}", backdrop::help())));
             }
             "--cursor" => cursor = val("--cursor")?,
             "--cursor-scale" => {
-                cursor_scale = val("--cursor-scale")?
-                    .parse()
-                    .map_err(|_| "bad --cursor-scale")?
+                cursor_scale = ratio("--cursor-scale", &val("--cursor-scale")?, 0.2, 8.0)?
             }
             "--chromium" => a.chromium = Some(val("--chromium")?),
+            "--spool-dir" => a.spool_dir = Some(PathBuf::from(val("--spool-dir")?)),
+            "--max-spool-bytes" => {
+                a.max_spool_bytes = Some(positive_u64(
+                    "--max-spool-bytes",
+                    &val("--max-spool-bytes")?,
+                )?)
+            }
             "--keep-temp" => a.keep_temp = true,
-            "--audio" => eprintln!("lensa: --audio is not implemented yet (headless backend); ignoring"),
+            "--audio" => {
+                eprintln!("lensa: --audio is not implemented yet (headless backend); ignoring")
+            }
+            "--help" | "-h" => return Ok(Parsed::Help(USAGE.to_string())),
+            "--version" | "-V" => return Ok(Parsed::Help(version_line())),
             other => return Err(format!("unknown flag: {other}\n\n{USAGE}")),
         }
     }
     a.background = backdrop::parse_choice(&background)?;
     a.cursor = CursorCfg::parse(&cursor, cursor_scale)?;
-    Ok(a)
+    Ok(Parsed::Run(Box::new(a)))
+}
+
+/// Everything a take needs from the machine, checked before anything is spent.
+///
+/// ffmpeg used to be looked up inside `zoom::render`, which only runs from
+/// `stop_recording`: a machine without it launched the browser, drove the whole
+/// script, spooled every frame and only then said it could not encode. The
+/// frames were deleted with the session.
+fn preflight() -> Result<String, String> {
+    zoom::find_ffmpeg()
+}
+
+/// Report what lensa found on this machine, and say so in one place rather than
+/// in the middle of a take.
+fn run_doctor(a: &Args) -> Result<(), String> {
+    println!("{}", version_line());
+    let mut ok = true;
+
+    match probe_chromium(a.chromium.as_deref()) {
+        Some((bin, ver)) => println!("chromium: {bin}\n  {ver}"),
+        None => {
+            ok = false;
+            println!("chromium: NOT FOUND (set LENSA_CHROMIUM or pass --chromium)");
+        }
+    }
+    match zoom::find_ffmpeg() {
+        Ok(bin) => {
+            let ver = first_line_of(&bin, "-version").unwrap_or_else(|| "(no version)".into());
+            println!("ffmpeg: {bin}\n  {ver}");
+        }
+        Err(e) => {
+            ok = false;
+            println!("ffmpeg: NOT FOUND\n  {e}");
+        }
+    }
+    // Reported rather than created: doctor must not leave a session directory
+    // behind, since nothing here ever runs the Drop that would remove it.
+    let spool = a
+        .spool_dir
+        .clone()
+        .or_else(|| std::env::var_os("LENSA_SPOOL_DIR").map(PathBuf::from))
+        .unwrap_or_else(std::env::temp_dir);
+    println!("frame spool: under {}", spool.display());
+    println!(
+        "spool limit: {} MiB (--max-spool-bytes)",
+        a.max_spool_bytes.unwrap_or(cdp::SPOOL_DEFAULT_MAX_BYTES) / (1024 * 1024)
+    );
+
+    if ok {
+        Ok(())
+    } else {
+        Err("one or more dependencies are missing".into())
+    }
+}
+
+fn first_line_of(bin: &str, arg: &str) -> Option<String> {
+    let out = std::process::Command::new(bin)
+        .arg(arg)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    text.lines().next().map(|l| l.trim().to_string())
+}
+
+/// The browser lensa would use, and what it calls itself.
+///
+/// Deliberately separate from `cdp`'s own lookup: this one reports a version
+/// string for a human, and must keep going past a candidate that is present but
+/// does not run.
+fn probe_chromium(explicit: Option<&str>) -> Option<(String, String)> {
+    let mut cands: Vec<String> = Vec::new();
+    if let Some(p) = explicit {
+        cands.push(p.to_string());
+    } else if let Ok(p) = std::env::var("LENSA_CHROMIUM") {
+        cands.push(p);
+    } else {
+        for c in [
+            "chromium",
+            "chromium-browser",
+            "google-chrome",
+            "google-chrome-stable",
+            "/snap/bin/chromium",
+        ] {
+            cands.push(c.to_string());
+        }
+    }
+    for c in cands {
+        if let Some(v) = first_line_of(&c, "--version") {
+            return Some((c, v));
+        }
+    }
+    None
+}
+
+/// One JSON line out, in the shape every mode uses.
+fn emit<W: Write + ?Sized>(w: &mut W, v: &Value) -> std::io::Result<()> {
+    writeln!(w, "{v}")?;
+    w.flush()
+}
+
+fn ok_envelope(result: Value) -> Value {
+    json!({"ok": true, "result": result})
+}
+
+fn err_envelope(error: &str) -> Value {
+    json!({"ok": false, "error": error})
 }
 
 fn run_record(a: &Args) -> Result<(), String> {
@@ -266,144 +485,576 @@ fn run_record(a: &Args) -> Result<(), String> {
         ops_list.push(v);
     }
     let has_start = ops_list.iter().any(|o| o["op"] == "start_recording");
-    let has_stop = ops_list.iter().any(|o| o["op"] == "stop_recording");
 
-    eprintln!("lensa: launching browser ({}x{}@{}x) ...", a.width, a.height, a.scale);
+    let ffmpeg = preflight()?;
+    if std::env::var_os("LENSA_DEBUG").is_some() {
+        eprintln!("lensa[debug]: ffmpeg at {ffmpeg}");
+    }
+
+    eprintln!(
+        "lensa {}: launching browser ({}x{}@{}x) ...",
+        env!("CARGO_PKG_VERSION"),
+        a.width,
+        a.height,
+        a.scale
+    );
     let mut s = Session::launch(
-        a.chromium.as_deref(), a.width, a.height, a.scale,
+        a.chromium.as_deref(),
+        a.width,
+        a.height,
+        a.scale,
         (a.out_w.unwrap_or(a.width), a.out_h.unwrap_or(a.height)),
         a.keep_temp,
         a.cursor,
     )?;
     s.out_path = Some(a.out.clone());
     s.background = a.background;
+    s.cdp
+        .set_spool_config(a.spool_dir.clone(), a.max_spool_bytes);
+    s.cdp.set_keep_spool(a.keep_temp);
+
+    let mut out = std::io::stdout();
+    /*
+     * The first error ends the script but not the take: every frame captured so
+     * far is already on disk, and a partial video plus a clear error is far more
+     * use than the nothing this used to produce. The exit code still says the
+     * take was incomplete.
+     */
+    let mut failure: Option<String> = None;
 
     if !has_start {
-        report(&s.exec(&json!({"op": "start_recording"}))?);
+        match s.exec(&json!({"op": "start_recording", "path": a.out.clone()})) {
+            Ok(v) => {
+                let _ = emit(&mut out, &ok_envelope(v));
+            }
+            Err(e) => {
+                let _ = emit(&mut out, &err_envelope(&e));
+                return Err(e);
+            }
+        }
     }
-    for op in &ops_list {
+    for (i, op) in ops_list.iter().enumerate() {
+        if cdp::shutting_down() {
+            failure = Some("interrupted".into());
+            break;
+        }
         // --out wins over any path inside the script.
         let mut op = op.clone();
         if op["op"] == "start_recording" {
             op["path"] = json!(a.out.clone());
         }
-        report(&s.exec(&op)?);
-    }
-    if !has_stop {
-        report(&s.exec(&json!({"op": "stop_recording"}))?);
-    }
-    if let Some((dur, n)) = s.rendered {
-        eprintln!("lensa: done — {} ({dur:.1}s, {n} zoom events)", a.out);
-    }
-    Ok(())
-}
-
-fn report(v: &Value) {
-    println!("{v}");
-    let _ = std::io::stdout().flush();
-}
-
-fn serve_stream<R: BufRead, W: Write>(s: &Mutex<Session>, reader: R, mut writer: W) {
-    for line in reader.lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => break,
-        };
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
+        match s.exec(&op) {
+            Ok(v) => {
+                let _ = emit(&mut out, &ok_envelope(v));
+            }
+            Err(e) => {
+                let kind = op["op"].as_str().unwrap_or("?").to_string();
+                let msg = format!("{script_path} op {} ({kind}): {e}", i + 1);
+                let _ = emit(
+                    &mut out,
+                    &json!({"ok": false, "error": e, "op": kind, "index": i + 1}),
+                );
+                failure = Some(msg);
+                break;
+            }
         }
-        let resp = match serde_json::from_str::<Value>(line) {
-            /*
-             * One browser, so ops are serialized here rather than raced. The lock is
-             * held for a single op: a client that goes quiet mid-script blocks nobody,
-             * and a slow op (a navigate, a render) makes the others wait their turn
-             * instead of interleaving into the same page.
-             */
-            Ok(op) => {
-                let mut guard = match s.lock() {
-                    Ok(g) => g,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
-                match guard.exec(&op) {
-                    Ok(v) => json!({"ok": true, "result": v}),
-                    Err(e) => json!({"ok": false, "error": e}),
+    }
+    if s.cdp.is_recording() {
+        match s.exec(&json!({"op": "stop_recording"})) {
+            Ok(v) => {
+                let _ = emit(&mut out, &ok_envelope(v));
+            }
+            Err(e) => {
+                let _ = emit(&mut out, &err_envelope(&e));
+                if failure.is_none() {
+                    failure = Some(e);
                 }
             }
-            Err(e) => json!({"ok": false, "error": format!("bad json: {e}")}),
-        };
-        if writeln!(writer, "{resp}").is_err() {
-            break;
         }
-        let _ = writer.flush();
+    }
+    if let Some((dur, n)) = s.rendered {
+        eprintln!("lensa: done: {} ({dur:.1}s, {n} zoom events)", a.out);
+    }
+    match failure {
+        Some(e) => Err(e),
+        None => Ok(()),
     }
 }
 
+/// What a reader had for us this turn.
+enum Incoming {
+    Line(String),
+    /// Nothing arrived inside the tick budget. This is the common case in serve
+    /// mode, and the only reason capture keeps running through it.
+    Idle,
+    Eof,
+}
+
+/// A line-at-a-time source that hands control back on a deadline.
+///
+/// `BufRead::lines()` cannot do this: it blocks until the client says something,
+/// and while it blocks nothing pumps CDP. That is what made serve mode record a
+/// sequence of freeze frames covering only the moments lensa was already busy.
+trait LineSource {
+    fn next_line(&mut self, budget: Duration) -> Incoming;
+}
+
+/// Longest capture is allowed to stall while waiting for the next op. The
+/// screenshot pump targets 25ms, so this is one frame.
+const TICK: Duration = Duration::from_millis(25);
+
+/// A line longer than this is not an op. Bounded so a client that never sends a
+/// newline cannot grow the buffer without limit.
+const MAX_LINE_BYTES: usize = 1 << 20;
+
+fn take_line(buf: &mut Vec<u8>) -> Option<String> {
+    let nl = buf.iter().position(|b| *b == b'\n')?;
+    let line: Vec<u8> = buf.drain(..=nl).collect();
+    Some(String::from_utf8_lossy(&line).trim().to_string())
+}
+
+struct SocketLines {
+    sock: std::net::TcpStream,
+    buf: Vec<u8>,
+}
+
+impl LineSource for SocketLines {
+    fn next_line(&mut self, budget: Duration) -> Incoming {
+        if let Some(l) = take_line(&mut self.buf) {
+            return Incoming::Line(l);
+        }
+        if self.sock.set_read_timeout(Some(budget)).is_err() {
+            return Incoming::Eof;
+        }
+        let mut chunk = [0u8; 8192];
+        match self.sock.read(&mut chunk) {
+            Ok(0) => Incoming::Eof,
+            Ok(n) => {
+                self.buf.extend_from_slice(&chunk[..n]);
+                if self.buf.len() > MAX_LINE_BYTES {
+                    eprintln!(
+                        "lensa: dropping a client that sent {} bytes with no newline",
+                        MAX_LINE_BYTES
+                    );
+                    return Incoming::Eof;
+                }
+                match take_line(&mut self.buf) {
+                    Some(l) => Incoming::Line(l),
+                    None => Incoming::Idle,
+                }
+            }
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                Incoming::Idle
+            }
+            Err(_) => Incoming::Eof,
+        }
+    }
+}
+
+/// stdin, read on its own thread.
+///
+/// A pipe has no read timeout, so the only way to stop blocking on it is not to
+/// block on it: the thread owns the blocking read and the op loop waits on the
+/// channel with a deadline it can keep.
+struct StdinLines {
+    rx: std::sync::mpsc::Receiver<String>,
+}
+
+impl StdinLines {
+    fn spawn() -> StdinLines {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let stdin = std::io::stdin();
+            for line in stdin.lock().lines() {
+                match line {
+                    Ok(l) => {
+                        if tx.send(l).is_err() {
+                            return;
+                        }
+                    }
+                    Err(_) => return,
+                }
+            }
+        });
+        StdinLines { rx }
+    }
+}
+
+impl LineSource for StdinLines {
+    fn next_line(&mut self, budget: Duration) -> Incoming {
+        use std::sync::mpsc::RecvTimeoutError;
+        match self.rx.recv_timeout(budget) {
+            Ok(l) => Incoming::Line(l),
+            Err(RecvTimeoutError::Timeout) => Incoming::Idle,
+            Err(RecvTimeoutError::Disconnected) => Incoming::Eof,
+        }
+    }
+}
+
+/// Take the session lock, saying so loudly if a previous op panicked while
+/// holding it. A poisoned session may be half-mutated, and silently carrying on
+/// is how the next client inherits it.
+fn session(s: &Mutex<Session>) -> MutexGuard<'_, Session> {
+    s.lock().unwrap_or_else(|p| {
+        eprintln!("lensa: warning: an op panicked while holding the session; the browser may be in an unknown state");
+        p.into_inner()
+    })
+}
+
+fn try_session(s: &Mutex<Session>) -> Option<MutexGuard<'_, Session>> {
+    match s.try_lock() {
+        Ok(g) => Some(g),
+        Err(std::sync::TryLockError::Poisoned(p)) => Some(p.into_inner()),
+        Err(std::sync::TryLockError::WouldBlock) => None,
+    }
+}
+
+/// One capture step, if nobody else is holding the browser.
+///
+/// `try_lock` rather than `lock`: an op that is already running is pumping CDP
+/// itself, so waiting for it would buy nothing and would serialize every reader
+/// behind a long navigate.
+fn tick(s: &Mutex<Session>) {
+    if let Some(mut g) = try_session(s) {
+        // A tick that fails has already stopped capture and said why; the next op
+        // reports it in band.
+        let _ = g.cdp.tick();
+    }
+}
+
+/// How a client connection ended.
+struct StreamOutcome {
+    failed_ops: usize,
+}
+
+/// Drive one client until it hangs up, keeping capture running in the gaps.
+fn serve_stream<L: LineSource, W: Write>(
+    s: &Mutex<Session>,
+    src: &mut L,
+    writer: &mut W,
+    out_path: &str,
+    token: Option<&str>,
+) -> StreamOutcome {
+    let mut failed_ops = 0usize;
+    // `None` once the client has said hello, or immediately when no token is
+    // required (stdin is already a private channel).
+    let mut awaiting_hello = token.is_some();
+    // A connection that speaks a token also speaks strict JSON: one bad line is a
+    // disconnect, so an HTTP request from a web page cannot half-execute a script.
+    let strict = token.is_some();
+
+    loop {
+        if cdp::shutting_down() {
+            break;
+        }
+        let line = match src.next_line(TICK) {
+            Incoming::Line(l) => l,
+            Incoming::Idle => {
+                tick(s);
+                continue;
+            }
+            Incoming::Eof => break,
+        };
+        // Same comment and blank-line handling the record path applies, so the
+        // bundled example scripts can be piped straight in.
+        if line.is_empty() || line.starts_with('#') || line.starts_with("//") {
+            continue;
+        }
+        let op: Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = emit(&mut *writer, &err_envelope(&format!("bad json: {e}")));
+                if strict {
+                    break;
+                }
+                continue;
+            }
+        };
+        if awaiting_hello {
+            if !hello_accepted(&op, token.unwrap_or("")) {
+                let _ = emit(
+                    &mut *writer,
+                    &err_envelope(
+                        "this connection must start with {\"op\":\"hello\",\"token\":\"…\"}; \
+                         the token was printed on stderr at startup",
+                    ),
+                );
+                break;
+            }
+            awaiting_hello = false;
+            let _ = emit(
+                &mut *writer,
+                &ok_envelope(json!({"event": "hello", "version": env!("CARGO_PKG_VERSION")})),
+            );
+            continue;
+        }
+        /*
+         * One browser, so ops are serialized here rather than raced. The lock is
+         * held for a single op: a client that goes quiet mid-script blocks nobody,
+         * and a slow op (a navigate, a render) makes the others wait their turn
+         * instead of interleaving into the same page.
+         */
+        let mut op = op;
+        if op["op"] == "start_recording" {
+            /*
+             * A client-supplied path is an arbitrary file write: the MP4 and its
+             * telemetry sidecar both land wherever it points. Record mode has always
+             * overridden it with --out, and serve mode has no reason to be laxer.
+             */
+            if op.get("path").is_some() && op["path"] != json!(out_path) {
+                eprintln!("lensa: ignoring start_recording path; the output is {out_path}");
+            }
+            op["path"] = json!(out_path);
+        }
+        let resp = {
+            let mut guard = session(s);
+            match guard.exec(&op) {
+                Ok(v) => ok_envelope(v),
+                Err(e) => {
+                    failed_ops += 1;
+                    err_envelope(&e)
+                }
+            }
+        };
+        if emit(&mut *writer, &resp).is_err() {
+            break;
+        }
+    }
+    StreamOutcome { failed_ops }
+}
+
+/// Whether a connection's first line is a valid handshake.
+///
+/// Loopback is not a trust boundary against a browser: a page the user happens to
+/// be visiting can POST to 127.0.0.1, and the op set includes navigating to
+/// `file://` and writing an MP4. The token is what makes that fetch useless.
+fn hello_accepted(op: &Value, token: &str) -> bool {
+    !token.is_empty() && op["op"] == "hello" && op["token"].as_str() == Some(token)
+}
+
+/// A secret no other process on the machine can guess.
+///
+/// `RandomState` is seeded by the OS, which is the only entropy the standard
+/// library exposes without pulling in a dependency.
+fn random_token() -> String {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+    let mut out = String::new();
+    for i in 0..2u32 {
+        let mut h = RandomState::new().build_hasher();
+        h.write_u32(std::process::id());
+        h.write_u32(i);
+        h.write_u128(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+        );
+        out.push_str(&format!("{:016x}", h.finish()));
+    }
+    out
+}
+
+/// Client threads alive right now, so the accept loop can refuse to spawn an
+/// unbounded number of them and so shutdown can wait for them.
+static CLIENTS: AtomicUsize = AtomicUsize::new(0);
+const MAX_CLIENTS: usize = 16;
+
 fn run_serve(a: &Args) -> Result<(), String> {
-    eprintln!("lensa: launching browser ({}x{}@{}x) ...", a.width, a.height, a.scale);
-    let mut session = Session::launch(
-        a.chromium.as_deref(), a.width, a.height, a.scale,
+    let ffmpeg = preflight()?;
+    if std::env::var_os("LENSA_DEBUG").is_some() {
+        eprintln!("lensa[debug]: ffmpeg at {ffmpeg}");
+    }
+
+    eprintln!(
+        "lensa {}: launching browser ({}x{}@{}x) ...",
+        env!("CARGO_PKG_VERSION"),
+        a.width,
+        a.height,
+        a.scale
+    );
+    let mut sess = Session::launch(
+        a.chromium.as_deref(),
+        a.width,
+        a.height,
+        a.scale,
         (a.out_w.unwrap_or(a.width), a.out_h.unwrap_or(a.height)),
         a.keep_temp,
         a.cursor,
     )?;
-    session.out_path = Some(a.out.clone());
-    session.background = a.background;
-    let s = Arc::new(Mutex::new(session));
+    sess.out_path = Some(a.out.clone());
+    sess.background = a.background;
+    sess.cdp
+        .set_spool_config(a.spool_dir.clone(), a.max_spool_bytes);
+    sess.cdp.set_keep_spool(a.keep_temp);
+    let s = Arc::new(Mutex::new(sess));
+
+    let failed = Arc::new(AtomicUsize::new(0));
     match a.port {
         Some(port) => {
+            /*
+             * A loopback socket is not a trust boundary against a browser: any page
+             * the user visits can POST to it. Without a token, a drive-by fetch could
+             * navigate this browser to file:// and record the result.
+             */
+            let token = std::env::var("LENSA_TOKEN").unwrap_or_else(|_| random_token());
             let listener = std::net::TcpListener::bind(("127.0.0.1", port))
                 .map_err(|e| format!("bind 127.0.0.1:{port}: {e}"))?;
+            listener
+                .set_nonblocking(true)
+                .map_err(|e| format!("listener: {e}"))?;
             eprintln!("lensa: listening on 127.0.0.1:{port} (NDJSON ops, concurrent connections)");
-            /*
-             * A connection per thread. They share one browser through the mutex, so a
-             * second client attaching does not have to wait for the first to hang up:
-             * an editor watching telemetry and a script driving the page can hold
-             * sockets open at the same time.
-             */
-            for conn in listener.incoming() {
-                let conn = match conn {
-                    Ok(c) => c,
-                    Err(_) => continue,
-                };
-                let peer = conn
-                    .peer_addr()
-                    .map(|p| p.to_string())
-                    .unwrap_or_else(|_| "?".into());
-                let reader = match conn.try_clone() {
-                    Ok(c) => BufReader::new(c),
-                    Err(e) => {
-                        eprintln!("lensa: cannot clone socket for {peer}: {e}");
-                        continue;
+            eprintln!("lensa: token {token}");
+            eprintln!(
+                "lensa: every connection must begin with {{\"op\":\"hello\",\"token\":\"{token}\"}}"
+            );
+            eprintln!("lensa: --port opens a local control socket; prefer stdin mode when one client is enough");
+
+            let mut accept_errors = 0u32;
+            loop {
+                if cdp::shutting_down() {
+                    eprintln!("lensa: interrupted; shutting down");
+                    break;
+                }
+                match listener.accept() {
+                    Ok((conn, _)) => {
+                        accept_errors = 0;
+                        if CLIENTS.load(Ordering::Relaxed) >= MAX_CLIENTS {
+                            eprintln!(
+                                "lensa: refusing a connection; {} clients already attached",
+                                MAX_CLIENTS
+                            );
+                            continue;
+                        }
+                        let peer = conn
+                            .peer_addr()
+                            .map(|p| p.to_string())
+                            .unwrap_or_else(|_| "?".into());
+                        // The listener is non-blocking so the accept loop can see a
+                        // signal; the connection itself is driven by its own timeout.
+                        if let Err(e) = conn.set_nonblocking(false) {
+                            eprintln!("lensa: cannot configure socket for {peer}: {e}");
+                            continue;
+                        }
+                        let writer = match conn.try_clone() {
+                            Ok(c) => c,
+                            Err(e) => {
+                                eprintln!("lensa: cannot clone socket for {peer}: {e}");
+                                continue;
+                            }
+                        };
+                        let shared = Arc::clone(&s);
+                        let failed = Arc::clone(&failed);
+                        let token = token.clone();
+                        let out_path = a.out.clone();
+                        CLIENTS.fetch_add(1, Ordering::Relaxed);
+                        std::thread::spawn(move || {
+                            eprintln!("lensa: client {peer} connected");
+                            let mut src = SocketLines {
+                                sock: conn,
+                                buf: Vec::new(),
+                            };
+                            let mut w = writer;
+                            let outcome =
+                                serve_stream(&shared, &mut src, &mut w, &out_path, Some(&token));
+                            failed.fetch_add(outcome.failed_ops, Ordering::Relaxed);
+                            eprintln!("lensa: client {peer} disconnected");
+                            CLIENTS.fetch_sub(1, Ordering::Relaxed);
+                        });
                     }
-                };
-                let shared = Arc::clone(&s);
-                std::thread::spawn(move || {
-                    eprintln!("lensa: client {peer} connected");
-                    serve_stream(&shared, reader, conn);
-                    eprintln!("lensa: client {peer} disconnected");
-                });
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        /*
+                         * Nobody is attached, but a take may still be running: keep the
+                         * capture clock going here too, then wait out the rest of the
+                         * tick instead of spinning on accept.
+                         */
+                        let before = Instant::now();
+                        tick(&s);
+                        if let Some(rest) = TICK.checked_sub(before.elapsed()) {
+                            std::thread::sleep(rest);
+                        }
+                    }
+                    Err(e) => {
+                        /*
+                         * EMFILE and ENFILE persist until a descriptor is freed, so
+                         * retrying flat out would spin at 100% CPU on the machine that
+                         * is trying to capture frames.
+                         */
+                        accept_errors += 1;
+                        eprintln!("lensa: accept failed: {e}");
+                        if accept_errors >= 50 {
+                            return Err(format!("accept kept failing: {e}"));
+                        }
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                }
             }
-            Ok(())
+            // Give the clients a moment to notice the shutdown flag and let go of
+            // the session, so its Drop can close the browser.
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while CLIENTS.load(Ordering::Relaxed) > 0 && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(25));
+            }
         }
         None => {
             eprintln!("lensa: reading NDJSON ops from stdin");
-            let stdin = std::io::stdin();
-            serve_stream(&s, stdin.lock(), std::io::stdout());
-            // EOF: finish any open recording.
-            let mut guard = s.lock().unwrap_or_else(|p| p.into_inner());
-            if guard.cdp.is_recording() {
-                report(&guard.exec(&json!({"op": "stop_recording"}))?);
-            }
-            Ok(())
+            let mut src = StdinLines::spawn();
+            let mut out = std::io::stdout();
+            let outcome = serve_stream(&s, &mut src, &mut out, &a.out, None);
+            failed.fetch_add(outcome.failed_ops, Ordering::Relaxed);
         }
     }
+
+    // EOF, or a signal: finish any open recording rather than dropping the frames.
+    let mut unrendered = false;
+    {
+        let mut guard = session(&s);
+        if guard.cdp.is_recording() {
+            let mut out = std::io::stdout();
+            match guard.exec(&json!({"op": "stop_recording"})) {
+                Ok(v) => {
+                    let _ = emit(&mut out, &ok_envelope(v));
+                }
+                Err(e) => {
+                    let _ = emit(&mut out, &err_envelope(&e));
+                    unrendered = true;
+                }
+            }
+        }
+        if guard.rendered.is_none() && !guard.marks.is_empty() {
+            unrendered = true;
+        }
+    }
+
+    /*
+     * An exit status of 0 from a mode where every op failed and no video exists is
+     * a green CI run over a broken take.
+     */
+    let failed = failed.load(Ordering::Relaxed);
+    if failed > 0 {
+        return Err(format!("{failed} op(s) failed"));
+    }
+    if unrendered {
+        return Err("a recording was started but never rendered".into());
+    }
+    Ok(())
 }
 
 fn main() {
+    // First: every cleanup lensa does lives in a Drop, and the default signal
+    // disposition runs none of them.
+    cdp::install_signal_handlers();
+
     let a = match parse_args() {
-        Ok(a) => a,
-        Err(msg) => {
+        Parsed::Run(a) => a,
+        Parsed::Help(msg) => {
+            println!("{msg}");
+            std::process::exit(0);
+        }
+        Parsed::Error(msg) => {
             eprintln!("{msg}");
             std::process::exit(2);
         }
@@ -411,10 +1062,73 @@ fn main() {
     let r = match a.mode.as_str() {
         "record" => run_record(&a),
         "serve" => run_serve(&a),
+        "doctor" => run_doctor(&a),
         m => Err(format!("unknown mode: {m}\n\n{USAGE}")),
     };
     if let Err(e) = r {
         eprintln!("lensa: error: {e}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_dimension_flag_rejects_the_values_that_only_fail_at_render_time() {
+        assert!(dimension("--width", "0", 64, 16384).is_err());
+        assert!(dimension("--width", "1", 64, 16384).is_err());
+        assert!(dimension("--width", "-8", 64, 16384).is_err());
+        assert!(dimension("--width", "99999", 64, 16384).is_err());
+        assert_eq!(dimension("--width", "1470", 64, 16384), Ok(1470));
+    }
+
+    #[test]
+    fn scale_rejects_nan_and_infinity() {
+        // Rust's f64 parser accepts both spellings, and NaN survives every clamp
+        // in the zoom planner to arrive in the ffmpeg expression as the literal
+        // "NaN".
+        assert!(ratio("--scale", "nan", 0.5, 4.0).is_err());
+        assert!(ratio("--scale", "inf", 0.5, 4.0).is_err());
+        assert!(ratio("--scale", "0", 0.5, 4.0).is_err());
+        assert!(ratio("--scale", "8", 0.5, 4.0).is_err());
+        assert_eq!(ratio("--scale", "2", 0.5, 4.0), Ok(2.0));
+    }
+
+    #[test]
+    fn lines_are_split_on_newlines_and_the_remainder_is_kept() {
+        let mut buf = b"{\"op\":\"mark\"}\n{\"op\":\"wa".to_vec();
+        assert_eq!(take_line(&mut buf).as_deref(), Some("{\"op\":\"mark\"}"));
+        assert_eq!(take_line(&mut buf), None);
+        buf.extend_from_slice(b"it\"}\r\n");
+        assert_eq!(take_line(&mut buf).as_deref(), Some("{\"op\":\"wait\"}"));
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn only_a_matching_hello_opens_a_port_connection() {
+        let t = "abc123";
+        assert!(hello_accepted(&json!({"op": "hello", "token": t}), t));
+        assert!(!hello_accepted(
+            &json!({"op": "hello", "token": "wrong"}),
+            t
+        ));
+        assert!(!hello_accepted(&json!({"op": "hello"}), t));
+        // The op a drive-by fetch would send first.
+        assert!(!hello_accepted(
+            &json!({"op": "navigate", "url": "file:///etc/passwd"}),
+            t
+        ));
+        // An empty token must never be accepted, whatever the client claims.
+        assert!(!hello_accepted(&json!({"op": "hello", "token": ""}), ""));
+    }
+
+    #[test]
+    fn the_tick_budget_is_no_longer_than_one_frame() {
+        // Capture targets 25ms; a reader that waited longer than that would leave a
+        // visible freeze in the gaps between ops, which is the defect this exists
+        // to close.
+        assert!(TICK <= Duration::from_millis(25));
     }
 }

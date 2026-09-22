@@ -200,7 +200,11 @@ impl Fill {
     /// frame's aspect ratio, used to keep mesh blobs round.
     fn sample(&self, u: f64, v: f64, ar: f64) -> [f64; 3] {
         match self {
-            Fill::Solid(c) => [c[0] as f64 / 255.0, c[1] as f64 / 255.0, c[2] as f64 / 255.0],
+            Fill::Solid(c) => [
+                c[0] as f64 / 255.0,
+                c[1] as f64 / 255.0,
+                c[2] as f64 / 255.0,
+            ],
             Fill::Linear { angle, stops } => {
                 let (dx, dy) = (angle.to_radians().cos(), angle.to_radians().sin());
                 // Normalize the projection over the unit square's own extent so
@@ -220,7 +224,11 @@ impl Fill {
                     base[1] as f64 / 255.0,
                     base[2] as f64 / 255.0,
                 ];
-                let (sx, sy) = if ar >= 1.0 { (ar, 1.0) } else { (1.0, 1.0 / ar) };
+                let (sx, sy) = if ar >= 1.0 {
+                    (ar, 1.0)
+                } else {
+                    (1.0, 1.0 / ar)
+                };
                 for (bx, by, r, col) in *blobs {
                     let dx = (u - bx) * sx;
                     let dy = (v - by) * sy;
@@ -240,6 +248,12 @@ impl Fill {
 }
 
 fn sample_stops(stops: &[(f64, [u8; 3])], t: f64) -> [f64; 3] {
+    // Every built-in gradient has stops, but the subtraction below wraps rather
+    // than panics in release, so an empty list gets an answer instead of an
+    // out-of-bounds read.
+    if stops.is_empty() {
+        return [0.0, 0.0, 0.0];
+    }
     let last = stops.len() - 1;
     if t <= stops[0].0 {
         return rgb01(stops[0].1);
@@ -343,8 +357,18 @@ pub struct Probe {
 pub fn probe(raw_path: &str, ffmpeg: &str) -> Option<Probe> {
     let out = Command::new(ffmpeg)
         .args([
-            "-v", "error", "-nostdin", "-i", raw_path, "-vf",
-            "fps=2,scale=12:12:flags=area", "-pix_fmt", "rgb24", "-f", "rawvideo", "-",
+            "-v",
+            "error",
+            "-nostdin",
+            "-i",
+            raw_path,
+            "-vf",
+            "fps=2,scale=12:12:flags=area",
+            "-pix_fmt",
+            "rgb24",
+            "-f",
+            "rawvideo",
+            "-",
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -363,7 +387,7 @@ pub fn probe(raw_path: &str, ffmpeg: &str) -> Option<Probe> {
 /// with no colour at all resolves to nothing rather than to noise.
 fn measure(rgb: &[u8]) -> Probe {
     let (mut sx, mut sy, mut wsum, mut lum, mut n) = (0.0, 0.0, 0.0, 0.0, 0.0);
-    for px in rgb.as_chunks::<3>().0 {
+    for px in rgb.chunks_exact(3) {
         let (h, c, l) = hue_chroma_lum(
             px[0] as f64 / 255.0,
             px[1] as f64 / 255.0,
@@ -375,6 +399,14 @@ fn measure(rgb: &[u8]) -> Probe {
         wsum += w;
         lum += l;
         n += 1.0;
+    }
+    // Fewer than three bytes is not a pixel, and dividing by a zero count would
+    // hand the picker a NaN lightness that loses every comparison silently.
+    if n == 0.0 {
+        return Probe {
+            hue: None,
+            lum: 0.0,
+        };
     }
     let rms_chroma = (wsum / n).sqrt();
     Probe {
@@ -446,6 +478,13 @@ fn even(v: f64) -> u32 {
     n - n % 2
 }
 
+/// The largest even size that still fits inside `v`, with the same two pixel
+/// floor `even` has. A one pixel frame cannot hold an even content box at all,
+/// so it gets 2 and overhangs by one rather than collapsing to zero.
+fn even_floor(v: u32) -> u32 {
+    (v - v % 2).max(2)
+}
+
 /// Fit `aspect` inside the frame with an even inset, centred.
 ///
 /// Even on every axis because the h264 pass downstream is yuv420p, where an odd
@@ -454,7 +493,10 @@ pub fn content_box(out_w: u32, out_h: u32, aspect: f64) -> ((u32, u32), (u32, u3
     let pad = (out_w.min(out_h) as f64 * PAD_FRAC).max(12.0);
     let avail_w = (out_w as f64 - 2.0 * pad).max(16.0);
     let avail_h = (out_h as f64 - 2.0 * pad).max(16.0);
-    let aspect = if aspect.is_finite() && aspect > 0.01 {
+    // An absurd aspect ratio is as useless as a zero one, and it is the input
+    // that pushes `cw` past what `as u32` can hold, where the cast saturates to
+    // u32::MAX instead of erroring.
+    let aspect = if aspect.is_finite() && (0.01..=100.0).contains(&aspect) {
         aspect
     } else {
         avail_w / avail_h
@@ -464,10 +506,18 @@ pub fn content_box(out_w: u32, out_h: u32, aspect: f64) -> ((u32, u32), (u32, u3
     } else {
         (avail_w, avail_w / aspect)
     };
-    let cw = even(cw).min(even(out_w as f64));
-    let ch = even(ch).min(even(out_h as f64));
-    let x = even((out_w - cw) as f64 / 2.0).min(out_w - cw);
-    let y = even((out_h - ch) as f64 / 2.0).min(out_h - ch);
+    // Both floors below matter: `avail_*` has a 16 pixel floor and `even` a two
+    // pixel one, so on a very small frame the fitted content can come out wider
+    // than the frame itself. Clamping first and subtracting saturatingly keeps
+    // the origin on-frame; without it the subtraction wraps to nearly 2^32 in
+    // release and ffmpeg is handed that as a pad offset, after the take has
+    // already been recorded and there is nothing left to re-run.
+    let cw = even(cw).min(even_floor(out_w));
+    let ch = even(ch).min(even_floor(out_h));
+    let slack_x = out_w.saturating_sub(cw);
+    let slack_y = out_h.saturating_sub(ch);
+    let x = even(slack_x as f64 / 2.0).min(slack_x);
+    let y = even(slack_y as f64 / 2.0).min(slack_y);
     ((cw, ch), (x, y))
 }
 
@@ -625,7 +675,11 @@ fn crc32(bytes: &[u8]) -> u32 {
     for (n, slot) in table.iter_mut().enumerate() {
         let mut c = n as u32;
         for _ in 0..8 {
-            c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+            c = if c & 1 != 0 {
+                0xEDB8_8320 ^ (c >> 1)
+            } else {
+                c >> 1
+            };
         }
         *slot = c;
     }
@@ -661,6 +715,11 @@ fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
 /// Write an 8-bit RGBA PNG. The zlib stream is all stored blocks: bigger on
 /// disk than a real deflate, and it keeps this file dependency-free.
 pub fn write_png_rgba(path: &Path, w: u32, h: u32, rgba: &[u8]) -> Result<(), String> {
+    // A zero dimension passes the size check below with an empty buffer and
+    // would write a header no decoder accepts, so it is rejected up front.
+    if w == 0 || h == 0 {
+        return Err("png: zero-sized image".into());
+    }
     if rgba.len() != (w as usize) * (h as usize) * 4 {
         return Err("png: pixel buffer is the wrong size".into());
     }
@@ -696,8 +755,8 @@ pub fn write_png_rgba(path: &Path, w: u32, h: u32, rgba: &[u8]) -> Result<(), St
     chunk(&mut png, b"IDAT", &z);
     chunk(&mut png, b"IEND", &[]);
 
-    let mut f = std::fs::File::create(path)
-        .map_err(|e| format!("create {}: {e}", path.display()))?;
+    let mut f =
+        std::fs::File::create(path).map_err(|e| format!("create {}: {e}", path.display()))?;
     f.write_all(&png)
         .map_err(|e| format!("write {}: {e}", path.display()))
 }
@@ -730,8 +789,14 @@ mod tests {
         let b = bg.fill.sample(0.0, 1.0, 1.0);
         // The extreme corners land exactly on the first and last stop, which is
         // what normalising the projection over the unit square buys.
-        assert!((a[0] - 26.0 / 255.0).abs() < 1e-9, "start is not the first stop: {a:?}");
-        assert!((b[0] - 196.0 / 255.0).abs() < 1e-9, "end is not the last stop: {b:?}");
+        assert!(
+            (a[0] - 26.0 / 255.0).abs() < 1e-9,
+            "start is not the first stop: {a:?}"
+        );
+        assert!(
+            (b[0] - 196.0 / 255.0).abs() < 1e-9,
+            "end is not the last stop: {b:?}"
+        );
         assert!(a[0] < 0.2 && a[2] < 0.3, "start too light: {a:?}");
         assert!(b[0] > 0.6, "end too dark: {b:?}");
         // and it climbs through the middle rather than jumping at a stop
@@ -746,7 +811,10 @@ mod tests {
         let (_, lum) = background("slate").unwrap().key();
         assert!(lum < 0.4, "slate should be dark, got {lum}");
         let (hue, _) = background("tide").unwrap().key();
-        assert!((150.0..=230.0).contains(&hue), "tide should be cyan-ish: {hue}");
+        assert!(
+            (150.0..=230.0).contains(&hue),
+            "tide should be cyan-ish: {hue}"
+        );
         let (hue, _) = background("ember").unwrap().key();
         assert!(hue < 60.0 || hue > 330.0, "ember should be warm: {hue}");
     }
@@ -754,7 +822,10 @@ mod tests {
     #[test]
     fn auto_pick_is_complementary_and_deterministic() {
         // A light page with a green brand colour.
-        let green = Probe { hue: Some(140.0), lum: 0.85 };
+        let green = Probe {
+            hue: Some(140.0),
+            lum: 0.85,
+        };
         let a = choose(Some(&green));
         let b = choose(Some(&green));
         assert_eq!(a.name, b.name, "auto pick must be deterministic");
@@ -766,7 +837,10 @@ mod tests {
             a.name
         );
         // A colourless page still gets a backdrop, chosen on lightness alone.
-        let plain = Probe { hue: None, lum: 0.93 };
+        let plain = Probe {
+            hue: None,
+            lum: 0.93,
+        };
         let p = choose(Some(&plain));
         assert!(p.key().1 < 0.5, "{} is too light for a white page", p.name);
         // No probe at all: the documented fallback.
@@ -793,14 +867,21 @@ mod tests {
         for (w, h) in [(1080u32, 1920u32), (1470, 830), (1080, 1080), (1920, 1080)] {
             let aspect = w as f64 / h as f64;
             let ((cw, ch), (x, y)) = content_box(w, h, aspect);
-            assert_eq!((cw % 2, ch % 2, x % 2, y % 2), (0, 0, 0, 0), "{w}x{h} not even");
+            assert_eq!(
+                (cw % 2, ch % 2, x % 2, y % 2),
+                (0, 0, 0, 0),
+                "{w}x{h} not even"
+            );
             assert!(cw < w && ch < h, "{w}x{h}: content not inset");
             assert!(x + cw <= w && y + ch <= h, "{w}x{h}: content off-frame");
             // centred within a pixel of rounding
             assert!((x as i64 - (w - cw - x) as i64).abs() <= 2);
             assert!((y as i64 - (h - ch - y) as i64).abs() <= 2);
             let got = cw as f64 / ch as f64;
-            assert!((got - aspect).abs() / aspect < 0.01, "{w}x{h}: aspect {got}");
+            assert!(
+                (got - aspect).abs() / aspect < 0.01,
+                "{w}x{h}: aspect {got}"
+            );
         }
         // A capture that is a different shape from the frame is letterboxed,
         // not stretched.
@@ -810,8 +891,48 @@ mod tests {
     }
 
     #[test]
+    fn content_box_survives_tiny_and_hostile_frames() {
+        // The sizes here are all smaller than twice the padding floor, or have
+        // an aspect ratio that used to send the fitted width through u32::MAX.
+        // Before the clamp, `out_w - cw` wrapped and the origin came back as
+        // 4294967294, which ffmpeg only complains about after a whole take has
+        // been captured.
+        let cases: [(u32, u32, f64); 8] = [
+            (1, 1, 1.0),
+            (2, 2, 1.0),
+            (4, 30, 1.0),
+            (30, 4, 1.0),
+            (16, 16, 0.0),
+            (16, 16, f64::NAN),
+            (64, 64, 1.0e9),
+            (64, 64, 1.0e-9),
+        ];
+        for (w, h, aspect) in cases {
+            let ((cw, ch), (x, y)) = content_box(w, h, aspect);
+            assert_eq!(
+                (cw % 2, ch % 2, x % 2, y % 2),
+                (0, 0, 0, 0),
+                "{w}x{h}@{aspect} not even"
+            );
+            // The two pixel floor can overhang a one pixel frame by one pixel,
+            // and nothing worse than that.
+            assert!(
+                cw <= w.max(2) && ch <= h.max(2),
+                "{w}x{h}@{aspect}: {cw}x{ch} too big"
+            );
+            assert!(
+                x <= w && y <= h,
+                "{w}x{h}@{aspect}: origin {x},{y} off-frame"
+            );
+        }
+    }
+
+    #[test]
     fn png_is_well_formed() {
-        let dir = std::env::temp_dir().join("lensa-png-test");
+        // Per-process, because a fixed name in a shared temp directory is another
+        // user's directory on a build machine: create_dir_all then succeeds and the
+        // write fails, which reads as a bug in the encoder rather than in the test.
+        let dir = std::env::temp_dir().join(format!("lensa-png-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("p.png");
         let (w, h) = (7u32, 5u32);
@@ -839,7 +960,7 @@ mod tests {
 
     #[test]
     fn plate_covers_the_frame_and_opens_a_window() {
-        let dir = std::env::temp_dir().join("lensa-plate-test");
+        let dir = std::env::temp_dir().join(format!("lensa-plate-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (w, h) = (320u32, 200u32);
         let bg = background("tide").unwrap();
@@ -859,7 +980,8 @@ mod tests {
         );
         assert!(mid < 0.0, "centre of the content window must be inside");
         let corner = sd_round_rect(
-            1.0, 1.0,
+            1.0,
+            1.0,
             ox as f64 + cw as f64 / 2.0,
             oy as f64 + ch as f64 / 2.0,
             cw as f64 / 2.0,

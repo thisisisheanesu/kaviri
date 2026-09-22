@@ -1,0 +1,73 @@
+name: ci
+
+# Nothing anywhere else compiles the crate. demo.yml films a video, which only exercises the
+# happy path through a release build, so a type error or a failing unit test can reach main
+# without a single red check.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+
+      - name: Install ffmpeg
+        run: |
+          set -euo pipefail
+          # The two tests that validate the generated filter graph and the hand-rolled PNG shell
+          # out to a real ffmpeg. LENSA_SKIP_FFMPEG_TESTS is deliberately left unset here so that
+          # a missing encoder is a red build rather than two silently skipped tests.
+          export DEBIAN_FRONTEND=noninteractive
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffmpeg -version | head -1
+
+      - name: Check a browser is present
+        run: |
+          set -euo pipefail
+          # ubuntu-latest ships Google Chrome, so nothing is installed here. The check exists so
+          # that a runner image change turns into a named failure rather than a forty-second
+          # timeout inside whichever test first tries to launch one.
+          command -v google-chrome || command -v chromium || command -v chromium-browser
+
+      - name: Cache the build
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: lensa-ci-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: lensa-ci-${{ runner.os }}-
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Tests
+        run: cargo test --locked
+
+      - name: Release build
+        run: cargo build --release --locked

@@ -45,7 +45,10 @@ pub struct Session {
 
 /// The pointer shapes lensa can draw, in the macOS idiom.
 pub const CURSOR_SHAPES: &[(&str, &str)] = &[
-    ("arrow", "the classic pointer; the fallback for anything else"),
+    (
+        "arrow",
+        "the classic pointer; the fallback for anything else",
+    ),
     ("hand", "pointing hand, for links and buttons"),
     ("text", "I-beam, for text fields and editable content"),
 ];
@@ -118,7 +121,11 @@ const CARET_SAMPLE_S: f64 = 0.12;
 
 impl Default for CursorCfg {
     fn default() -> CursorCfg {
-        CursorCfg { shape: None, scale: DEFAULT_CURSOR_SCALE, enabled: true }
+        CursorCfg {
+            shape: None,
+            scale: DEFAULT_CURSOR_SCALE,
+            enabled: true,
+        }
     }
 }
 
@@ -140,11 +147,26 @@ impl CursorCfg {
             return Err("--cursor-scale must be between 0.2 and 8".into());
         }
         match name {
-            "none" | "off" => Ok(CursorCfg { shape: None, scale, enabled: false }),
-            "auto" => Ok(CursorCfg { shape: None, scale, enabled: true }),
+            "none" | "off" => Ok(CursorCfg {
+                shape: None,
+                scale,
+                enabled: false,
+            }),
+            "auto" => Ok(CursorCfg {
+                shape: None,
+                scale,
+                enabled: true,
+            }),
             n => match CURSOR_SHAPES.iter().find(|(s, _)| *s == n) {
-                Some((s, _)) => Ok(CursorCfg { shape: Some(s), scale, enabled: true }),
-                None => Err(format!("unknown cursor: {n}\n\nCursors:\n{}", cursor_help())),
+                Some((s, _)) => Ok(CursorCfg {
+                    shape: Some(s),
+                    scale,
+                    enabled: true,
+                }),
+                None => Err(format!(
+                    "unknown cursor: {n}\n\nCursors:\n{}",
+                    cursor_help()
+                )),
             },
         }
     }
@@ -266,6 +288,25 @@ fn js_string(s: &str) -> String {
     serde_json::to_string(s).unwrap()
 }
 
+/// Read a millisecond duration field off an op.
+///
+/// `as_u64` on its own answers `None` for every JSON number that is not a
+/// non-negative integer, and the op then silently ran with its default: a
+/// generator that emits `"timeout_ms": 180000.0` got twenty seconds, and
+/// `"typewriter_ms": 62.5` typed at eighteen. Any finite, non-negative number is
+/// honoured; anything else is a named error rather than a quiet fallback.
+fn duration_ms(op: &Value, field: &str, default: u64) -> Result<u64, String> {
+    match op.get(field) {
+        None | Some(Value::Null) => Ok(default),
+        Some(v) => match v.as_f64() {
+            Some(n) if n.is_finite() && n >= 0.0 => Ok(n.round() as u64),
+            _ => Err(format!(
+                "{field} must be a non-negative number of milliseconds, got {v}"
+            )),
+        },
+    }
+}
+
 impl Session {
     pub fn launch(
         chromium: Option<&str>,
@@ -277,6 +318,9 @@ impl Session {
         cursor: CursorCfg,
     ) -> Result<Session, String> {
         let mut cdp = Cdp::launch(chromium, css_w, css_h, scale)?;
+        // `--keep-temp` is about every intermediate the run produces, and the frame
+        // spool is by far the largest of them.
+        cdp.set_keep_spool(keep_temp);
         if cursor.enabled {
             let source = CURSOR_JS
                 .replace("__LENSA_SCALE__", &format!("{:.4}", cursor.scale))
@@ -303,10 +347,10 @@ impl Session {
 
     /// Where the caret sits horizontally, in CSS pixels, or None if nothing is focused.
     fn caret_x(&mut self) -> Option<f64> {
-        self.cdp
-            .evaluate(CARET_JS)
-            .ok()
-            .and_then(|v| v.as_array().and_then(|a| a.first().and_then(|x| x.as_f64())))
+        self.cdp.evaluate(CARET_JS).ok().and_then(|v| {
+            v.as_array()
+                .and_then(|a| a.first().and_then(|x| x.as_f64()))
+        })
     }
 
     fn mark(&mut self, kind: &str, label: &str, bbox: Option<(f64, f64, f64, f64)>) -> Value {
@@ -341,19 +385,48 @@ impl Session {
             return Err(format!("selector not found: {selector}"));
         }
         self.cdp.sleep_pump(120)?; // let layout/scroll settle
+                                   // Ask for the visibility facts in the same round trip as the geometry. A
+                                   // node that matched the selector is not necessarily a thing that can be
+                                   // clicked: a zero-size or hidden element has a box of all zeros, and
+                                   // dispatching to its centre is a real click on whatever sits in the
+                                   // viewport's top-left corner, reported as a success.
         let js = format!(
             "(() => {{ const el = document.querySelector({sel}); if (!el) return null; \
-             const r = el.getBoundingClientRect(); \
-             return [r.x, r.y, r.width, r.height, {KIND_FN}(el)]; }})()"
+             const r = el.getBoundingClientRect(), cs = getComputedStyle(el); \
+             const cx = r.x + r.width / 2, cy = r.y + r.height / 2; \
+             let top = null; \
+             if (r.width > 0 && r.height > 0 && cx >= 0 && cy >= 0 && \
+                 cx < innerWidth && cy < innerHeight) {{ \
+               const t = document.elementFromPoint(cx, cy); \
+               if (t && t !== el && !el.contains(t) && !t.contains(el)) \
+                 top = t.tagName.toLowerCase() + (t.id ? '#' + t.id : ''); \
+             }} \
+             return [r.x, r.y, r.width, r.height, {KIND_FN}(el), \
+                     r.width * r.height > 0, \
+                     cs.visibility !== 'hidden' && cs.display !== 'none', top]; }})()"
         );
         let v = self.cdp.evaluate(&js)?;
-        let a = v.as_array().ok_or_else(|| format!("selector vanished: {selector}"))?;
-        let b = (
-            a[0].as_f64().unwrap_or(0.0),
-            a[1].as_f64().unwrap_or(0.0),
-            a[2].as_f64().unwrap_or(0.0),
-            a[3].as_f64().unwrap_or(0.0),
-        );
+        let a = v
+            .as_array()
+            .ok_or_else(|| format!("selector vanished: {selector}"))?;
+        let num = |i: usize| a.get(i).and_then(|x| x.as_f64()).unwrap_or(0.0);
+        let b = (num(0), num(1), num(2), num(3));
+        if a.get(6).and_then(|x| x.as_bool()) != Some(true) {
+            return Err(format!(
+                "selector matched a non-visible element (display:none or visibility:hidden): {selector}"
+            ));
+        }
+        if a.get(5).and_then(|x| x.as_bool()) != Some(true) {
+            return Err(format!(
+                "selector matched a zero-size element, so there is no point to aim at: {selector}"
+            ));
+        }
+        if let Some(top) = a.get(7).and_then(|x| x.as_str()) {
+            return Err(format!(
+                "selector {selector} is covered by <{top}> at its centre point; \
+                 close the overlay, or target the element that is actually on top"
+            ));
+        }
         Ok(Aim {
             point: (b.0 + b.2 / 2.0, b.1 + b.3 / 2.0),
             bbox: Some(b),
@@ -433,10 +506,36 @@ impl Session {
                         .map_err(|e| format!("cannot resolve path {url_in}: {e}"))?;
                     format!("file://{}", p.display())
                 };
+                let budget = duration_ms(op, "timeout_ms", 25_000)?;
                 self.cdp.clear_events();
-                self.cdp.send("Page.navigate", json!({"url": url}))?;
-                self.cdp
-                    .wait_event("Page.loadEventFired", Duration::from_secs(25))?;
+                let r = self.cdp.send("Page.navigate", json!({"url": url}))?;
+                if let Some(err) = r["errorText"].as_str() {
+                    // ERR_ABORTED is what Chromium reports when the navigation turned
+                    // into a download or was superseded by another one. The page is
+                    // fine and the take carries on; everything else is a Chrome error
+                    // page, which is not what the script asked to film.
+                    if err != "net::ERR_ABORTED" {
+                        return Err(format!("navigate failed: {err}: {url}"));
+                    }
+                }
+                let loaded = self
+                    .cdp
+                    .wait_event("Page.loadEventFired", Duration::from_millis(budget))?;
+                if !loaded {
+                    // A same-document navigation (a hash change, a pushState route)
+                    // never fires load because the document never changed. That is a
+                    // success; a document still parsing after the whole budget is not.
+                    let state = self.cdp.evaluate("document.readyState")?;
+                    if state.as_str() != Some("complete") {
+                        return Err(format!(
+                            "navigate: no load event after {:.1}s and the document is still \
+                             \"{}\": {url}\n  \
+                             raise it with {{\"op\":\"navigate\",\"url\":\"...\",\"timeout_ms\":60000}}",
+                            budget as f64 / 1000.0,
+                            state.as_str().unwrap_or("unknown")
+                        ));
+                    }
+                }
                 self.cdp.sleep_pump(350)?;
                 Ok(self.mark("navigate", &url, None))
             }
@@ -444,7 +543,11 @@ impl Session {
                 let aim = self.click_target(op)?;
                 let (x, y) = aim.point;
                 self.cursor_to(x, y, &aim.cursor)?;
-                let m = self.mark("click", op["selector"].as_str().unwrap_or("point"), aim.bbox);
+                let m = self.mark(
+                    "click",
+                    op["selector"].as_str().unwrap_or("point"),
+                    aim.bbox,
+                );
                 self.mouse_click(x, y)?;
                 self.cdp.sleep_pump(250)?;
                 Ok(m)
@@ -454,7 +557,7 @@ impl Session {
                 // Fast by default. 45ms per character is a person hunting for keys; an agent
                 // does not hunt, and a viewer does not want to watch one. A take can still ask
                 // for slower with typewriter_ms when the point is to read along.
-                let per_char = op["typewriter_ms"].as_u64().unwrap_or(18);
+                let per_char = duration_ms(op, "typewriter_ms", 18)?;
                 let bbox = if let Some(sel) = op["selector"].as_str() {
                     let aim = self.resolve_box(sel)?;
                     let (x, y) = aim.point;
@@ -463,6 +566,27 @@ impl Session {
                     self.cdp.sleep_pump(150)?;
                     aim.bbox
                 } else {
+                    // Input.insertText delivers to whatever holds focus, and on a
+                    // freshly navigated page that is <body>: the characters go
+                    // nowhere, no box is recorded so the op earns no zoom, and the
+                    // result JSON is indistinguishable from a take that worked.
+                    let editable = self.cdp.evaluate(
+                        "(() => { const el = document.activeElement; \
+                          if (!el || el === document.body || el === document.documentElement) \
+                            return false; \
+                          if (el.isContentEditable) return true; \
+                          const tag = el.tagName.toLowerCase(); \
+                          if (tag === 'textarea') return true; \
+                          if (tag === 'input') \
+                            return !/^(button|submit|reset|checkbox|radio|range|color|file|image)$/ \
+                              .test(el.type || 'text'); \
+                          return false; })()",
+                    )?;
+                    if editable.as_bool() != Some(true) {
+                        return Err("type without a selector needs a focused editable element; \
+                             click one first, or pass a selector"
+                            .into());
+                    }
                     None
                 };
                 let sel = op["selector"].as_str().unwrap_or("").to_string();
@@ -517,7 +641,17 @@ impl Session {
                 Ok(m)
             }
             "scroll" => {
-                let y = op["y"].as_f64().unwrap_or(0.0);
+                // No silent default here. `{"op":"scroll","top":600}` and a y that
+                // arrived as the string "600" both used to scroll the page to the top
+                // and report success, which looks exactly like a scroll that worked.
+                let y = op["y"].as_f64().ok_or(
+                    "scroll needs y: a number of CSS pixels, absolute from the top of the document",
+                )?;
+                if !y.is_finite() || y < 0.0 {
+                    return Err(format!(
+                        "scroll y must be a finite, non-negative number of CSS pixels, got {y}"
+                    ));
+                }
                 let smooth = op["smooth"].as_bool().unwrap_or(true);
                 let behavior = if smooth { "smooth" } else { "instant" };
                 let js = format!("window.scrollTo({{top:{y},behavior:'{behavior}'}})");
@@ -526,35 +660,69 @@ impl Session {
                 Ok(self.mark("scroll", &format!("y={y}"), None))
             }
             "wait" => {
-                if let Some(ms) = op["ms"].as_u64() {
+                let has_ms = !op["ms"].is_null();
+                let has_sel = !op["selector"].is_null();
+                // Both fields together reads as "wait for this, but at most that
+                // long", which is what timeout_ms is for. The old chain took the ms
+                // branch and never looked at the selector, so the script raced ahead
+                // of the page it meant to wait for.
+                if has_ms && has_sel {
+                    return Err("wait takes ms or selector, not both; \
+                                use timeout_ms to bound a selector wait"
+                        .into());
+                }
+                if has_ms {
+                    let ms = duration_ms(op, "ms", 0)?;
                     self.cdp.sleep_pump(ms)?;
                     Ok(self.mark("wait", &format!("{ms}ms"), None))
-                } else if let Some(sel) = op["selector"].as_str() {
-                    let sel_js = js_string(sel);
+                } else if has_sel {
+                    let sel = op["selector"]
+                        .as_str()
+                        .ok_or("wait selector must be a CSS selector string")?
+                        .to_string();
+                    let sel_js = js_string(&sel);
+                    // Existence is not what a script means by "wait for the success
+                    // message": a `display:none` node is in the DOM from first paint,
+                    // so the wait returned on its first poll. `visible: false` asks
+                    // for the old presence-only test.
+                    let want_visible = op["visible"].as_bool().unwrap_or(true);
+                    let probe = if want_visible {
+                        format!(
+                            "(() => {{ const e = document.querySelector({sel_js}); \
+                              return !!(e && e.getClientRects().length && \
+                                        getComputedStyle(e).visibility !== 'hidden'); }})()"
+                        )
+                    } else {
+                        format!("!!document.querySelector({sel_js})")
+                    };
                     // 20 seconds is fine for a page to render something and far too short for
                     // anything that has to think first. A take that waits on a model finishing
                     // its answer should say how long it is prepared to wait, and get told how
                     // long it actually waited when it gives up.
-                    let budget = op["timeout_ms"].as_u64().unwrap_or(20_000);
+                    let budget = duration_ms(op, "timeout_ms", 20_000)?;
                     let started = std::time::Instant::now();
                     let deadline = started + Duration::from_millis(budget);
                     loop {
-                        let v = self
-                            .cdp
-                            .evaluate(&format!("!!document.querySelector({sel_js})"))?;
+                        let v = self.cdp.evaluate(&probe)?;
                         if v.as_bool() == Some(true) {
                             break;
                         }
                         if std::time::Instant::now() > deadline {
+                            let what = if want_visible {
+                                "never became visible"
+                            } else {
+                                "never appeared"
+                            };
                             return Err(format!(
-                                "wait: selector never appeared after {:.1}s: {sel}\n  \
-                                 raise it with {{\"op\":\"wait\",\"selector\":\"...\",\"timeout_ms\":60000}}",
+                                "wait: selector {what} after {:.1}s: {sel}\n  \
+                                 raise it with {{\"op\":\"wait\",\"selector\":\"...\",\"timeout_ms\":60000}}, \
+                                 or add \"visible\": false to wait for presence only",
                                 started.elapsed().as_secs_f64()
                             ));
                         }
                         self.cdp.sleep_pump(100)?;
                     }
-                    Ok(self.mark("wait", sel, None))
+                    Ok(self.mark("wait", &sel, None))
                 } else {
                     Err("wait needs ms or selector".into())
                 }
@@ -564,9 +732,22 @@ impl Session {
                 Ok(self.mark("mark", &label, None))
             }
             "start_recording" => {
+                // Starting over the top of a live take threw its frames away with no
+                // word to the caller. The frames are the whole value of a recording,
+                // so say so and let the script decide.
+                if self.cdp.is_recording() {
+                    return Err("already recording; send stop_recording to finish \
+                                the take in flight before starting another"
+                        .into());
+                }
                 if let Some(p) = op["path"].as_str() {
                     self.out_path = Some(p.to_string());
                 }
+                // A new take is a new clock. Marks left from the previous one are
+                // timestamped against the old rec_t0, so carrying them over would put
+                // zooms at times that belong to footage that no longer exists.
+                self.marks.clear();
+                self.rendered = None;
                 let max_w = (self.css_w as f64 * self.scale) as u32;
                 let max_h = (self.css_h as f64 * self.scale) as u32;
                 self.cdp.start_capture(max_w, max_h, self.scale)?;
@@ -576,17 +757,34 @@ impl Session {
                 Ok(json!({"event": "recording_started"}))
             }
             "stop_recording" => {
-                self.cdp.stop_capture()?;
+                // Teardown is not allowed to lose the take. Every frame is already on
+                // disk by the time this runs, so a browser that died at second 55 of a
+                // sixty second recording still gets rendered, and the CDP failure is
+                // reported alongside the video rather than instead of it.
+                let warning = self.cdp.stop_capture_best_effort();
                 let out = self
                     .out_path
                     .clone()
                     .unwrap_or_else(|| "lensa-out.mp4".to_string());
+                let n_frames = self.cdp.frames.len();
+                let spooled = self.cdp.frames.bytes();
+                if n_frames == 0 {
+                    self.cdp.frames_release();
+                    return Err(match warning {
+                        Some(w) => format!("stop_recording: no frames were captured ({w})"),
+                        None => "stop_recording: no frames were captured; \
+                                 was start_recording sent?"
+                            .into(),
+                    });
+                }
+                if let Some(w) = &warning {
+                    eprintln!("lensa: warning: capture ended early: {w}");
+                }
                 eprintln!(
-                    "lensa: captured {} frames ({:.1} MB spooled), rendering {out} ...",
-                    self.cdp.frames.len(),
-                    self.cdp.frames.bytes() as f64 / 1_048_576.0
+                    "lensa: captured {n_frames} frames ({:.1} MB spooled), rendering {out} ...",
+                    spooled as f64 / 1_048_576.0
                 );
-                let (dur, n_ev) = crate::zoom::render(
+                let rendered = crate::zoom::render(
                     &self.cdp.frames,
                     &self.marks,
                     &out,
@@ -595,16 +793,51 @@ impl Session {
                     self.out_size,
                     self.background,
                     self.keep_temp,
-                )?;
+                );
+                // The spool is the take's whole footprint on disk, and on a long
+                // recording that is gigabytes. Release it whichever way the render
+                // went: in serve mode the process outlives the take by hours.
+                self.cdp.frames_release();
+                let (dur, n_ev) = rendered?;
                 self.rendered = Some((dur, n_ev));
-                Ok(json!({
+                let mut result = json!({
                     "event": "recording_rendered", "path": out,
                     "duration": dur, "zoom_events": n_ev,
-                    "frames": self.cdp.frames.len(),
-                    "spooled_bytes": self.cdp.frames.bytes(),
-                }))
+                    "frames": n_frames,
+                    "spooled_bytes": spooled,
+                });
+                if let Some(w) = warning {
+                    result["warning"] = json!(w);
+                }
+                Ok(result)
             }
             other => Err(format!("unknown op: {other}")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The regression this guards: `as_u64` answered `None` for any JSON number
+    /// that was not a non-negative integer, so a duration written as a float was
+    /// replaced by the default instead of being honoured or rejected.
+    #[test]
+    fn a_duration_written_as_a_float_is_honoured_not_defaulted() {
+        let op = json!({"timeout_ms": 180000.0, "typewriter_ms": 62.5});
+        assert_eq!(duration_ms(&op, "timeout_ms", 20_000), Ok(180_000));
+        assert_eq!(duration_ms(&op, "typewriter_ms", 18), Ok(63));
+    }
+
+    #[test]
+    fn a_missing_duration_falls_back_and_a_bad_one_is_an_error() {
+        let op = json!({"ms": "800", "bad": -1, "worse": null});
+        assert_eq!(duration_ms(&op, "absent", 42), Ok(42));
+        assert_eq!(duration_ms(&op, "worse", 42), Ok(42));
+        // A stringified number is what a shell or a template that stringifies
+        // everything produces, and it used to be silently ignored.
+        assert!(duration_ms(&op, "ms", 0).is_err());
+        assert!(duration_ms(&op, "bad", 0).is_err());
     }
 }

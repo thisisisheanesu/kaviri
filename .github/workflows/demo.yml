@@ -9,13 +9,22 @@ on:
     paths:
       - src/**
       - examples/**
+      - Cargo.toml
+      - Cargo.lock
       - action.yml
       - .github/workflows/demo.yml
   pull_request:
     paths:
       - src/**
       - examples/**
+      - Cargo.toml
+      - Cargo.lock
+      - action.yml
+      - .github/workflows/demo.yml
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   record:
@@ -29,10 +38,11 @@ jobs:
           - preset: tiktok
             out: lensa-vertical.mp4
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Serve the example page
         run: |
+          set -euo pipefail
           python3 -m http.server 8099 --directory examples &
           for _ in $(seq 1 40); do
             curl -sf http://127.0.0.1:8099/ >/dev/null && break
@@ -40,6 +50,9 @@ jobs:
           done
           curl -sf -o /dev/null -w 'example page: %{http_code}\n' http://127.0.0.1:8099/
 
+      # The action builds the tree this workflow checked out, so a regression in a pull request
+      # turns this job red. There is no ref input any more: it used to make the action clone the
+      # remote and film a different commit than the one under review.
       - name: Record
         uses: ./
         with:
@@ -47,13 +60,43 @@ jobs:
           out: ${{ matrix.out }}
           preset: ${{ matrix.preset }}
           artifact-name: demo-${{ matrix.preset }}
-          ref: ${{ github.sha }}
 
       - name: Check it is a real video
+        env:
+          # Substituting ${{ matrix.out }} into the script body would let a matrix value become
+          # program text. Through env it is only ever a filename.
+          OUT: ${{ matrix.out }}
         run: |
           set -euo pipefail
-          dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "${{ matrix.out }}")
+          dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 -i "$OUT")
           echo "duration: ${dur}s"
           # A take that produced a file but no frames still "succeeds" without this.
           awk -v d="$dur" 'BEGIN { exit (d > 2.0) ? 0 : 1 }' \
             || { echo "recording is too short to be real"; exit 1; }
+
+      - name: Check the page actually moved
+        env:
+          OUT: ${{ matrix.out }}
+        run: |
+          set -euo pipefail
+          # The duration gate passes on a take that filmed a Chrome error page or a dev server
+          # that never came up, because a freeze frame held for thirty seconds is still thirty
+          # seconds of video. Comparing the first frame against the last one catches that: the
+          # demo script navigates, clicks and types, so the two cannot be the same picture.
+          ffmpeg -nostdin -v error -y -ss 0.5 -i "$OUT" -frames:v 1 "$RUNNER_TEMP/first.png"
+          ffmpeg -nostdin -v error -y -sseof -0.5 -i "$OUT" -frames:v 1 "$RUNNER_TEMP/last.png"
+          ffmpeg -nostdin -v error \
+            -i "$RUNNER_TEMP/first.png" -i "$RUNNER_TEMP/last.png" \
+            -lavfi "psnr=stats_file=$RUNNER_TEMP/psnr.log" -f null -
+          psnr=$(sed -n 's/.*psnr_avg:\([^ ]*\).*/\1/p' "$RUNNER_TEMP/psnr.log" | head -1)
+          echo "first-to-last psnr: ${psnr:-none}"
+          # psnr_avg is the literal "inf" for two identical frames, which awk would coerce to a
+          # number inconsistently, so that case is decided here rather than in the expression.
+          if [ -z "$psnr" ] || [ "$psnr" = "inf" ]; then
+            echo "the first and last frames are identical; the take filmed nothing"
+            exit 1
+          fi
+          # Anything above ~50dB is indistinguishable by eye, which for a product demo that
+          # navigates, clicks and types means the page never changed.
+          awk -v p="$psnr" 'BEGIN { exit (p + 0 < 50.0) ? 0 : 1 }' \
+            || { echo "the first and last frames are the same picture; the take filmed nothing"; exit 1; }

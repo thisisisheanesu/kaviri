@@ -1,0 +1,89 @@
+PLACEHOLDER LICENCE — NOT YET CHOSEN. DO NOT SHIP THIS FILE AS-IS.
+==================================================================
+
+Copyright (c) 2026 the lensa authors. All rights reserved.
+
+No licence is granted at this time. Until the copyright holder replaces this
+file with real licence text, you may not copy, modify, distribute, sublicense,
+sell or run this software except with the copyright holder's written
+permission. Nothing in this repository, including the `license` field in
+Cargo.toml, the README, or any file that references this one, grants any
+right, and no such reference should be read as an offer of terms.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+-------------------------------------------------------------------------
+BEFORE RELEASE: replace everything above with the licence you have chosen
+-------------------------------------------------------------------------
+
+This placeholder exists because lensa is being prepared for commercial sale
+and the licence is a commercial decision, not an engineering one. Picking a
+permissive open source licence on the author's behalf would be irreversible:
+once a version ships under MIT or Apache-2.0, that version stays under those
+terms forever, anyone may fork it, and anyone may resell it. The decision
+therefore belongs to the copyright holder and has to be made deliberately.
+
+Three things must happen together, in one commit, before the first public
+release:
+
+  1. This file is replaced with the real licence text.
+  2. `license` (or `license-file`) in Cargo.toml is set to match. It currently
+     says "MIT", which is wrong for every option below except the first, and
+     is wrong today because no MIT text accompanies the crate. MIT's own terms
+     require the notice to travel with the software.
+  3. THIRD-PARTY.md is checked against the shipped dependency set, since some
+     of the options below change what a recipient is owed.
+
+The realistic options, and what each means for selling lensa:
+
+  MIT, or the usual Rust dual MIT OR Apache-2.0
+      Maximum adoption, zero friction, matches every dependency. But anyone
+      may sell lensa, host it as a service, or bundle it into a competing
+      product, with attribution as the only obligation. Revenue then has to
+      come from something other than the code: a hosted service, support, or
+      a brand. Choose this only if the plan is "open core, sell elsewhere".
+      Apache-2.0 additionally grants an express patent licence and has the
+      NOTICE mechanism, which is why it is the safer half of the usual dual.
+
+  Business Source License 1.1 (BUSL-1.1)
+      Source-available. Free for everything except a defined competing use
+      (typically "offering lensa as a hosted recording service"), and each
+      release converts to a named open source licence after a change date,
+      usually four years. Preserves the ability to sell hosting while still
+      letting users read, patch and self-host the code. Requires filling in
+      three parameters: Licensor, Change Date, Change License, and an
+      Additional Use Grant that says exactly what commercial use is allowed.
+      Not an OSI-approved licence, so some corporate policies reject it.
+
+  Elastic License 2.0 (ELv2) or the Functional Source License (FSL)
+      Same intent as BUSL with less ceremony. ELv2 forbids providing the
+      software to third parties as a managed service and forbids removing
+      licence keys; FSL converts to Apache-2.0 after two years. Shorter to
+      read than BUSL, which matters when the buyer is a small team.
+
+  Proprietary / commercial EULA, with the source distributed to customers
+      A per-seat or per-organisation licence with real terms: permitted use,
+      redistribution ban, warranty, liability cap, term and termination. This
+      is the option that maximises direct revenue per copy and the only one
+      that supports a paid-binary model. It needs a lawyer, it needs a
+      separate evaluation licence for anyone trialling lensa, and it means
+      the crate cannot be published to crates.io.
+
+  Dual: open source plus a commercial exception
+      Ship under a copyleft licence (AGPL-3.0) so that anyone embedding lensa
+      in a hosted product must open their own source, and sell a commercial
+      licence to the companies that will not. Requires that the copyright
+      holder owns or has CLA coverage for every contribution, which is easy
+      today and gets harder with every outside pull request. Decide this
+      before accepting the first contribution, not after.
+
+Whichever is chosen: lensa does not bundle ffmpeg or Chromium, it discovers
+them on the host at run time. That is what keeps ffmpeg's GPL/LGPL terms off
+this repository, and it must stay true. See THIRD-PARTY.md.

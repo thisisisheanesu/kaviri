@@ -32,6 +32,12 @@ inputs:
     description: Capture supersampling. 2 is crisp, 1 is faster and lighter on CPU.
     required: false
     default: '2'
+  chromium-args:
+    description: >-
+      Extra flags to append to Chromium's argv. The action always passes --no-sandbox and
+      --disable-dev-shm-usage, so setting this adds to them rather than replacing them.
+    required: false
+    default: ''
   upload:
     description: Upload the MP4 as a workflow artifact.
     required: false
@@ -40,10 +46,6 @@ inputs:
     description: Name for the uploaded artifact.
     required: false
     default: demo
-  ref:
-    description: Git ref of lensa to build. Pin this for reproducible video.
-    required: false
-    default: main
 
 outputs:
   video:
@@ -53,64 +55,150 @@ outputs:
 runs:
   using: composite
   steps:
+    # Build from the action's own checkout. A composite action already has its source tree on
+    # disk, so cloning a remote would film a different commit than the one under test, and for
+    # `uses: ./` it would film a tree the pull request has not touched at all.
     - name: Install ffmpeg and a browser
       shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
       run: |
         set -euo pipefail
-        # ffmpeg does the encoding and lensa shells out to it; it is deliberately not bundled,
-        # because the builds that can write H.264 are the GPL ones.
-        if ! command -v ffmpeg >/dev/null; then
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg
-        fi
-        if ! command -v chromium >/dev/null && ! command -v google-chrome >/dev/null; then
-          sudo apt-get install -y -qq chromium-browser || sudo apt-get install -y -qq chromium
-        fi
-        ffmpeg -version | head -1
 
-    - name: Get lensa
-      shell: bash
-      run: |
-        set -euo pipefail
-        git clone --depth 1 --branch "${{ inputs.ref }}" \
-          https://github.com/vamboai/lensa.git "$RUNNER_TEMP/lensa-src"
+        browser=''
+        for candidate in google-chrome google-chrome-stable chromium chromium-browser; do
+          if command -v "$candidate" >/dev/null 2>&1; then
+            browser="$(command -v "$candidate")"
+            break
+          fi
+        done
+
+        case "${RUNNER_OS:-}" in
+          Linux)
+            SUDO=''
+            if [ "$(id -u)" -ne 0 ]; then
+              if command -v sudo >/dev/null 2>&1; then
+                SUDO='sudo'
+              else
+                echo "lensa: installing ffmpeg needs root, and this job has neither root nor sudo." >&2
+                echo "lensa: pre-install ffmpeg and a Chromium in your container image instead." >&2
+                exit 1
+              fi
+            fi
+
+            need_ffmpeg=0
+            command -v ffmpeg >/dev/null 2>&1 || need_ffmpeg=1
+            need_browser=0
+            [ -n "$browser" ] || need_browser=1
+
+            # The package index is empty by design in most container images, so the update has to
+            # happen whenever anything is about to be installed, not only in the ffmpeg branch.
+            if [ "$need_ffmpeg" -eq 1 ] || [ "$need_browser" -eq 1 ]; then
+              export DEBIAN_FRONTEND=noninteractive
+              $SUDO apt-get update -qq
+            fi
+            if [ "$need_ffmpeg" -eq 1 ]; then
+              # ffmpeg does the encoding and lensa shells out to it; it is deliberately not
+              # bundled, because the builds that can write H.264 are the GPL ones.
+              $SUDO apt-get install -y -qq ffmpeg
+            fi
+            if [ "$need_browser" -eq 1 ]; then
+              $SUDO apt-get install -y -qq chromium || $SUDO apt-get install -y -qq chromium-browser
+              for candidate in chromium chromium-browser; do
+                if command -v "$candidate" >/dev/null 2>&1; then
+                  browser="$(command -v "$candidate")"
+                  break
+                fi
+              done
+            fi
+            ;;
+          macOS)
+            if ! command -v ffmpeg >/dev/null 2>&1; then
+              brew install ffmpeg
+            fi
+            if [ -z "$browser" ] && [ -x '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' ]; then
+              browser='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+            fi
+            ;;
+          *)
+            echo "lensa's action supports Linux and macOS runners; RUNNER_OS is '${RUNNER_OS:-unset}'." >&2
+            exit 1
+            ;;
+        esac
+
+        if [ -z "$browser" ]; then
+          echo "lensa: no Chromium or Chrome on this runner, and none could be installed." >&2
+          exit 1
+        fi
+
+        # Pinning the absolute path matters on Ubuntu, where the chromium package is often a
+        # transitional stub for the snap. A snap-confined browser cannot read a profile or a
+        # frame spool under RUNNER_TEMP, and it fails by never opening the debugger port, which
+        # surfaces forty seconds later as an error that names neither snap nor the profile.
+        if [ -z "${LENSA_CHROMIUM:-}" ]; then
+          echo "LENSA_CHROMIUM=$browser" >> "$GITHUB_ENV"
+        fi
+        # The official rust images put cargo somewhere other than $HOME, and a cache keyed on a
+        # literal ~/.cargo silently stores nothing there.
+        echo "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" >> "$GITHUB_ENV"
+
+        ffmpeg -version | head -1
+        echo "browser: $browser"
+
+    - name: Rust toolchain
+      uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      with:
+        toolchain: stable
 
     - name: Cache the build
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          ${{ runner.temp }}/lensa-src/target
-        key: lensa-${{ runner.os }}-${{ inputs.ref }}
-        restore-keys: lensa-${{ runner.os }}-
+          ${{ env.CARGO_HOME }}/registry
+          ${{ env.CARGO_HOME }}/git
+          ${{ github.action_path }}/target
+        # A GitHub cache entry is immutable once written, so a key that never changes freezes the
+        # first build's target/ forever and the rebuild creeps back towards a cold one. Keying on
+        # the commit writes a fresh entry every run and the prefix restores the newest of them.
+        key: lensa-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+        restore-keys: lensa-${{ runner.os }}-${{ runner.arch }}-
 
     - name: Build lensa
       shell: bash
-      working-directory: ${{ runner.temp }}/lensa-src
-      run: cargo build --release --quiet
+      working-directory: ${{ github.action_path }}
+      run: cargo build --release --locked --quiet
 
     - name: Record
       shell: bash
       env:
+        # Every one of these is caller-controlled text. Interpolating ${{ }} into a run: body
+        # substitutes it before bash parses the line, so quoting there buys nothing and a branch
+        # name or a pull request title can execute commands. Passed as environment variables they
+        # are data, and "$SCRIPT" below is just a string.
+        ACTION_PATH: ${{ github.action_path }}
+        SCRIPT: ${{ inputs.script }}
+        OUT: ${{ inputs.out }}
+        PRESET: ${{ inputs.preset }}
+        BACKGROUND: ${{ inputs.background }}
+        SCALE: ${{ inputs.scale }}
         # Chromium's sandbox cannot start inside a CI container. This is a real reduction in
         # isolation, which is why lensa does not do it by default and the runner opts in.
-        LENSA_CHROMIUM_ARGS: --no-sandbox --disable-dev-shm-usage
+        LENSA_CHROMIUM_ARGS: --no-sandbox --disable-dev-shm-usage ${{ inputs.chromium-args }}
         # /tmp on a runner is small and shared. Spool beside the workspace instead.
         TMPDIR: ${{ runner.temp }}
       run: |
         set -euo pipefail
-        "$RUNNER_TEMP/lensa-src/target/release/lensa" record \
-          --script "${{ inputs.script }}" \
-          --out "${{ inputs.out }}" \
-          --preset "${{ inputs.preset }}" \
-          --background "${{ inputs.background }}" \
-          --scale "${{ inputs.scale }}"
-        ls -lh "${{ inputs.out }}"
+        "$ACTION_PATH/target/release/lensa" record \
+          --script "$SCRIPT" \
+          --out "$OUT" \
+          --preset "$PRESET" \
+          --background "$BACKGROUND" \
+          --scale "$SCALE"
+        ls -lh "$OUT"
 
     - name: Upload
       if: ${{ inputs.upload == 'true' }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
         name: ${{ inputs.artifact-name }}
         path: ${{ inputs.out }}
