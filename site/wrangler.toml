@@ -1,9 +1,10 @@
-# kaviri.dev. The page is static, but it is served through worker.js rather than straight from
+# kaviri.dev, on the personal Cloudflare account, which is where the domain was bought and
+# where ngano.dev and glitchfront.com already live. The page is static, but it is served through worker.js rather than straight from
 # the asset store, so that caching and the security headers are set in one place and the
 # Worker's own source is not part of the public tree.
 name = "kaviri-site"
 main = "worker.js"
-account_id = "5953bfdd63a83668a47dbaf1329dee16"
+account_id = "67cb2eb6080019612e374af596f7197c"
 # Pinned rather than floating, because a Workers runtime change should be something you opt into
 # on a day you are watching the deploy, not something that arrives on its own.
 compatibility_date = "2026-09-01"

@@ -4,3 +4,10 @@
 worker.js
 wrangler.toml
 .assetsignore
+
+# The deploy notes are for whoever runs the deploy, not for the open internet.
+README.md
+
+# wrangler writes its build scratch here, including a source map for worker.js. Uploading
+# that would publish the Worker source the rest of this file exists to keep out.
+.wrangler/
