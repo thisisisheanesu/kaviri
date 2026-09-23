@@ -1,6 +1,6 @@
 name: demo
 
-# lensa records its own demo. If the recorder breaks, this workflow is the thing that says so,
+# kaviri records its own demo. If the recorder breaks, this workflow is the thing that says so,
 # and the README video is never older than the last commit that changed behaviour.
 
 on:
@@ -34,9 +34,9 @@ jobs:
       matrix:
         include:
           - preset: readme
-            out: lensa-readme.mp4
+            out: kaviri-readme.mp4
           - preset: tiktok
-            out: lensa-vertical.mp4
+            out: kaviri-vertical.mp4
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 

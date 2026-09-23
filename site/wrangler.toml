@@ -1,0 +1,52 @@
+# kaviri.dev. The page is static, but it is served through worker.js rather than straight from
+# the asset store, so that caching and the security headers are set in one place and the
+# Worker's own source is not part of the public tree.
+name = "kaviri-site"
+main = "worker.js"
+account_id = "5953bfdd63a83668a47dbaf1329dee16"
+# Pinned rather than floating, because a Workers runtime change should be something you opt into
+# on a day you are watching the deploy, not something that arrives on its own.
+compatibility_date = "2026-09-01"
+
+[observability]
+enabled = true
+
+[assets]
+directory = "."
+# worker.js reads the asset store through this binding rather than the asset store answering
+# first, which is what lets it decide a Cache-Control per kind of file.
+binding = "ASSETS"
+not_found_handling = "404-page"
+html_handling = "auto-trailing-slash"
+# Without this the asset store answers any URL that matches a file and the Worker never runs, so
+# every security header and every Cache-Control below would be missing on exactly the page, the
+# stylesheet and the video that need them. It is the one setting that decides whether worker.js
+# exists at runtime at all.
+run_worker_first = true
+
+[[routes]]
+pattern = "kaviri.dev"
+custom_domain = true
+
+# www has to be a route of its own. worker.js answers www.kaviri.dev with a 301 to the apex, but
+# it can only do that if the request reaches the Worker, and without this the hostname resolves
+# to nothing and Cloudflare serves a 1016 instead.
+[[routes]]
+pattern = "www.kaviri.dev"
+custom_domain = true
+
+# Dashboard-only, in the order they have to be done:
+#
+# 1. SSL/TLS mode Full (strict) and Always Use HTTPS, both before the HSTS header in worker.js
+#    starts being honoured. A year of HSTS against a misconfigured origin is not something you
+#    can take back inside a year.
+# 2. Cache Rules: "html-edge-swr", 60s edge TTL with 86400s stale-while-revalidate on text/html,
+#    and "media-edge-immutable", 30 days on *.mp4.
+# 3. Rate limiting: "mp4-flood", block at 60 req/min per IP on paths ending .mp4, and
+#    "page-flood", managed challenge at 300 req/min on /.
+# 4. Rocket Loader must stay OFF. It rewrites script tags into inline script, and the CSP in
+#    worker.js allows no inline script, so the page would break in exactly the browsers that got
+#    the rewritten copy.
+#
+# Adding Web Analytics later means adding static.cloudflareinsights.com to script-src and
+# connect-src in worker.js first, otherwise the beacon is blocked with no visible symptom.

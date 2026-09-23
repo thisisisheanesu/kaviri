@@ -1,0 +1,316 @@
+/* Brand tokens come from brand/tokens.css, which is loaded before this file. Every colour here
+   goes through a var() so the brand agent owns the palette. The second argument of each var()
+   is a fallback that only matters if a token is missing, so the page stays legible either way. */
+
+:root {
+  /* Fallbacks, not the brand. These are redefined below for dark mode so that a page with no
+     tokens.css at all still reads correctly in both schemes. */
+  --k-paper: #ffffff;
+  --k-ink: #16181d;
+  --k-muted: #5d636e;
+  --k-line: #e3e5ea;
+  --k-accent: #ff5c1a;
+  --k-accent-ink: #ffffff;
+  --k-surface: #f7f8fa;
+  --k-code-bg: #14161b;
+  --k-code-ink: #e6e8ee;
+
+  --k-space-1: 8px;
+  --k-space-2: 16px;
+  --k-space-3: 24px;
+  --k-space-4: 40px;
+  --k-space-5: 72px;
+  --k-space-6: 112px;
+
+  --k-measure: 62ch;
+  --k-max: 1080px;
+  --k-radius: 12px;
+
+  --k-sans: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto,
+    "Helvetica Neue", Arial, sans-serif);
+  --k-mono: var(--font-mono, ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --k-paper: #0e1013;
+    --k-ink: #eceef2;
+    --k-muted: #9aa1ad;
+    --k-line: #262a31;
+    --k-accent: #ff6b2c;
+    --k-accent-ink: #14161b;
+    --k-surface: #16191e;
+    --k-code-bg: #070809;
+    --k-code-ink: #dfe2e9;
+  }
+}
+
+/* brand/tokens.css names its semantic colours --bg, --text, --text-muted, --border and
+   --accent-contrast. This stylesheet was written against --paper, --ink, --muted, --line and
+   --accent-ink, so without this block the page silently picked up the brand accent and the brand
+   code background while keeping its own neutral paper and its own light code ink, which put
+   near-white text on a near-white code block. The aliases resolve at use time, so the dark values
+   brand declares under prefers-color-scheme and under [data-theme] follow on their own, and every
+   one still falls back to the --k-* neutrals when tokens.css is not loaded at all. */
+:root {
+  --paper: var(--bg, var(--k-paper));
+  --ink: var(--text, var(--k-ink));
+  --muted: var(--text-muted, var(--k-muted));
+  --line: var(--border, var(--k-line));
+  --accent-ink: var(--accent-contrast, var(--k-accent-ink));
+  /* Brand has no code ink token. Its --code-bg is a light surface in the light theme, so the ink
+     that belongs on it is the ordinary text colour, not this file's light-on-dark default. */
+  --code-ink: var(--text, var(--k-code-ink));
+}
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--paper, var(--k-paper));
+  color: var(--ink, var(--k-ink));
+  font-family: var(--k-sans);
+  font-size: 17px;
+  line-height: 1.6;
+  /* The page is a column of text and code. Nothing here should ever scroll sideways on a phone. */
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  width: 100%;
+  max-width: var(--k-max);
+  margin: 0 auto;
+  padding-left: var(--k-space-2);
+  padding-right: var(--k-space-2);
+}
+
+/* Vertical padding only. These elements also carry .wrap, and the padding shorthand would
+   reset the left and right gutter that .wrap sets. */
+section { padding-top: var(--k-space-5); padding-bottom: var(--k-space-5); }
+
+h1, h2, h3 {
+  line-height: 1.12;
+  letter-spacing: -0.022em;
+  margin: 0 0 var(--k-space-2);
+  font-weight: 640;
+}
+
+h1 { font-size: clamp(2.3rem, 7.2vw, 4.1rem); letter-spacing: -0.032em; }
+h2 { font-size: clamp(1.6rem, 4vw, 2.2rem); }
+h3 { font-size: 1.02rem; font-weight: 620; letter-spacing: 0; }
+
+p { margin: 0 0 var(--k-space-2); max-width: var(--k-measure); }
+
+a { color: inherit; text-decoration-color: var(--line, var(--k-line)); text-underline-offset: 3px; }
+a:hover { text-decoration-color: var(--accent, var(--k-accent)); }
+
+.lede { font-size: clamp(1.08rem, 2.4vw, 1.3rem); color: var(--muted, var(--k-muted)); }
+.muted { color: var(--muted, var(--k-muted)); }
+
+.eyebrow {
+  font-family: var(--k-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted, var(--k-muted));
+  margin: 0 0 var(--k-space-2);
+}
+
+/* Header */
+
+.site-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--k-space-2);
+  padding-top: var(--k-space-3);
+  padding-bottom: var(--k-space-3);
+}
+
+.wordmark {
+  font-family: var(--k-mono);
+  font-weight: 620;
+  font-size: 1.02rem;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+
+.wordmark .dot { color: var(--accent, var(--k-accent)); }
+
+.site-head nav {
+  display: flex;
+  gap: var(--k-space-2);
+  font-size: 0.94rem;
+}
+
+.site-head nav a { text-decoration: none; color: var(--muted, var(--k-muted)); }
+.site-head nav a:hover { color: var(--ink, var(--k-ink)); }
+
+/* Hero */
+
+.hero { padding-top: var(--k-space-4); padding-bottom: var(--k-space-4); }
+.hero h1 { max-width: 15ch; }
+.hero .lede { max-width: 46ch; margin-bottom: var(--k-space-3); }
+
+.actions { display: flex; flex-wrap: wrap; gap: var(--k-space-1); align-items: center; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 19px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 0.97rem;
+  font-weight: 560;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: var(--accent, var(--k-accent));
+  color: var(--accent-ink, var(--k-accent-ink));
+}
+
+.btn-primary:hover { filter: brightness(1.07); }
+
+.btn-secondary {
+  border-color: var(--line, var(--k-line));
+  color: var(--ink, var(--k-ink));
+}
+
+.btn-secondary:hover { border-color: var(--muted, var(--k-muted)); }
+
+/* Video */
+
+.demo {
+  margin: 0;
+  border: 1px solid var(--line, var(--k-line));
+  border-radius: var(--k-radius);
+  overflow: hidden;
+  background: var(--surface, var(--k-surface));
+}
+
+.demo video {
+  display: block;
+  width: 100%;
+  height: auto;
+  /* Reserving the box before the MP4 arrives keeps the rest of the page from jumping. */
+  aspect-ratio: 1100 / 620;
+  background: var(--surface, var(--k-surface));
+}
+
+.demo figcaption {
+  padding: 10px var(--k-space-2);
+  border-top: 1px solid var(--line, var(--k-line));
+  font-family: var(--k-mono);
+  font-size: 0.78rem;
+  color: var(--muted, var(--k-muted));
+}
+
+/* Code */
+
+pre {
+  margin: 0 0 var(--k-space-2);
+  padding: var(--k-space-2);
+  background: var(--code-bg, var(--k-code-bg));
+  color: var(--code-ink, var(--k-code-ink));
+  border-radius: var(--k-radius);
+  font-family: var(--k-mono);
+  font-size: 0.8rem;
+  line-height: 1.62;
+  overflow-x: auto;
+  /* A .jsonl script is one op per line and wrapping it would hide that, so it scrolls instead. */
+  white-space: pre;
+  -webkit-overflow-scrolling: touch;
+}
+
+code { font-family: var(--k-mono); font-size: 0.88em; }
+
+p code, li code {
+  background: var(--surface, var(--k-surface));
+  border: 1px solid var(--line, var(--k-line));
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+.filename {
+  font-family: var(--k-mono);
+  font-size: 0.78rem;
+  color: var(--muted, var(--k-muted));
+  margin: 0 0 8px;
+}
+
+.step { margin-bottom: var(--k-space-4); }
+.step:last-child { margin-bottom: 0; }
+
+/* Two-column bands */
+
+.cols {
+  display: grid;
+  gap: var(--k-space-3);
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 760px) {
+  .cols { grid-template-columns: 1fr 1fr; gap: var(--k-space-4); }
+}
+
+.card {
+  border: 1px solid var(--line, var(--k-line));
+  border-radius: var(--k-radius);
+  padding: var(--k-space-3);
+}
+
+.card.lit { border-color: var(--accent, var(--k-accent)); }
+
+.card ul { margin: 0; padding-left: 1.1em; }
+.card li { margin-bottom: 6px; }
+.card li::marker { color: var(--muted, var(--k-muted)); }
+
+.rule { border: 0; border-top: 1px solid var(--line, var(--k-line)); margin: 0; }
+
+/* Failure band */
+
+.fail-line {
+  font-family: var(--k-mono);
+  font-size: 0.86rem;
+  color: var(--accent, var(--k-accent));
+  margin-bottom: var(--k-space-2);
+}
+
+/* Footer */
+
+.site-foot {
+  padding-top: var(--k-space-4);
+  padding-bottom: var(--k-space-5);
+  border-top: 1px solid var(--line, var(--k-line));
+  font-size: 0.94rem;
+  color: var(--muted, var(--k-muted));
+}
+
+.pron {
+  font-family: var(--k-mono);
+  color: var(--ink, var(--k-ink));
+  font-size: 1rem;
+}
+
+.foot-links { display: flex; flex-wrap: wrap; gap: var(--k-space-2); margin-top: var(--k-space-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+/* At phone width the four nav links do not fit beside the wordmark, and letting them overflow
+   would give the page a horizontal scroll. The section links are all reachable by scrolling, so
+   only the one that leaves the site stays. */
+@media (max-width: 599px) {
+  .site-head nav a:not(:last-child) { display: none; }
+  .site-head nav a:last-child { color: var(--ink, var(--k-ink)); }
+}

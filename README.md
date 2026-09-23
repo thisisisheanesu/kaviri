@@ -1,160 +1,89 @@
-# lensa
+# kaviri
 
-A programmable browser that records what happens inside it and produces
-Screen Studio-style videos — automatic smooth zoom and pan onto every
-interaction. **Screen Studio for AI agents.**
+kaviri records a web app from a script and renders a finished MP4: a headless
+browser driven over CDP by newline-delimited JSON ops, with the camera zooming
+and panning onto each interaction the way Screen Studio does for a human.
+It is built for agents rather than people, so the demo video becomes a build
+artifact: it is re-recorded in CI, and the build fails when the take filmed
+nothing.
 
-One binary. An agent feeds it newline-delimited JSON ops (navigate, click,
-type, scroll…); lensa drives a browser, captures the page content, tracks
-every interaction's timestamp and bounding box, and renders a polished MP4
-with cinematic ease-in/hold/ease-out zooms that follow consecutive nearby
-interactions. No OS screen recorder, no Wayland portals, no coordinate
-calibration — the capture is the page itself.
+Apache 2.0, one binary, no account, nothing phones home.
 
-## Quick start
+*kaviri* is Shona for "twice, a second time" (ka-VEE-ree).
 
 ```sh
+kaviri record --script demos/checkout.jsonl --out checkout.mp4
+```
+
+## The demo video
+
+There is no video embedded in this file yet, and the honest reason is that the
+one worth showing is the one CI makes. `.github/workflows/demo.yml` records
+`examples/demo.jsonl` on every push that touches `src/`, in two shapes (a wide
+README take and a 9:16 vertical one), and uploads each MP4 as a workflow
+artifact. The newest pair is on the Actions tab of this repo.
+
+Making your own takes about thirty seconds, below.
+
+## Install
+
+Build it from source:
+
+```sh
+git clone https://github.com/thisisisheanesu/kaviri
+cd kaviri
 cargo build --release
-./target/release/lensa record --script examples/form.jsonl --out demo.mp4
 ```
 
-Requirements (all user-space, no sudo):
-- Rust 1.75 or newer to build (`rust-version` in `Cargo.toml` is the source of truth)
-- a Chromium/Chrome binary (`chromium` on PATH, or `--chromium`/`$LENSA_CHROMIUM`).
-  Anything current enough to speak CDP `Page.captureScreenshot` and
-  `Emulation.setDeviceMetricsOverride` works; that is Chromium 90 and up in practice.
-  Both are discovered at run time, not bundled, so their licences are theirs
-- `ffmpeg` on PATH (a static build in `~/.local/bin` works, or `$LENSA_FFMPEG`),
-  built with `libx264`. Anything from ffmpeg 4 onwards is fine
-- Linux or macOS. Windows is untested and unsupported today
+What it needs, all in user space, no sudo:
 
-lensa checks for both binaries before it launches the browser, so a missing
-encoder costs you a second rather than a whole take. `lensa doctor` prints what
-it found and where.
+- **Rust 1.75 or newer** to build. `rust-version` in `Cargo.toml` is the source
+  of truth.
+- **A Chromium or Chrome binary**, found at run time rather than bundled:
+  `chromium` on PATH, or `--chromium`, or `$KAVIRI_CHROMIUM`. Anything that
+  speaks CDP `Page.captureScreenshot` and `Emulation.setDeviceMetricsOverride`,
+  which in practice is Chromium 90 and up.
+- **ffmpeg with libx264** on PATH, or `$KAVIRI_FFMPEG`. Version 4 onwards. It is
+  deliberately not bundled: the builds that write H.264 are the GPL ones, and
+  kaviri's licence stays its own business.
+- **Linux or macOS.** Windows is untested and unsupported.
 
-## Modes
+Both binaries are checked before the browser launches, so a missing encoder
+costs you a second rather than a whole take. `kaviri doctor` prints what it
+found and where.
 
-```
-lensa record --script demo.jsonl --out demo.mp4     # scripted take, end to end
-lensa serve                                          # NDJSON ops on stdin, results on stdout
-lensa serve --port 7800                              # same protocol over TCP, token required
-lensa doctor                                         # what chromium and ffmpeg resolve to
-lensa --version                                      # the build that produced your video
-```
+## Thirty seconds
 
-`serve` on stdin is the default and the one to prefer. `--port` opens a local
-socket that anything on the machine can connect to, including a web page the
-browser you are filming happens to be visiting, so it is opt-in and
-token-gated; see [Serve over TCP](#serve-over-tcp).
+From the repo root, with nothing running and no network:
 
-## Presets
-
-A take has three sizes, and they are not the same number: the **viewport** the page lays
-out in, the **capture** resolution (viewport x scale), and the **video** it renders to. A
-vertical take wants a phone-width viewport so the site lays out like a phone, a high
-capture so zooms crop into real pixels, and a 1080x1920 file. `--preset` sets all three.
-
-```
-lensa presets                                   # list them
-lensa record --preset tiktok --script s.jsonl --out s.mp4
+```sh
+./target/release/kaviri record --script examples/form.jsonl --out demo.mp4
 ```
 
-| preset | viewport | video | for |
-|---|---|---|---|
-| `desktop` | 1470x830 | 1470x830 | the default: a laptop window |
-| `tiktok` / `reels` / `shorts` | 432x768 | 1080x1920 | 9:16 vertical, phone layout |
-| `square` | 540x540 | 1080x1080 | 1:1 feed posts |
-| `landscape` | 960x540 | 1920x1080 | 16:9 1080p, large type for a projector |
-| `readme` | 1100x620 | 1100x620 | sits in a README without scaling |
-| `phone` | 390x844 | 1170x2532 | a real phone's viewport and pixels, for device mocks |
+That script opens the local page in `examples/demo.html`, types a name and an
+email into it, clicks the button and waits for the confirmation. You get
+`demo.mp4`: a zoom into each field as it fills, a pan that follows the text
+across, and a return to the wide shot in between.
 
-A preset is a starting point: `--width`, `--height`, `--scale`, `--out-width` and
-`--out-height` after it still win. A vertical frame also wants its own shot list:
-scroll rather than pan, open on the most legible image, and keep every beat short.
-`examples/ngano-vertical.jsonl` is one.
+Run it from the repo root. `examples/form.jsonl` navigates to a relative path,
+and a bare path is resolved against the working directory before it becomes a
+`file://` URL.
 
-## Backdrop
-
-Every take is composited onto a wallpaper: the content inset with rounded
-corners and a soft drop shadow, the way Screen Studio and Cleanshot frame a
-recording. The background fills the output frame, so the preset's aspect ratio
-is what it was; the content is fitted inside it at its own aspect ratio and
-centred, never stretched.
+The four subcommands:
 
 ```
-lensa backgrounds                                    # list them
-lensa record --background tide  --script s.jsonl --out s.mp4
-lensa record --background none  --script s.jsonl --out s.mp4   # full-frame, as before
+kaviri record --script demo.jsonl --out demo.mp4   # a scripted take, end to end
+kaviri serve                                        # NDJSON ops on stdin, results on stdout
+kaviri doctor                                       # what chromium and ffmpeg resolve to
+kaviri presets | kaviri backgrounds                 # the named shapes and backdrops
 ```
 
-| background | what it is |
-|---|---|
-| `dusk` | indigo to violet to magenta wash |
-| `dawn` | peach to rose to lilac, light and warm |
-| `tide` | deep teal to blue to cyan |
-| `moss` | forest to olive to sand |
-| `ember` | oxblood to orange to amber |
-| `slate` | solid muted blue-grey |
-| `linen` | solid warm off-white |
-| `mesh-cool` | dark mesh gradient, blue and violet blobs |
-| `mesh-warm` | light mesh gradient, rose and amber blobs |
-| `auto` | **the default**: picked from the recording itself |
-| `none` | no backdrop |
+`serve` is the mode an agent holds open: it drives one browser across many ops,
+so a long session is one take rather than one video per step.
 
-**How `auto` picks.** After the frames are normalised, the intermediate is
-probed with ffmpeg at two frames a second scaled to 12x12, and every sample is
-folded into two numbers: a chroma-weighted mean hue (so a white page with one
-brand colour resolves to the brand colour, not to white) and a mean lightness.
-Then each background is scored on its own measured hue and lightness:
+## The op protocol
 
-- **hue**: distance from `content_hue + 150°`, a split-complementary target
-  rather than the flat opposite, which reads as deliberate instead of as a
-  clash;
-- **lightness**: a penalty for landing within 0.35 of the content's lightness,
-  so a white app gets a deep wash and a dark app gets a light one;
-- **ties**: solids carry a small constant penalty so a wash wins an otherwise
-  equal contest, and declaration order breaks anything still level.
-
-Nothing is random. The same recording always picks the same background, and if
-the probe fails the fallback is `dusk`. The chosen name, and the content box it
-was fitted to, land in the telemetry sidecar.
-
-The plate itself is one RGBA PNG rendered in `src/backdrop.rs` (no image crate:
-the encoder writes stored-deflate PNGs) and handed to ffmpeg as a second input.
-It is a frame rather than a backdrop: opaque everywhere except the rounded
-window the content shows through, so a single `overlay` gives background,
-shadow and rounded corners in one pass. Gradients are eased with the same cubic
-smoothstep the zoom uses and dithered by about one 8-bit level, because a smooth
-wash bands badly once h264 has had its way with it.
-
-## Cursor
-
-Headless capture has no OS cursor, so lensa draws one into the page: a large
-macOS-style pointer with a white outline and a soft shadow, plus a click ripple.
-
-```
-lensa record --cursor-scale 2.0 --script s.jsonl --out s.mp4
-lensa record --cursor hand --script s.jsonl --out s.mp4   # pin one shape
-lensa record --cursor none --script s.jsonl --out s.mp4   # draw no pointer
-```
-
-- **Vector, not bitmap.** The pointer is an SVG path drawn at the requested
-  size, so a zoom crops into a crisp edge rather than an upscaled one.
-- **Size.** `--cursor-scale` is a multiplier over a 1x system pointer (a 24 CSS
-  px arrow). The default is 1.75, large enough to read once a 1470px take is
-  playing in a phone-sized player. It is measured in the viewport's own pixels,
-  so it scales with the content: on the narrow vertical presets the pointer is a
-  much bigger share of the frame, and `--cursor-scale 1.0` suits them better.
-- **Shapes.** `auto` (the default) asks the element being clicked what the OS
-  would show and picks `arrow`, `hand` (links, buttons, `cursor: pointer`) or
-  `text` (inputs, textareas, contenteditable), falling back to `arrow` for
-  anything it cannot classify. Pass a shape name to pin it for the whole take.
-- **Zoom.** The pointer is part of the page, so it is captured in the frame and
-  the zoom transform carries it along: its position cannot drift away from the
-  click it belongs to, and it scales with the content the way a magnified screen
-  recording does.
-
-## Op protocol (one JSON object per line)
+One JSON object per line, in and out.
 
 ```jsonc
 {"op":"start_recording","path":"out.mp4"}   // path optional; --out wins in record mode
@@ -172,185 +101,80 @@ lensa record --cursor none --script s.jsonl --out s.mp4   # draw no pointer
 {"op":"stop_recording"}                     // renders the MP4
 ```
 
-Every executed op auto-emits a timestamped mark (on the recording clock) with
-the target element's bounding box; that telemetry drives the zoom generator.
-
-### Responses
-
-One JSON object per op, on stdout, in both `record` and `serve`:
+Every executed op answers with one line on stdout, in `record` and `serve`
+alike:
 
 ```jsonc
 {"ok":true,"result":{"event":"mark","kind":"click","t":3.14,"box":[40,120,180,44]}}
-{"ok":false,"error":"selector matched a non-visible element: #done","op":{"op":"click","selector":"#done"}}
+{"ok":false,"error":"selector matched a non-visible element: #done","op":"click","index":7}
 ```
 
-A failing op is reported in band and, in record mode, ends the script: lensa
-stops the recording, renders what it captured, and exits non-zero. You get a
-partial video and a clear error rather than nothing.
+Each op also emits a timestamped mark carrying the target's bounding box. That
+telemetry is the entire input to the camera.
+
+A failing op is reported in band and, in record mode, ends the script. kaviri
+still stops the recording, renders what it captured and exits non-zero, so you
+get a partial video and a clear error rather than nothing.
 
 ### Things worth knowing before you write a script
 
-- **`wait` takes `ms` or `selector`, never both.** `ms` is a fixed pause;
-  `selector` polls until the element is there and rendered, bounded by
-  `timeout_ms` (default 20s). Passing both is an error, because the natural
-  reading of it ("wait for this, at most this long") is not what it would do.
-  Bound a selector wait with `timeout_ms`.
-- **A selector wait checks visibility, not just presence.** An element that is
-  in the DOM with `display:none` does not satisfy it. Pass `"visible":false`
-  when you genuinely mean presence only.
-- **`scroll` needs `y`, and `y` is absolute.** It is a document offset in CSS
-  pixels, not a delta from where you are. There is no default; a missing or
-  non-numeric `y` is an error rather than a silent scroll to the top.
-- **`type` without a selector types into `document.activeElement`.** Use it to
-  continue typing into a field you already clicked. If nothing editable is
-  focused it is an error, because the alternative is characters going nowhere
-  and the op reporting success. Typing without a selector also contributes no
-  bounding box, so it produces no zoom of its own.
+- **`wait` takes `ms` or `selector`, never both.** Passing both is an error,
+  because the natural reading of it ("wait for this, at most this long") is not
+  what it would do. Bound a selector wait with `timeout_ms`.
+- **A selector wait checks visibility, not just presence.** An element in the
+  DOM with `display:none` does not satisfy it. Pass `"visible":false` when you
+  genuinely mean presence only.
+- **`scroll` needs `y`, and `y` is absolute.** A document offset in CSS pixels,
+  not a delta. A missing or non-numeric `y` is an error rather than a silent
+  scroll to the top.
+- **`type` without a selector types into `document.activeElement`,** and errors
+  if nothing editable is focused, because the alternative is characters going
+  nowhere and the op reporting success. It contributes no bounding box, so it
+  earns no zoom of its own.
 - **`click` and `type` refuse invisible and obscured targets.** A zero-area or
   `visibility:hidden` element is an error, and so is one covered by something
   else, which names the element that is on top.
 - **Durations are numbers of milliseconds.** `ms`, `timeout_ms` and
-  `typewriter_ms` accept any finite non-negative number; anything else is an
-  error rather than a silent fall back to the default.
-- **The last interaction wants a tail.** A zoom needs about 1.2s of footage
-  after the mark to ease out, so end a script with a short `wait` before
-  `stop_recording` if you want the final click zoomed. lensa warns on stderr
-  when a mark lands too late to get one.
+  `typewriter_ms` take any finite non-negative number. A string, a negative or a
+  NaN is an error rather than a silent fall back to the default.
 
-### Telemetry sidecar
+### Presets
 
-lensa can write a JSON sidecar with the raw marks and the computed zoom events.
-It is off by default. `--keep-temp` puts it next to the video as
-`<out>.telemetry.json`, and `LENSA_TELEMETRY=<path>` writes it wherever you
-name; `LENSA_TELEMETRY=0` suppresses it even under `--keep-temp`.
+A take has three sizes, and they are not one number: the **viewport** the page
+lays out in, the **capture** resolution (viewport times scale), and the
+**video** it renders to. A vertical take wants a phone-width viewport so the
+site lays out like a phone, a high capture so zooms crop into real pixels, and a
+1080x1920 file. `--preset` sets all three.
 
-It stays off by default because it is a debugging artefact and because its
-`marks` array carries every `navigate` label verbatim: full URLs, query strings
-and any token in them, plus local `file://` paths. Do not upload it as a build
-artifact without reading it first.
+| preset | viewport | video | for |
+|---|---|---|---|
+| `desktop` | 1470x830 | 1470x830 | the default: a laptop window |
+| `tiktok` / `reels` / `shorts` | 432x768 | 1080x1920 | 9:16 vertical, phone layout |
+| `square` | 540x540 | 1080x1080 | 1:1 feed posts |
+| `landscape` | 960x540 | 1920x1080 | 16:9 1080p, large type for a projector |
+| `readme` | 1100x620 | 1100x620 | sits in a README without scaling |
+| `phone` | 390x844 | 1170x2532 | a real phone's viewport and pixels |
 
-## How the zoom works
+A preset is a starting point: `--width`, `--height`, `--scale`, `--out-width`
+and `--out-height` after it still win. A vertical frame also wants its own shot
+list, so scroll rather than pan and keep every beat short.
+`examples/ngano-vertical.jsonl` is one written that way.
 
-- Frames arrive at irregular intervals (see [Capture](#capture-and-what-it-costs-the-app-you-are-filming))
-  and are normalized to CFR 30fps **before** any time-based math.
-- Each interaction becomes a zoom event `{t, end, cx, cy, z}` (z 1.5–1.85 by
-  target size). Consecutive interactions within ~1.3s of the hold window are
-  merged into one event with **path waypoints**, so the camera pans between
-  them instead of zooming out and back in.
-- All eases are cubic smoothstep `s = p·p·(3−2p)`, EASE = 0.7s; the crop is
-  clamped to the frame.
-- Rendering is a generated ffmpeg `zoompan` expression over the CFR
-  intermediate (v2: render-time compositing in Rust for arbitrarily long
-  takes and per-frame effects).
-- The zoomed content is composited onto the backdrop plate in that same pass:
-  scaled into the content box, padded out to the frame, and the plate laid over
-  it.
+Every take is composited onto a backdrop, the way Screen Studio and Cleanshot
+frame a recording: the content inset with rounded corners and a soft drop
+shadow. `kaviri backgrounds` lists the nine built-in plates. The default is
+`auto`, which probes the rendered take at two frames a second, folds it into a
+chroma-weighted mean hue and a mean lightness, and picks the backdrop nearest a
+split-complementary target while penalising one that sits within 0.35 of the
+content's own lightness. Nothing is random: the same recording always picks the
+same backdrop. `--background none` renders full frame.
 
-Content-only video is a feature: no window chrome, ever. What sits around the
-content is the backdrop, not a fake title bar, and the pointer is drawn into
-the page (see [Cursor](#cursor)) because headless capture has no OS cursor.
+Headless capture has no OS cursor, so kaviri draws one into the page as vector
+SVG, with a click ripple. It is part of the page, so the zoom transform carries
+it along and it cannot drift away from the click it belongs to. `--cursor none`
+turns it off.
 
-## Capture, and what it costs the app you are filming
-
-There are two capture paths, and which one you get follows `--scale`:
-
-- **`--scale` above 1 (the default, and every preset): a `Page.captureScreenshot`
-  pump.** lensa asks the browser for a fresh viewport screenshot roughly every
-  25ms, one request outstanding at a time, and spools the JPEG. The device
-  metrics override supplies the extra pixels, so the request carries no `clip`.
-  An earlier version passed `clip` with a `scale`, and it was removed: a clip is
-  in document coordinates, so once the page had scrolled it pointed above the
-  fold and came back blank, and carrying the scale on it squared the error.
-- **`--scale 1`: the DevTools screencast.** The browser pushes frames as it
-  paints them, which is cheaper and needs no round trip, but it caps frames at
-  the CSS viewport no matter what `maxWidth` asks for. That is why it is not the
-  default: a zoom into a 1x capture crops into upscaled pixels.
-
-Because `--scale` defaults to 2 and every preset sets 2 or more, **the pump is
-the path a normal take takes.** What that costs: each screenshot is a full
-compositor pass plus a JPEG encode inside the same
-browser that is running the app you are filming, and lensa then decodes and
-writes it. On a 1470x830 viewport at 2x that is roughly 15-25 MB/s of JPEG and
-a busy core. The filmed app runs measurably slower than it does unrecorded:
-animations stutter, and a `wait` on a selector that is comfortable by hand can
-time out on a loaded machine.
-
-The escape hatch is `--scale 1`, which switches to the push-based screencast
-and takes lensa almost entirely out of the app's way. You lose supersampling,
-so zooms are softer. If the take is for a README at its native size, or the app
-is timing-sensitive, or you are recording on a shared CI runner, `--scale 1` is
-the better trade. Give the recording an uncontended core where you can.
-
-## Resource envelope
-
-Plan for this before a long take, because the failure mode is a full disk:
-
-- **Temp space.** Frames spool to one append-only file under `TMPDIR`
-  (`--spool-dir` moves it, e.g. next to a big scratch disk). At the default
-  `--scale 2` that is roughly 15-25 MB/s, so **a five-minute take is several
-  gigabytes**. A five-minute 1080x1920 take at `--scale 2.5` is more.
-- **A spool cap.** The spool stops at 8 GiB by default (`--max-spool-bytes`);
-  on hitting it lensa stops capturing cleanly and renders what it has rather
-  than dying on ENOSPC. It also refuses to start a take with less than 512 MiB
-  free, naming the directory, and clamps its own cap to the free space it sees.
-- **A second large file at render time.** The CFR intermediate is a full-length
-  H.264 encode in a per-run temp directory, plus the backdrop plate PNG at about
-  4 bytes per output pixel (roughly 8 MB for 1080x1920). `--keep-temp` retains
-  both and prints where they are.
-- **CPU.** One core for the browser, one for lensa's pump, one for ffmpeg
-  during the render, which runs after capture ends and is not gentle.
-- **Memory is flat.** Frames go to disk as they arrive and the render pass holds
-  one at a time, so a long take costs disk, not RAM.
-
-### Environment
-
-Every one of these has a flag; the variables exist so a CI job can set them
-once for a whole matrix.
-
-| variable | what it does |
-|---|---|
-| `LENSA_CHROMIUM` | browser binary, same as `--chromium` |
-| `LENSA_CHROMIUM_ARGS` | extra Chromium flags, whitespace-separated |
-| `LENSA_FFMPEG` | ffmpeg binary or a name to resolve on PATH |
-| `TMPDIR` | where the frame spool and the CFR intermediate live |
-| `LENSA_SPOOL_DIR` | the spool alone, same as `--spool-dir` |
-| `LENSA_MAX_SPOOL_BYTES` | the spool cap, same as `--max-spool-bytes` |
-| `LENSA_KEEP_TEMP` | keep the intermediates, same as `--keep-temp` |
-| `LENSA_TELEMETRY` | where to write the sidecar; `0` or `off` suppresses it |
-| `LENSA_TOKEN` | the `serve --port` token, instead of a generated one |
-| `LENSA_DEBUG` | log the CDP traffic on stderr |
-
-## Serve over TCP
-
-`lensa serve` on stdin needs no authentication: the ops come from the process
-that started it. `lensa serve --port <n>` does not have that property. Binding
-to loopback is not a trust boundary against a browser, because any page the
-user visits can `fetch()` a loopback port, and the op set can navigate to
-`file://` URLs and write an MP4 to a path of the caller's choosing.
-
-So `--port` prints a token on stderr at startup and the first line of every
-connection must be `{"op":"hello","token":"…"}`. Any line that is not JSON
-drops the connection rather than being partly executed, which is what makes a
-stray HTTP request a disconnect instead of a script. Pick a port outside
-Chrome's debugging range; lensa does not default to one.
-
-## Architecture
-
-- `src/cdp.rs` — minimal synchronous CDP client (one websocket, single-threaded
-  pump: every wait drains events, acks screencast frames and keeps the
-  screenshot pump on its cadence, with the socket timeout driven by the wait's
-  own deadline rather than the other way round) plus the frame spool.
-- `src/ops.rs` — the op protocol, cursor overlay injection, telemetry marks.
-- `src/zoom.rs` — marks → zoom events → ffmpeg expressions → two-pass render.
-- `src/backdrop.rs` — the built-in backgrounds, the auto picker, and the RGBA
-  plate (gradient, shadow, rounded window) written out as a dependency-free PNG.
-- `src/main.rs` — CLI (`record` / `serve` / `doctor` / `presets` / `backgrounds`).
-
-Backend today is headless Chromium via CDP (zero native build deps, works on
-any Linux including Wayland-only boxes). An embedded-webview backend
-(wry/WebKitGTK) is planned where dev headers exist.
-
-## GitHub Actions
+## The GitHub Action
 
 A demo video goes stale the moment the UI moves, and nobody re-records it,
 because that means blocking out an afternoon. Put the script in the repo next
@@ -364,69 +188,258 @@ to the code it films and the demo changes when the product does.
     npm run build && npx serve -l 8099 dist &
     until curl -sf http://127.0.0.1:8099/ >/dev/null; do sleep 0.25; done
 
-- uses: vamboai/lensa@v1
+- uses: thisisisheanesu/kaviri@v1
   with:
     script: demos/checkout.jsonl
     out: checkout.mp4
-    preset: readme          # or tiktok, square, landscape, desktop
+    preset: readme          # or tiktok, square, landscape, desktop, phone
 ```
 
-The MP4 is uploaded as a workflow artifact. `upload: false` if you would
+The MP4 is uploaded as a workflow artifact. Pass `upload: false` if you would
 rather push it somewhere yourself.
 
-The action installs ffmpeg and Chromium, builds lensa from its own checked-out
-source and runs the take. **Supported runners: `ubuntu-*` and `macos-*`
-(GitHub-hosted or self-hosted equivalents).** On Linux it installs through apt,
-on macOS through brew; any other `RUNNER_OS`, and most bare containers, exit
-with a message rather than guessing. It installs a Rust toolchain rather than
-assuming one is present.
-
-**Pinning the action to a tag fixes lensa's behaviour, not its output.** Two
-runs of the same script on the same commit do not produce the same bytes and
-are not frame-identical: marks and frame times come from a wall clock, and the
-capture cadence follows machine load, so durations, waypoint spacing and the
-exact pixels all move a little run to run. What pinning buys you is that the
-framing rules, the zoom ladder and the backgrounds stay put. If you need a
-byte-stable asset, render once and commit the MP4.
+The action installs ffmpeg and Chromium, installs a Rust toolchain rather than
+assuming one, builds kaviri from its own checked-out source and runs the take.
+Supported runners are `ubuntu-*` and `macos-*`, GitHub-hosted or self-hosted:
+apt on Linux, brew on macOS, and any other `RUNNER_OS` exits with a message
+rather than guessing.
 
 Two things it sets that a local run does not, and should not:
 
-- `LENSA_CHROMIUM_ARGS=--no-sandbox --disable-dev-shm-usage`, because
+- `KAVIRI_CHROMIUM_ARGS=--no-sandbox --disable-dev-shm-usage`, because
   Chromium's sandbox cannot start inside a CI container. That is a genuine
-  reduction in isolation, so lensa never does it on its own; the runner opts
+  reduction in isolation, so kaviri never does it on its own and the runner opts
   in. The same variable works locally if you need it.
 - `TMPDIR` pointed at the runner temp, because `/tmp` on a hosted runner is
   small and shared, and both the frame spool and the CFR intermediate live
-  there. `--spool-dir` does the same job for the spool alone.
+  there.
+
+**Pinning the action to a tag fixes kaviri's behaviour, not its output.** Two
+runs of the same script on the same commit are not frame-identical: marks and
+frame times come from a wall clock and the capture cadence follows machine load,
+so durations, waypoint spacing and the exact pixels all move a little. What
+pinning buys you is that the framing rules, the zoom ladder and the backdrops
+stay put. If you need a byte-stable asset, render once and commit the MP4.
+
+## Failing the build when the take filmed nothing
+
+A recorder that produces a file is not a recorder that produced a video. A take
+that filmed a Chrome error page, or a dev server that never came up, is a freeze
+frame held for thirty seconds, and a duration check passes it.
 
 `.github/workflows/demo.yml` in this repo is the real thing rather than an
-illustration: lensa records `examples/` on every push that touches `src/`, in
-two shapes, and fails the run if the result is shorter than two seconds or if
-its frames never change, which is what an error page or a frozen take looks
-like.
+illustration. After each take it runs two gates:
 
-## Known gaps
+```sh
+# 1. it is longer than two seconds
+dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 -i "$OUT")
+awk -v d="$dur" 'BEGIN { exit (d > 2.0) ? 0 : 1 }'
 
-- **Video only. Audio capture (`--audio`) is not implemented**; the flag warns
-  and is otherwise ignored. The plan is a dedicated PipeWire/Pulse sink for the
-  browser process, muxed against the same clock. If you need narration, add it
-  in an editor afterwards.
-- **Takes are not reproducible frame for frame.** The whole timeline is derived
-  from a wall clock, so the same script on the same commit gives you the same
-  film, not the same file. See [GitHub Actions](#github-actions).
-- **The default capture path competes with the app it films** for CPU. See
-  [Capture](#capture-and-what-it-costs-the-app-you-are-filming); `--scale 1` is
-  the way out.
-- The backdrop plate is a stored-deflate PNG, so it costs about 4 bytes per
-  output pixel on disk (roughly 8 MB for a 1080x1920 take) in the run's temp
-  directory while the render runs, and goes with the rest of the temp unless
-  `--keep-temp`. A real deflate would shrink it; no dependency was worth it.
-  If the plate cannot be written at all, the take still renders full-frame.
-- `serve` takes concurrent connections, one thread each, serialized onto the
-  single browser by a mutex held for one op at a time. `stop_recording` holds
-  that mutex for the whole render, so other clients wait out the encode.
-- Frames spool to one append-only temp file as they arrive, and the render pass
-  holds one frame at a time, so memory does not grow with take length. Disk
-  does; see [Resource envelope](#resource-envelope).
-- There is no way to re-render an existing take: the telemetry sidecar is for
-  reading, and nothing loads it back.
+# 2. the page actually moved: compare the first frame to the last
+ffmpeg -nostdin -v error -y -ss 0.5     -i "$OUT" -frames:v 1 first.png
+ffmpeg -nostdin -v error -y -sseof -0.5 -i "$OUT" -frames:v 1 last.png
+ffmpeg -nostdin -v error -i first.png -i last.png -lavfi "psnr=stats_file=psnr.log" -f null -
+```
+
+`psnr_avg` comes back as the literal `inf` for two identical frames, which is
+handled as its own case rather than coerced to a number, and anything above 50dB
+is indistinguishable by eye. The script navigates, clicks and types, so a demo
+whose first and last frames are the same picture did not film the product. The
+job goes red.
+
+That is the part that makes the video a build artifact. The zoom is what makes
+it watchable.
+
+## How the camera works
+
+Frames arrive at irregular intervals and are normalised to constant-rate 30fps
+before any time-based arithmetic. Each interaction mark then becomes a zoom
+event, and the events are rendered as a generated ffmpeg `zoompan` expression
+over that intermediate.
+
+- **Zoom level** starts on a ladder set by the target's height (1.85 for a small
+  control, 1.7, 1.5 for a large one) and is then bounded by whichever axis runs
+  out first, with a 15% margin around the target. A target wider than the frame
+  gets no zoom at all, which is the honest answer. Choosing on height alone used
+  to hang a full-width nav bar off both sides of the crop.
+- **Timing** leads the interaction by 0.45s, holds for 2.1s after it, and eases
+  with a cubic smoothstep `s = p*p*(3-2p)` over 0.7s at each end. The crop is
+  clamped to the frame.
+- **Consecutive interactions** within 1.3s of the end of a hold merge into one
+  event with path waypoints, so the camera pans between them instead of zooming
+  out and back in. Waypoints are joined by straight lines, with the ease at the
+  two ends of the whole move: easing each segment separately brings the camera
+  to a stop at every sample, which reads as stepping.
+- **The last interaction** still gets its zoom. kaviri holds the final frame for
+  up to 2.8 extra seconds so the hold and the ease-out have somewhere to live.
+  If an interaction still lands too late, it says so on stderr rather than
+  quietly dropping the zoom.
+- **The frame sits left of the control, not centred on it.** A control sits to
+  the right of whatever it acts on: the send button after the message, the caret
+  after the words already typed. Centre on the control and the frame fills with
+  empty space on its right while the thing you wanted to read falls off the left.
+  The crop leans left by 18% of its width while typing and 12% on a click,
+  capped so the target's own right edge always stays comfortably inside.
+
+### Why it follows the caret
+
+kaviri records agents. There is no hand on a mouse to follow, and the pointer it
+draws is a prop: it is parked wherever the field was clicked and stays there
+while a whole sentence is typed. The thing that moves, and the thing a viewer is
+reading, is the caret. So that is what the camera follows.
+
+Finding it means measuring it. For contenteditable that is the selection's
+rectangle; for `input` and `textarea` there is no caret rectangle in the DOM, so
+the text up to the caret is mirrored into a hidden element with the same
+typography and the offset of a zero-width span at its end is read back.
+
+That measurement costs a round trip to the page, so it happens exactly twice per
+typing op, once before the first character and once after the last. The pan is
+laid down afterwards, interpolated between the two at 0.12s spacing. Measuring
+between keystrokes put the round trip inside the typing rhythm: the words came
+out slower than the requested speed, and the camera moved in steps because the
+samples were as uneven as the latency.
+
+## What it costs the app you are filming
+
+There are two capture paths, and `--scale` chooses.
+
+Above 1, which is the default and every preset, kaviri runs a
+`Page.captureScreenshot` pump: a fresh viewport screenshot roughly every 25ms,
+one request outstanding at a time, spooled as JPEG. Each one is a full
+compositor pass plus a JPEG encode inside the same browser that is running the
+app you are filming. On a 1470x830 viewport at 2x that is roughly 15 to 25 MB/s
+and a busy core. The filmed app runs measurably slower than it does unrecorded:
+animations stutter, and a `wait` that is comfortable by hand can time out on a
+loaded machine.
+
+At `--scale 1` kaviri switches to the DevTools screencast, where the browser
+pushes frames as it paints them. That is far cheaper and takes kaviri almost
+entirely out of the app's way, but it caps frames at the CSS viewport whatever
+`maxWidth` asks for, so zooms crop into upscaled pixels. If the take is for a
+README at native size, or the app is timing-sensitive, or you are on a shared CI
+runner, that is the better trade.
+
+### Resource envelope
+
+Plan for this before a long take, because the failure mode is a full disk.
+
+- **Temp space.** Frames spool to one append-only file under `TMPDIR`
+  (`--spool-dir` moves it). At the default `--scale 2` that is 15 to 25 MB/s, so
+  a five-minute take is several gigabytes.
+- **A spool cap.** 8 GiB by default (`--max-spool-bytes`). On reaching it kaviri
+  stops capturing cleanly and renders what it has rather than dying on ENOSPC.
+  It also refuses to start a take with less than 512 MiB free, naming the
+  directory, and clamps its own cap to the free space it sees.
+- **A second large file at render time.** The CFR intermediate is a full-length
+  H.264 encode in a per-run temp directory, plus the backdrop plate PNG at about
+  4 bytes per output pixel. `--keep-temp` retains both and prints where they are.
+- **CPU.** One core for the browser, one for kaviri's pump, one for ffmpeg
+  during the render, which runs after capture ends and is not gentle.
+- **Memory is flat.** Frames go to disk as they arrive and the render holds one
+  at a time, so a long take costs disk, not RAM.
+
+### Environment
+
+Every one of these has a flag. The variables exist so a CI job can set them once
+for a whole matrix.
+
+| variable | what it does |
+|---|---|
+| `KAVIRI_CHROMIUM` | browser binary, same as `--chromium` |
+| `KAVIRI_CHROMIUM_ARGS` | extra Chromium flags, whitespace-separated |
+| `KAVIRI_FFMPEG` | ffmpeg binary, or a name to resolve on PATH |
+| `TMPDIR` | where the frame spool and the CFR intermediate live |
+| `KAVIRI_SPOOL_DIR` | the spool alone, same as `--spool-dir` |
+| `KAVIRI_MAX_SPOOL_BYTES` | the spool cap, same as `--max-spool-bytes` |
+| `KAVIRI_KEEP_TEMP` | keep the intermediates, same as `--keep-temp` |
+| `KAVIRI_TELEMETRY` | where to write the sidecar; `0` or `off` suppresses it |
+| `KAVIRI_TOKEN` | the `serve --port` token, instead of a generated one |
+| `KAVIRI_DEBUG` | log the CDP traffic on stderr |
+
+The tool was called lensa before the rename, so each variable is also read under
+its old `LENSA_` name when the `KAVIRI_` one is unset. `KAVIRI_` wins if both
+are set. Nothing else carries the old name.
+
+### The telemetry sidecar
+
+kaviri can write a JSON sidecar with the raw marks and the computed zoom events.
+It is off by default. `--keep-temp` puts it next to the video as
+`<out>.telemetry.json`, and `KAVIRI_TELEMETRY=<path>` writes it wherever you
+name. `KAVIRI_TELEMETRY=0` suppresses it even under `--keep-temp`.
+
+It stays off because its `marks` array carries every `navigate` label verbatim:
+full URLs, query strings, any token in them, and local `file://` paths. Read it
+before you upload it as a build artifact.
+
+### Serving over TCP
+
+`kaviri serve` on stdin needs no authentication: the ops come from the process
+that started it. `kaviri serve --port <n>` does not have that property. Binding
+to loopback is not a trust boundary against a browser, because any page the user
+visits can `fetch()` a loopback port, and the op set can navigate to `file://`
+URLs and write an MP4 to a path of the caller's choosing.
+
+So `--port` prints a token on stderr at startup and the first line of every
+connection must be `{"op":"hello","token":"…"}`. Any line that is not JSON drops
+the connection rather than being partly executed, which is what makes a stray
+HTTP request a disconnect instead of a script. Pick a port outside Chrome's
+debugging range; kaviri does not default to one. Prefer stdin when one client is
+enough.
+
+## Limitations
+
+- **Video only.** Audio capture is not implemented. `--audio` warns and is
+  otherwise ignored. The plan is a dedicated PipeWire or Pulse sink for the
+  browser process, muxed against the same clock. For now, add narration in an
+  editor afterwards.
+- **Takes are not reproducible frame for frame.** The whole timeline comes from
+  a wall clock, so the same script on the same commit gives you the same film,
+  not the same file.
+- **The default capture path competes with the app it films** for CPU, as above.
+  `--scale 1` is the way out.
+- **No window chrome, ever.** What sits around the content is a backdrop, not a
+  fake title bar. If you want a browser frame, kaviri is not going to draw you
+  one.
+- **`serve` serialises.** Concurrent connections each get a thread, but they are
+  serialised onto the single browser by a mutex held for one op at a time.
+  `stop_recording` holds it for the whole render, so other clients wait out the
+  encode.
+- **There is no way to re-render an existing take.** The telemetry sidecar is
+  for reading; nothing loads it back.
+- **The backdrop plate is a stored-deflate PNG**, written without an image
+  crate, so it costs about 4 bytes per output pixel on disk while the render
+  runs. A real deflate would shrink it and no dependency was worth it. If the
+  plate cannot be written at all, the take renders full frame.
+- **Windows is untested.** So is an embedded-webview backend (wry, WebKitGTK),
+  which is planned where the dev headers exist. Today it is headless Chromium
+  over CDP, which needs no native build dependencies and works on Wayland-only
+  machines.
+
+## Where the code is
+
+- `src/cdp.rs` is the synchronous CDP client (one websocket, single-threaded
+  pump: every wait drains events, acks screencast frames and keeps the
+  screenshot pump on cadence) plus the frame spool.
+- `src/ops.rs` is the op protocol, the cursor overlay, the caret measurement and
+  the telemetry marks.
+- `src/zoom.rs` turns marks into zoom events into ffmpeg expressions, and runs
+  the two-pass render.
+- `src/backdrop.rs` is the built-in backdrops, the auto picker and the
+  dependency-free PNG plate.
+- `src/main.rs` is the CLI.
+
+`cargo test` runs the suite, including two tests that shell out to a real ffmpeg
+to validate the generated filter graph and the hand-written PNG. They fail
+loudly rather than skipping when no ffmpeg is present; set
+`KAVIRI_SKIP_FFMPEG_TESTS=1` if you genuinely want them skipped.
+
+## Licence
+
+Apache 2.0, unconditional, on everything in this repository. No revenue
+threshold, no field-of-use restriction, no contributor licence agreement to
+sign. Run it locally, run it in your CI, put it in your product. See
+[LICENSE](LICENSE).
+
+A hosted version is being built at kaviri.dev for people who would rather not
+run the browser themselves. It is not live yet, and nothing here depends on it.

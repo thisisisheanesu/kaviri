@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kaviri: your demo video is a build artifact</title>
+<meta name="description" content="kaviri records product demos from a script in your repo, in CI. The video changes when the product does, or the build fails. Open source, Apache 2.0.">
+<link rel="canonical" href="https://kaviri.dev/">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e1013" media="(prefers-color-scheme: dark)">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="kaviri">
+<meta property="og:url" content="https://kaviri.dev/">
+<meta property="og:title" content="Your demo video is a build artifact">
+<meta property="og:description" content="kaviri records product demos from a script in your repo, in CI. The video changes when the product does, or the build fails.">
+<meta property="og:image" content="https://kaviri.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="kaviri: your demo video is a build artifact">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Your demo video is a build artifact">
+<meta name="twitter:description" content="kaviri records product demos from a script in your repo, in CI. The video changes when the product does, or the build fails.">
+<meta name="twitter:image" content="https://kaviri.dev/og.png">
+
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+
+<link rel="stylesheet" href="/brand/tokens.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="wrap site-head">
+  <a class="wordmark" href="/">kaviri<span class="dot">.</span>dev</a>
+  <nav>
+    <a href="#how">How it works</a>
+    <a href="#ci">CI</a>
+    <a href="#pricing">Hosted</a>
+    <a href="https://github.com/thisisisheanesu/kaviri">GitHub</a>
+  </nav>
+</header>
+
+<main>
+
+  <section class="wrap hero">
+    <h1>Your demo video is a build artifact.</h1>
+    <p class="lede">It changes when your product does, or the build fails.</p>
+    <div class="actions">
+      <a class="btn btn-primary" href="#how">Get started</a>
+      <a class="btn btn-secondary" href="https://github.com/thisisisheanesu/kaviri">GitHub</a>
+    </div>
+  </section>
+
+  <section class="wrap" style="padding-top:0">
+    <figure class="demo">
+      <video src="/demo.mp4" poster="/demo-poster.jpg" autoplay muted loop playsinline
+             preload="metadata" width="1100" height="620"
+             aria-label="kaviri recording a web app: the camera zooms onto each click and follows the text caret while typing."></video>
+      <figcaption>kaviri recording a web app. No hand on a mouse. The camera follows the caret.</figcaption>
+    </figure>
+  </section>
+
+  <section class="wrap">
+    <h2>Demos go stale.</h2>
+    <p class="lede">
+      The UI moves and the video does not. Nobody re-records it, because re-recording means
+      blocking out an afternoon, finding a quiet room and getting the mouse path right on the
+      fourth take. So the demo quietly lies about the product, and it keeps lying until someone
+      is embarrassed enough to book that afternoon.
+    </p>
+  </section>
+
+  <hr class="rule">
+
+  <section class="wrap" id="how">
+    <p class="eyebrow">How it works</p>
+    <h2>Write the take down. Run it in CI.</h2>
+    <p class="muted">
+      A take is a newline-delimited JSON script of ops. It lives in the repo, next to the code it
+      films, so it is reviewed and versioned like the code it films.
+    </p>
+
+    <div class="step">
+      <p class="filename">examples/demo.jsonl</p>
+      <pre><code>{"op":"navigate","url":"http://127.0.0.1:8099/"}
+{"op":"wait","selector":"#q","timeout_ms":30000}
+{"op":"start_recording"}
+{"op":"wait","ms":2200}
+{"op":"mark","label":"start"}
+{"op":"type","selector":"#q","text":"14 Rue Lafayette, Paris"}
+{"op":"wait","ms":500}
+{"op":"click","selector":"#go"}
+{"op":"wait","selector":"li","timeout_ms":15000}
+{"op":"wait","ms":1400}
+{"op":"mark","label":"tracked"}
+{"op":"type","selector":"#q","text":"Kigali Heights, KG 7 Ave"}
+{"op":"wait","ms":500}
+{"op":"click","selector":"#go"}
+{"op":"wait","ms":1800}
+{"op":"mark","label":"second"}
+{"op":"wait","ms":1600}
+{"op":"stop_recording"}</code></pre>
+      <p class="muted">
+        Every op carries a timestamp and a bounding box, and the zoom is derived from them. You do
+        not describe camera moves. You describe what happens.
+      </p>
+    </div>
+
+    <div class="step">
+      <p class="filename">.github/workflows/demo.yml</p>
+      <pre><code>name: demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/**
+      - examples/**
+      - .github/workflows/demo.yml
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Serve the app
+        run: |
+          python3 -m http.server 8099 --directory examples &amp;
+          for _ in $(seq 1 40); do
+            curl -sf http://127.0.0.1:8099/ &gt;/dev/null &amp;&amp; break
+            sleep 0.25
+          done
+
+      - name: Record
+        uses: thisisisheanesu/kaviri@v1
+        with:
+          script: examples/demo.jsonl
+          out: demo.mp4
+          preset: readme
+          artifact-name: demo</code></pre>
+      <p class="muted">
+        The action installs ffmpeg and a Chromium if the runner has none, builds the recorder and
+        uploads the MP4 as a workflow artifact. <code>preset</code> sets the viewport, the capture
+        scale and the output size together: <code>readme</code>, <code>tiktok</code>,
+        <code>square</code>, <code>landscape</code>, <code>phone</code>.
+      </p>
+    </div>
+
+    <div class="step">
+      <p class="filename">or locally, with no CI at all</p>
+      <pre><code>cargo build --release
+./target/release/kaviri record --script examples/demo.jsonl --out demo.mp4</code></pre>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <section class="wrap" id="ci">
+    <p class="eyebrow">The part that matters</p>
+    <h2>The build fails if the take filmed nothing.</h2>
+    <p>
+      A recorder that writes a valid MP4 of a Chrome error page has not failed in any way your CI
+      can see. Thirty seconds of a frozen dev-server timeout is still thirty seconds of video, and
+      it will sail past a duration check. So kaviri's own workflow compares the first frame against
+      the last one. A script that navigates, clicks and types cannot produce the same picture twice.
+    </p>
+    <p class="filename">.github/workflows/demo.yml, the check that turns the job red</p>
+    <pre><code>ffmpeg -nostdin -v error -y -ss 0.5     -i "$OUT" -frames:v 1 "$RUNNER_TEMP/first.png"
+ffmpeg -nostdin -v error -y -sseof -0.5 -i "$OUT" -frames:v 1 "$RUNNER_TEMP/last.png"
+ffmpeg -nostdin -v error \
+  -i "$RUNNER_TEMP/first.png" -i "$RUNNER_TEMP/last.png" \
+  -lavfi "psnr=stats_file=$RUNNER_TEMP/psnr.log" -f null -
+
+psnr=$(sed -n 's/.*psnr_avg:\([^ ]*\).*/\1/p' "$RUNNER_TEMP/psnr.log" | head -1)
+
+# psnr_avg is the literal "inf" for two identical frames, so that case is decided here
+# rather than left to awk's coercion.
+if [ -z "$psnr" ] || [ "$psnr" = "inf" ]; then
+  echo "the first and last frames are identical; the take filmed nothing"
+  exit 1
+fi
+
+# Anything above ~50dB is indistinguishable by eye, which for a demo that navigates,
+# clicks and types means the page never changed.
+awk -v p="$psnr" 'BEGIN { exit (p + 0 &lt; 50.0) ? 0 : 1 }' \
+  || { echo "the first and last frames are the same picture; the take filmed nothing"; exit 1; }</code></pre>
+    <p class="fail-line">the first and last frames are the same picture; the take filmed nothing</p>
+    <p class="muted">
+      That line in a pull request is the whole idea. The demo is not a file someone remembers to
+      refresh. It is a check that goes red.
+    </p>
+  </section>
+
+  <hr class="rule">
+
+  <section class="wrap" id="pricing">
+    <p class="eyebrow">Local and hosted</p>
+    <h2>The recorder is free. The queue is the product.</h2>
+    <div class="cols">
+      <div class="card">
+        <h3>Local</h3>
+        <p class="muted">Free forever. Apache 2.0. No account.</p>
+        <ul>
+          <li>One Rust binary, Linux and macOS</li>
+          <li>Brings its own browser over CDP, no screen recorder, no Wayland portals</li>
+          <li>Runs on your laptop or in your own CI</li>
+          <li>Your pages never leave your machine</li>
+        </ul>
+      </div>
+      <div class="card lit">
+        <h3>Hosted</h3>
+        <p class="muted">The same recorder, with the parts you would otherwise build.</p>
+        <ul>
+          <li>A queue, so a take does not occupy a CI minute</li>
+          <li>Storage and a stable URL you can link from a README or a landing page</li>
+          <li>Every take kept, so you can see what the demo looked like three releases ago</li>
+        </ul>
+        <p class="muted" style="margin-top:16px">
+          Pricing is coming. <a href="#waitlist">Join the waitlist</a> and you will hear the
+          number before anyone is asked to pay it.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <section class="wrap" id="waitlist">
+    <p class="eyebrow">Open source</p>
+    <h2>Apache 2.0, unconditionally.</h2>
+    <p>
+      The recorder is the whole product. Everything that makes the video is in the repo under
+      Apache 2.0, with no revenue threshold, no delayed-open clause and no field-of-use limit. Fork
+      it, ship it inside your own tool, sell the result. The hosted service is a convenience, and
+      the only thing the licence holds back is the name.
+    </p>
+    <div class="actions">
+      <a class="btn btn-primary" href="https://github.com/thisisisheanesu/kaviri">Read the source</a>
+      <a class="btn btn-secondary" href="mailto:hello@kaviri.dev?subject=kaviri%20hosted%20waitlist">Join the waitlist</a>
+    </div>
+  </section>
+
+</main>
+
+<footer class="wrap site-foot">
+  <p class="pron">kaviri <span class="muted">/ka-VEE-ree/</span></p>
+  <p>Shona for twice, a second time. The demo is not re-recorded. It is made again.</p>
+  <div class="foot-links">
+    <a href="https://github.com/thisisisheanesu/kaviri">GitHub</a>
+    <a href="https://github.com/thisisisheanesu/kaviri/blob/main/LICENSE">Apache 2.0</a>
+    <a href="mailto:hello@kaviri.dev">hello@kaviri.dev</a>
+  </div>
+</footer>
+
+</body>
+</html>

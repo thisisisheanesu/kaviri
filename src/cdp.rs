@@ -47,7 +47,7 @@ const SPOOL_FREE_MARGIN_BYTES: u64 = 256 * 1024 * 1024;
 
 /// Set by SIGINT/SIGTERM once `install_signal_handlers` has run.
 ///
-/// Every cleanup lensa does lives in a `Drop`, and a default signal disposition
+/// Every cleanup kaviri does lives in a `Drop`, and a default signal disposition
 /// runs none of them: the headless browser, its profile directory and the frame
 /// spool would all be orphaned. The handler flips this instead, and the op loops
 /// return so the normal teardown path runs.
@@ -78,7 +78,7 @@ pub fn install_signal_handlers() {
                 })
             };
             if let Err(e) = r {
-                eprintln!("lensa: could not install a handler for signal {sig}: {e}");
+                eprintln!("kaviri: could not install a handler for signal {sig}: {e}");
             }
         }
     });
@@ -118,7 +118,7 @@ static SESSION_DIR: OnceLock<Result<PathBuf, String>> = OnceLock::new();
 /// The one 0700 directory this run keeps its temporary state in.
 ///
 /// The browser profile and the frame spool both live here. Putting them in one
-/// owned directory means a single removal cleans the run up, two lensa runs
+/// owned directory means a single removal cleans the run up, two kaviri runs
 /// sharing a temp directory cannot collide, and neither path is guessable by
 /// another local user who might otherwise pre-create it as a symlink.
 pub fn session_dir() -> Result<PathBuf, String> {
@@ -127,7 +127,7 @@ pub fn session_dir() -> Result<PathBuf, String> {
             let root = std::env::temp_dir();
             let mut last = String::new();
             for _ in 0..8 {
-                let dir = root.join(format!("lensa-{}-{}", std::process::id(), run_token()));
+                let dir = root.join(format!("kaviri-{}-{}", std::process::id(), run_token()));
                 match create_private_dir(&dir) {
                     Ok(()) => return Ok(dir),
                     Err(e) => last = e,
@@ -203,14 +203,13 @@ impl FrameSpool {
             path: PathBuf::new(),
             frames: Vec::new(),
             bytes: 0,
-            dir: std::env::var_os("LENSA_SPOOL_DIR").map(PathBuf::from),
-            max_bytes: std::env::var("LENSA_MAX_SPOOL_BYTES")
-                .ok()
+            dir: crate::env::var_os("SPOOL_DIR").map(PathBuf::from),
+            max_bytes: crate::env::var("MAX_SPOOL_BYTES")
                 .and_then(|v| v.parse::<u64>().ok())
                 .filter(|v| *v > 0)
                 .unwrap_or(SPOOL_DEFAULT_MAX_BYTES),
             full: false,
-            keep: std::env::var_os("LENSA_KEEP_TEMP").is_some(),
+            keep: crate::env::is_set("KEEP_TEMP"),
         }
     }
 
@@ -260,7 +259,7 @@ impl FrameSpool {
         if let Some(free) = free_bytes(&dir) {
             if free < SPOOL_MIN_FREE_BYTES {
                 return Err(format!(
-                    "only {} MiB free on {}; lensa needs at least {} MiB for the frame spool (use --spool-dir)",
+                    "only {} MiB free on {}; kaviri needs at least {} MiB for the frame spool (use --spool-dir)",
                     free / (1024 * 1024),
                     dir.display(),
                     SPOOL_MIN_FREE_BYTES / (1024 * 1024)
@@ -269,7 +268,7 @@ impl FrameSpool {
             let room = free.saturating_sub(SPOOL_FREE_MARGIN_BYTES);
             if room < self.max_bytes {
                 eprintln!(
-                    "lensa: frame spool limited to {} MiB by free space on {}",
+                    "kaviri: frame spool limited to {} MiB by free space on {}",
                     room / (1024 * 1024),
                     dir.display()
                 );
@@ -363,7 +362,7 @@ impl FrameSpool {
         if !self.path.as_os_str().is_empty() {
             if self.keep && !self.frames.is_empty() {
                 eprintln!(
-                    "lensa: {} captured frames kept at {}",
+                    "kaviri: {} captured frames kept at {}",
                     self.frames.len(),
                     self.path.display()
                 );
@@ -466,14 +465,14 @@ impl Drop for LaunchGuard {
 
 /// Kill a spawned browser and everything it spawned, then reap it.
 ///
-/// On snap systems the process lensa spawned is a wrapper script, so killing it
+/// On snap systems the process kaviri spawned is a wrapper script, so killing it
 /// alone leaves the real browser running. The child is put in its own process
 /// group at spawn precisely so the whole group can be signalled here.
 fn kill_browser(child: &mut Child) {
     #[cfg(unix)]
     {
         // SAFETY: the pid is one we spawned, into a process group of its own, so
-        // this cannot reach anything else lensa did not start.
+        // this cannot reach anything else kaviri did not start.
         unsafe {
             libc::killpg(child.id() as i32, libc::SIGKILL);
         }
@@ -567,7 +566,7 @@ fn find_chromium(explicit: Option<&str>) -> Result<String, String> {
     if let Some(p) = explicit {
         return Ok(p.to_string());
     }
-    if let Ok(p) = std::env::var("LENSA_CHROMIUM") {
+    if let Some(p) = crate::env::var("CHROMIUM") {
         return Ok(p);
     }
     for cand in [
@@ -588,7 +587,7 @@ fn find_chromium(explicit: Option<&str>) -> Result<String, String> {
             return Ok(cand.to_string());
         }
     }
-    Err("no Chromium/Chrome binary found (set LENSA_CHROMIUM or use --chromium)".into())
+    Err("no Chromium/Chrome binary found (set KAVIRI_CHROMIUM or use --chromium)".into())
 }
 
 /// Run `step` in slices until `total` has elapsed, never letting one slice run
@@ -648,7 +647,7 @@ impl Cdp {
             /*
              * No speculative prerendering. A site with speculation rules builds the
              * next page in a hidden target, and a click activates that target in
-             * place of the one lensa is attached to: the take then freezes on the
+             * place of the one kaviri is attached to: the take then freezes on the
              * old page while the browser moves on, with a 30s CDP stall at the
              * swap. One page, one target, for the whole recording.
              */
@@ -656,13 +655,13 @@ impl Cdp {
             "--mute-audio",
             "--force-color-profile=srgb",
         ])
-        // Extra flags for the machine this is running on, not for lensa to decide.
+        // Extra flags for the machine this is running on, not for kaviri to decide.
         // CI is the reason this exists: Chromium's sandbox cannot start inside most
         // containers, so a runner needs --no-sandbox. That is a real reduction in
         // isolation and belongs to whoever owns the machine, so it is opt in here rather
         // than a default that quietly weakens every local recording too.
         .args(
-            std::env::var("LENSA_CHROMIUM_ARGS")
+            crate::env::var("CHROMIUM_ARGS")
                 .unwrap_or_default()
                 .split_whitespace()
                 .map(str::to_string)
@@ -674,7 +673,7 @@ impl Cdp {
         /*
          * Its own process group, so teardown can signal the whole browser tree
          * rather than just the wrapper script snap puts in front of it, and so a
-         * ctrl-C in the terminal reaches lensa's handler instead of killing the
+         * ctrl-C in the terminal reaches kaviri's handler instead of killing the
          * browser out from under a take that is still being rendered.
          */
         #[cfg(unix)]
@@ -698,13 +697,13 @@ impl Cdp {
                             break u.to_string();
                         }
                     }
-                    if std::env::var_os("LENSA_DEBUG").is_some() {
-                        eprintln!("lensa[debug]: /json/version body without ws url: {body}");
+                    if crate::env::is_set("DEBUG") {
+                        eprintln!("kaviri[debug]: /json/version body without ws url: {body}");
                     }
                 }
                 Err(e) => {
-                    if std::env::var_os("LENSA_DEBUG").is_some() {
-                        eprintln!("lensa[debug]: /json/version poll failed: {e}");
+                    if crate::env::is_set("DEBUG") {
+                        eprintln!("kaviri[debug]: /json/version poll failed: {e}");
                     }
                 }
             }
@@ -715,7 +714,7 @@ impl Cdp {
              * A browser that has already exited is never going to answer, so say so
              * in two seconds rather than in forty. The grace period is for launchers
              * that fork and let the parent exit, where the real browser is still
-             * coming up behind a process lensa can no longer see.
+             * coming up behind a process kaviri can no longer see.
              */
             if exited.is_none() {
                 if let Ok(Some(status)) = guard.child().try_wait() {
@@ -762,7 +761,7 @@ impl Cdp {
             ws_timeout,
             capture_abandoned: false,
             stopping: false,
-            keep_spool: std::env::var_os("LENSA_KEEP_TEMP").is_some(),
+            keep_spool: crate::env::is_set("KEEP_TEMP"),
             rec_t0: None,
             recording: false,
             profile_dir,
@@ -916,7 +915,7 @@ impl Cdp {
     /// This is what lets capture run on a clock rather than only inside an op.
     /// Without it, serve mode captures nothing during the seconds an agent spends
     /// thinking between ops, and the finished video is a sequence of freeze frames
-    /// covering only the moments lensa was already busy.
+    /// covering only the moments kaviri was already busy.
     #[allow(dead_code)]
     pub fn tick(&mut self) -> Result<(), String> {
         self.pump()?;
@@ -940,7 +939,7 @@ impl Cdp {
         self.capture_abandoned = true;
         self.frames.keep(true);
         eprintln!(
-            "lensa: capture stopped after {}: the {} frames already captured are kept for rendering",
+            "kaviri: capture stopped after {}: the {} frames already captured are kept for rendering",
             err,
             self.frames.len()
         );
@@ -951,7 +950,7 @@ impl Cdp {
             return;
         }
         eprintln!(
-            "lensa: frame spool reached its {} MiB limit; stopping capture and rendering what was recorded (raise --max-spool-bytes)",
+            "kaviri: frame spool reached its {} MiB limit; stopping capture and rendering what was recorded (raise --max-spool-bytes)",
             self.frames.max_bytes() / (1024 * 1024)
         );
         let _ = self.stop_capture_best_effort();
@@ -1024,8 +1023,8 @@ impl Cdp {
         self.pending_shot = None;
         let sent = self.shot_sent.take();
         if v.get("error").is_some() {
-            if std::env::var_os("LENSA_DEBUG").is_some() {
-                eprintln!("lensa[debug]: captureScreenshot: {}", v["error"]);
+            if crate::env::is_set("DEBUG") {
+                eprintln!("kaviri[debug]: captureScreenshot: {}", v["error"]);
             }
         } else if self.recording {
             if let (Some(data), Some(t0)) = (v["result"]["data"].as_str(), self.rec_t0) {

@@ -43,7 +43,7 @@ pub struct Session {
     pub rendered: Option<(f64, usize)>,
 }
 
-/// The pointer shapes lensa can draw, in the macOS idiom.
+/// The pointer shapes kaviri can draw, in the macOS idiom.
 pub const CURSOR_SHAPES: &[(&str, &str)] = &[
     (
         "arrow",
@@ -70,7 +70,7 @@ pub struct CursorCfg {
 
 /// Where the text is being entered, in CSS pixels, as [x, y, height].
 ///
-/// lensa records agents, not people. There is no hand on a mouse to follow, and the pointer it
+/// kaviri records agents, not people. There is no hand on a mouse to follow, and the pointer it
 /// draws is a prop: it is parked wherever the field was clicked and stays there while a whole
 /// sentence is typed. The thing that actually moves, and the thing a viewer is reading, is the
 /// caret. So that is what the camera follows.
@@ -201,8 +201,8 @@ const KIND_FN: &str = "((el) => { const cs = getComputedStyle(el).cursor, \
 /// pieces.
 const CURSOR_JS: &str = r##"
 (() => {
-  const S = __LENSA_SCALE__;
-  const PIN = __LENSA_SHAPE__;
+  const S = __KAVIRI_SCALE__;
+  const PIN = __KAVIRI_SHAPE__;
   const SHAPES = {
     arrow: {
       w: 16, h: 24, vb: '-2 -2 16 24', ox: 2, oy: 2, fill: 1, hw: 3, bw: 0,
@@ -237,10 +237,10 @@ const CURSOR_JS: &str = r##"
     '" stroke-linejoin="round" stroke-linecap="round">' + s.parts + '</g></svg>';
   const state = { k: null, x: -400, y: -400 };
   const ensure = () => {
-    let c = document.getElementById('__lensa_cursor');
+    let c = document.getElementById('__kaviri_cursor');
     if (c) return c;
     c = document.createElement('div');
-    c.id = '__lensa_cursor';
+    c.id = '__kaviri_cursor';
     /* Zero-sized box: the SVG hangs off its top-left, so one translate puts the
        hot spot of any shape exactly on the point being clicked. */
     c.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;' +
@@ -260,13 +260,13 @@ const CURSOR_JS: &str = r##"
     c.style.transform =
       'translate(' + (state.x - s.ox * S) + 'px,' + (state.y - s.oy * S) + 'px)';
   };
-  window.__lensa = {
+  window.__kaviri = {
     move(x, y, k) { state.x = x; state.y = y; apply(k); },
     shape(k) { apply(k); },
     ripple(x, y) {
-      if (!document.getElementById('__lensa_style')) {
-        const s = document.createElement('style'); s.id = '__lensa_style';
-        s.textContent = '@keyframes __lensa_r{from{transform:scale(.4);opacity:1}' +
+      if (!document.getElementById('__kaviri_style')) {
+        const s = document.createElement('style'); s.id = '__kaviri_style';
+        s.textContent = '@keyframes __kaviri_r{from{transform:scale(.4);opacity:1}' +
           'to{transform:scale(1.7);opacity:0}}';
         (document.head || document.documentElement).appendChild(s);
       }
@@ -276,7 +276,7 @@ const CURSOR_JS: &str = r##"
         'width:' + (2 * R) + 'px;height:' + (2 * R) + 'px;border-radius:50%;' +
         'border:' + Math.max(3, 1.7 * S) + 'px solid rgba(59,130,246,.85);' +
         'z-index:2147483646;pointer-events:none;' +
-        'animation:__lensa_r .5s ease-out forwards';
+        'animation:__kaviri_r .5s ease-out forwards';
       (document.body || document.documentElement).appendChild(r);
       setTimeout(() => r.remove(), 600);
     }
@@ -323,8 +323,8 @@ impl Session {
         cdp.set_keep_spool(keep_temp);
         if cursor.enabled {
             let source = CURSOR_JS
-                .replace("__LENSA_SCALE__", &format!("{:.4}", cursor.scale))
-                .replace("__LENSA_SHAPE__", &js_string(cursor.shape.unwrap_or("")));
+                .replace("__KAVIRI_SCALE__", &format!("{:.4}", cursor.scale))
+                .replace("__KAVIRI_SHAPE__", &js_string(cursor.shape.unwrap_or("")));
             cdp.send(
                 "Page.addScriptToEvaluateOnNewDocument",
                 json!({ "source": source }),
@@ -458,7 +458,7 @@ impl Session {
     fn cursor_to(&mut self, x: f64, y: f64, kind: &str) -> Result<(), String> {
         if self.cursor.enabled {
             let k = js_string(kind);
-            let js = format!("window.__lensa && __lensa.move({x:.1},{y:.1},{k})");
+            let js = format!("window.__kaviri && __kaviri.move({x:.1},{y:.1},{k})");
             let _ = self.cdp.evaluate(&js);
         }
         self.cdp.sleep_pump(500) // matches the CSS transition
@@ -466,7 +466,7 @@ impl Session {
 
     fn mouse_click(&mut self, x: f64, y: f64) -> Result<(), String> {
         if self.cursor.enabled {
-            let js = format!("window.__lensa && __lensa.ripple({x:.1},{y:.1})");
+            let js = format!("window.__kaviri && __kaviri.ripple({x:.1},{y:.1})");
             let _ = self.cdp.evaluate(&js);
         }
         for (t, clicks) in [("mouseMoved", 0), ("mousePressed", 1), ("mouseReleased", 1)] {
@@ -765,7 +765,7 @@ impl Session {
                 let out = self
                     .out_path
                     .clone()
-                    .unwrap_or_else(|| "lensa-out.mp4".to_string());
+                    .unwrap_or_else(|| "kaviri-out.mp4".to_string());
                 let n_frames = self.cdp.frames.len();
                 let spooled = self.cdp.frames.bytes();
                 if n_frames == 0 {
@@ -778,10 +778,10 @@ impl Session {
                     });
                 }
                 if let Some(w) = &warning {
-                    eprintln!("lensa: warning: capture ended early: {w}");
+                    eprintln!("kaviri: warning: capture ended early: {w}");
                 }
                 eprintln!(
-                    "lensa: captured {n_frames} frames ({:.1} MB spooled), rendering {out} ...",
+                    "kaviri: captured {n_frames} frames ({:.1} MB spooled), rendering {out} ...",
                     spooled as f64 / 1_048_576.0
                 );
                 let rendered = crate::zoom::render(

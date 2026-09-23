@@ -1,9 +1,9 @@
 # Changelog
 
-All notable changes to lensa are recorded here.
+All notable changes to kaviri are recorded here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and lensa aims at [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+and kaviri aims at [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 While the version is below 1.0 the op protocol and the CLI flags may change in
 a minor release; each such change is listed under **Changed** with what a
 caller has to do about it.
@@ -22,22 +22,41 @@ preceded it, recorded so that anyone reading the diff knows which changes were
 deliberate. Trim this section down to a release summary, or promote it to a
 dated `[0.1.0]` heading, when the tag is cut.
 
+### Changed
+
+- The tool is called **kaviri**, not lensa. The old name collided with an
+  existing product. The binary, the crate, the temp paths and every message
+  carry the new name, and the repository moved to
+  `github.com/thisisisheanesu/kaviri`.
+- Every environment variable moved from `LENSA_*` to `KAVIRI_*`:
+  `KAVIRI_CHROMIUM`, `KAVIRI_CHROMIUM_ARGS`, `KAVIRI_FFMPEG`,
+  `KAVIRI_SPOOL_DIR`, `KAVIRI_MAX_SPOOL_BYTES`, `KAVIRI_KEEP_TEMP`,
+  `KAVIRI_TELEMETRY`, `KAVIRI_TOKEN`, `KAVIRI_DEBUG` and
+  `KAVIRI_SKIP_FFMPEG_TESTS`. The old name is still read when the new one is
+  unset, so a script written before the rename keeps working; it is a
+  transition courtesy and will not be kept forever.
+- The render intermediate left behind by `--keep-temp` is `.kaviri-tmp*`
+  rather than `.lensa-tmp*`, so an old ignore rule no longer covers it.
+- The licence is **Apache-2.0**, unconditionally. `LICENSE` was a placeholder
+  that granted nothing while `Cargo.toml` claimed MIT; both now say
+  Apache-2.0 and the full text ships with the crate.
+
 ### Added
 
-- `lensa doctor`, which prints the Chromium and ffmpeg lensa resolved, and
+- `kaviri doctor`, which prints the Chromium and ffmpeg kaviri resolved, and
   where it found them, without launching a take.
-- `lensa --version` / `-V`, and the version in the startup log line, so a
+- `kaviri --version` / `-V`, and the version in the startup log line, so a
   rendered take can be traced back to the build that produced it.
 - Preflight discovery of ffmpeg before the browser launches, so a missing
   encoder costs a second rather than the whole recording.
 - SIGINT and SIGTERM handling. The first signal unwinds through the normal
   teardown so the browser, its profile and the frame spool are cleaned up; a
   second signal exits immediately.
-- `--spool-dir` and `--max-spool-bytes`, plus `LENSA_SPOOL_DIR` and
-  `LENSA_MAX_SPOOL_BYTES`, to place and bound the frame spool. The spool
+- `--spool-dir` and `--max-spool-bytes`, plus `KAVIRI_SPOOL_DIR` and
+  `KAVIRI_MAX_SPOOL_BYTES`, to place and bound the frame spool. The spool
   defaults to a cap of 8 GiB and refuses to start a take with less than
   512 MiB free, naming the directory in the error.
-- A token handshake on `lensa serve --port`. The token is printed on stderr at
+- A token handshake on `kaviri serve --port`. The token is printed on stderr at
   startup and must arrive as the first line of every connection.
 - `timeout_ms` on the `navigate` op, matching `wait`.
 - `LICENSE` (a placeholder pending the licence decision), `THIRD-PARTY.md`,
@@ -48,7 +67,7 @@ dated `[0.1.0]` heading, when the tag is cut.
 - Record mode now emits the same `{"ok":…}` response envelope as serve mode,
   including for the op that fails. Callers that parsed the bare mark object
   from record mode need to read `result`.
-- `--help`, `lensa presets` and `lensa backgrounds` print to stdout and exit 0
+- `--help`, `kaviri presets` and `kaviri backgrounds` print to stdout and exit 0
   instead of printing to stderr and exiting 2.
 - `serve --port` no longer suggests 9222, Chrome's own remote-debugging port,
   as an example.
@@ -64,7 +83,7 @@ dated `[0.1.0]` heading, when the tag is cut.
 - `wait` with a selector now tests rendered visibility rather than mere
   presence in the DOM, with `"visible": false` to opt out of that.
 - The render intermediate lives in a unique per-run directory under the
-  system temp directory rather than a fixed `.lensa-tmp` beside the output, so
+  system temp directory rather than a fixed `.kaviri-tmp` beside the output, so
   concurrent takes into one directory no longer corrupt each other.
 
 ### Fixed
@@ -112,7 +131,7 @@ dated `[0.1.0]` heading, when the tag is cut.
   script file rather than as an argument.
 - `--background none` stretched the content to the output aspect ratio instead
   of fitting and padding it.
-- ffmpeg pass 2 inherited stdin and ate the op stream in `lensa serve` stdin
+- ffmpeg pass 2 inherited stdin and ate the op stream in `kaviri serve` stdin
   mode.
 - The pass 1 ffmpeg child was abandoned unreaped when writing frames failed,
   and the real cause was reported as a bare "Broken pipe".
@@ -120,16 +139,16 @@ dated `[0.1.0]` heading, when the tag is cut.
 - Chromium and its profile directory were orphaned when the websocket connect
   failed during launch, and killing the browser missed the real process behind
   a snap wrapper script.
-- `LENSA_FFMPEG` rejected a bare command name such as `ffmpeg7`, unlike
-  `LENSA_CHROMIUM`, which accepts one.
+- `KAVIRI_FFMPEG` rejected a bare command name such as `ffmpeg7`, unlike
+  `KAVIRI_CHROMIUM`, which accepts one.
 - `content_box` underflowed on a zero-width or zero-height output.
-- The spool file was not released after rendering, so `lensa serve` held
+- The spool file was not released after rendering, so `kaviri serve` held
   gigabytes of temp space while idle.
-- `lensa serve` exited 0 when every op had failed and no video was produced.
+- `kaviri serve` exited 0 when every op had failed and no video was produced.
 
 ### Security
 
-- `lensa serve --port` was an unauthenticated remote-control socket. Any web
+- `kaviri serve --port` was an unauthenticated remote-control socket. Any web
   page the user visited could reach it with a cross-origin `fetch` and drive
   the browser. It now requires a token, drops any connection whose first line
   is not JSON, and is documented as a remote-control socket in `SECURITY.md`.
@@ -146,4 +165,4 @@ dated `[0.1.0]` heading, when the tag is cut.
 - The Action cloned an unpinned `main` from a remote repository instead of
   building the tree it was invoked from.
 
-[Unreleased]: https://github.com/OWNER/lensa/commits/main
+[Unreleased]: https://github.com/thisisisheanesu/kaviri/commits/main

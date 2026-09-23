@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 33 33" width="33" height="33" role="img" aria-label="kaviri">
+  <title>kaviri</title>
+  <!-- Two takes of the same frame. The first is solid and takes the ink of
+       whatever it sits in; the second is the same square again, offset and
+       drawn in the accent, because the point of the product is the second one. -->
+  <rect x="2" y="2" width="18" height="18" rx="2" fill="currentColor"/>
+  <rect x="11.5" y="11.5" width="18" height="18" rx="2" fill="none" stroke="#c7361a" stroke-width="3"/>
+</svg>

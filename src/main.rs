@@ -1,12 +1,13 @@
-//! lensa: a programmable browser that records itself and produces
+//! kaviri: a programmable browser that records itself and produces
 //! Screen Studio-style auto-zoomed videos. "Screen Studio for AI agents."
 //!
-//!   lensa record --script demo.jsonl --out demo.mp4
-//!   lensa serve
-//!   lensa doctor
+//!   kaviri record --script demo.jsonl --out demo.mp4
+//!   kaviri serve
+//!   kaviri doctor
 
 mod backdrop;
 mod cdp;
+mod env;
 mod ops;
 mod zoom;
 
@@ -19,16 +20,16 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 const USAGE: &str = "\
-lensa: programmable recording browser (Screen Studio for AI agents)
+kaviri: programmable recording browser (Screen Studio for AI agents)
 
 USAGE:
-  lensa record --script <file.jsonl> --out <file.mp4> [options]
-  lensa serve [--port <n>] [--out <file.mp4>] [options]
-  lensa doctor | lensa presets | lensa backgrounds | lensa --version
+  kaviri record --script <file.jsonl> --out <file.mp4> [options]
+  kaviri serve [--port <n>] [--out <file.mp4>] [options]
+  kaviri doctor | kaviri presets | kaviri backgrounds | kaviri --version
 
 OPTIONS:
   --script <path>     newline-delimited JSON ops to run (record mode)
-  --out <path>        output MP4 (default lensa-out.mp4)
+  --out <path>        output MP4 (default kaviri-out.mp4)
   --port <n>          serve ops over TCP instead of stdin/stdout. Opt-in: see
                       the token note below before using it
   --width <px>        logical viewport width  (default 1470, 64..16384)
@@ -43,7 +44,7 @@ OPTIONS:
   --cursor <name>     pointer shape: auto, arrow, hand, text or none
                       (default auto: whatever the OS would show)
   --cursor-scale <f>  pointer size against a 1x system cursor (default 1.75)
-  --chromium <path>   browser binary (default: autodetect / $LENSA_CHROMIUM)
+  --chromium <path>   browser binary (default: autodetect / $KAVIRI_CHROMIUM)
   --spool-dir <path>  where captured frames are spooled (default: a private
                       directory under $TMPDIR)
   --max-spool-bytes <n>
@@ -66,7 +67,7 @@ OPS (one JSON object per line):
 Every op answers with one JSON line: {\"ok\":true,\"result\":{…}} or
 {\"ok\":false,\"error\":\"…\"}. With --port, the first line of a connection must be
 {\"op\":\"hello\",\"token\":\"…\"}; the token is printed on stderr at startup, or set
-it yourself with $LENSA_TOKEN.
+it yourself with $KAVIRI_TOKEN.
 ";
 
 /// A named shape for a take: how the page lays out, how much is captured, and how big
@@ -183,7 +184,7 @@ struct Args {
 ///
 /// Help and the listing subcommands are not errors: they are the whole point of
 /// the invocation, so they go to stdout and exit 0. Only `Error` is a usage
-/// failure. Keeping the two apart is what makes `lensa presets > presets.txt`
+/// failure. Keeping the two apart is what makes `kaviri presets > presets.txt`
 /// write a file rather than an empty one.
 enum Parsed {
     Run(Box<Args>),
@@ -192,7 +193,7 @@ enum Parsed {
 }
 
 fn version_line() -> String {
-    format!("lensa {}", env!("CARGO_PKG_VERSION"))
+    format!("kaviri {}", env!("CARGO_PKG_VERSION"))
 }
 
 /// Parse an integer flag, rejecting the values that only fail much later.
@@ -250,13 +251,13 @@ fn parse_argv() -> Result<Parsed, String> {
     }
     if mode == "--presets" || mode == "presets" {
         return Ok(Parsed::Help(format!(
-            "Presets:\n{}\n\nUse one with: lensa record --preset <name> ...",
+            "Presets:\n{}\n\nUse one with: kaviri record --preset <name> ...",
             preset_help()
         )));
     }
     if mode == "--backgrounds" || mode == "backgrounds" {
         return Ok(Parsed::Help(format!(
-            "Backgrounds:\n{}\n\nUse one with: lensa record --background <name> ...\n\nCursors (--cursor):\n{}",
+            "Backgrounds:\n{}\n\nUse one with: kaviri record --background <name> ...\n\nCursors (--cursor):\n{}",
             backdrop::help(),
             ops::cursor_help()
         )));
@@ -272,7 +273,7 @@ fn parse_argv() -> Result<Parsed, String> {
     let mut a = Args {
         mode,
         script: None,
-        out: "lensa-out.mp4".into(),
+        out: "kaviri-out.mp4".into(),
         port: None,
         width: 1470,
         height: 830,
@@ -348,7 +349,7 @@ fn parse_argv() -> Result<Parsed, String> {
             }
             "--keep-temp" => a.keep_temp = true,
             "--audio" => {
-                eprintln!("lensa: --audio is not implemented yet (headless backend); ignoring")
+                eprintln!("kaviri: --audio is not implemented yet (headless backend); ignoring")
             }
             "--help" | "-h" => return Ok(Parsed::Help(USAGE.to_string())),
             "--version" | "-V" => return Ok(Parsed::Help(version_line())),
@@ -370,7 +371,7 @@ fn preflight() -> Result<String, String> {
     zoom::find_ffmpeg()
 }
 
-/// Report what lensa found on this machine, and say so in one place rather than
+/// Report what kaviri found on this machine, and say so in one place rather than
 /// in the middle of a take.
 fn run_doctor(a: &Args) -> Result<(), String> {
     println!("{}", version_line());
@@ -380,7 +381,7 @@ fn run_doctor(a: &Args) -> Result<(), String> {
         Some((bin, ver)) => println!("chromium: {bin}\n  {ver}"),
         None => {
             ok = false;
-            println!("chromium: NOT FOUND (set LENSA_CHROMIUM or pass --chromium)");
+            println!("chromium: NOT FOUND (set KAVIRI_CHROMIUM or pass --chromium)");
         }
     }
     match zoom::find_ffmpeg() {
@@ -398,7 +399,7 @@ fn run_doctor(a: &Args) -> Result<(), String> {
     let spool = a
         .spool_dir
         .clone()
-        .or_else(|| std::env::var_os("LENSA_SPOOL_DIR").map(PathBuf::from))
+        .or_else(|| env::var_os("SPOOL_DIR").map(PathBuf::from))
         .unwrap_or_else(std::env::temp_dir);
     println!("frame spool: under {}", spool.display());
     println!(
@@ -426,7 +427,7 @@ fn first_line_of(bin: &str, arg: &str) -> Option<String> {
     text.lines().next().map(|l| l.trim().to_string())
 }
 
-/// The browser lensa would use, and what it calls itself.
+/// The browser kaviri would use, and what it calls itself.
 ///
 /// Deliberately separate from `cdp`'s own lookup: this one reports a version
 /// string for a human, and must keep going past a candidate that is present but
@@ -435,7 +436,7 @@ fn probe_chromium(explicit: Option<&str>) -> Option<(String, String)> {
     let mut cands: Vec<String> = Vec::new();
     if let Some(p) = explicit {
         cands.push(p.to_string());
-    } else if let Ok(p) = std::env::var("LENSA_CHROMIUM") {
+    } else if let Some(p) = env::var("CHROMIUM") {
         cands.push(p);
     } else {
         for c in [
@@ -487,12 +488,12 @@ fn run_record(a: &Args) -> Result<(), String> {
     let has_start = ops_list.iter().any(|o| o["op"] == "start_recording");
 
     let ffmpeg = preflight()?;
-    if std::env::var_os("LENSA_DEBUG").is_some() {
-        eprintln!("lensa[debug]: ffmpeg at {ffmpeg}");
+    if env::is_set("DEBUG") {
+        eprintln!("kaviri[debug]: ffmpeg at {ffmpeg}");
     }
 
     eprintln!(
-        "lensa {}: launching browser ({}x{}@{}x) ...",
+        "kaviri {}: launching browser ({}x{}@{}x) ...",
         env!("CARGO_PKG_VERSION"),
         a.width,
         a.height,
@@ -573,7 +574,7 @@ fn run_record(a: &Args) -> Result<(), String> {
         }
     }
     if let Some((dur, n)) = s.rendered {
-        eprintln!("lensa: done: {} ({dur:.1}s, {n} zoom events)", a.out);
+        eprintln!("kaviri: done: {} ({dur:.1}s, {n} zoom events)", a.out);
     }
     match failure {
         Some(e) => Err(e),
@@ -594,7 +595,7 @@ enum Incoming {
 ///
 /// `BufRead::lines()` cannot do this: it blocks until the client says something,
 /// and while it blocks nothing pumps CDP. That is what made serve mode record a
-/// sequence of freeze frames covering only the moments lensa was already busy.
+/// sequence of freeze frames covering only the moments kaviri was already busy.
 trait LineSource {
     fn next_line(&mut self, budget: Duration) -> Incoming;
 }
@@ -633,7 +634,7 @@ impl LineSource for SocketLines {
                 self.buf.extend_from_slice(&chunk[..n]);
                 if self.buf.len() > MAX_LINE_BYTES {
                     eprintln!(
-                        "lensa: dropping a client that sent {} bytes with no newline",
+                        "kaviri: dropping a client that sent {} bytes with no newline",
                         MAX_LINE_BYTES
                     );
                     return Incoming::Eof;
@@ -699,7 +700,7 @@ impl LineSource for StdinLines {
 /// is how the next client inherits it.
 fn session(s: &Mutex<Session>) -> MutexGuard<'_, Session> {
     s.lock().unwrap_or_else(|p| {
-        eprintln!("lensa: warning: an op panicked while holding the session; the browser may be in an unknown state");
+        eprintln!("kaviri: warning: an op panicked while holding the session; the browser may be in an unknown state");
         p.into_inner()
     })
 }
@@ -805,7 +806,7 @@ fn serve_stream<L: LineSource, W: Write>(
              * overridden it with --out, and serve mode has no reason to be laxer.
              */
             if op.get("path").is_some() && op["path"] != json!(out_path) {
-                eprintln!("lensa: ignoring start_recording path; the output is {out_path}");
+                eprintln!("kaviri: ignoring start_recording path; the output is {out_path}");
             }
             op["path"] = json!(out_path);
         }
@@ -865,12 +866,12 @@ const MAX_CLIENTS: usize = 16;
 
 fn run_serve(a: &Args) -> Result<(), String> {
     let ffmpeg = preflight()?;
-    if std::env::var_os("LENSA_DEBUG").is_some() {
-        eprintln!("lensa[debug]: ffmpeg at {ffmpeg}");
+    if env::is_set("DEBUG") {
+        eprintln!("kaviri[debug]: ffmpeg at {ffmpeg}");
     }
 
     eprintln!(
-        "lensa {}: launching browser ({}x{}@{}x) ...",
+        "kaviri {}: launching browser ({}x{}@{}x) ...",
         env!("CARGO_PKG_VERSION"),
         a.width,
         a.height,
@@ -900,23 +901,23 @@ fn run_serve(a: &Args) -> Result<(), String> {
              * the user visits can POST to it. Without a token, a drive-by fetch could
              * navigate this browser to file:// and record the result.
              */
-            let token = std::env::var("LENSA_TOKEN").unwrap_or_else(|_| random_token());
+            let token = env::var("TOKEN").unwrap_or_else(random_token);
             let listener = std::net::TcpListener::bind(("127.0.0.1", port))
                 .map_err(|e| format!("bind 127.0.0.1:{port}: {e}"))?;
             listener
                 .set_nonblocking(true)
                 .map_err(|e| format!("listener: {e}"))?;
-            eprintln!("lensa: listening on 127.0.0.1:{port} (NDJSON ops, concurrent connections)");
-            eprintln!("lensa: token {token}");
+            eprintln!("kaviri: listening on 127.0.0.1:{port} (NDJSON ops, concurrent connections)");
+            eprintln!("kaviri: token {token}");
             eprintln!(
-                "lensa: every connection must begin with {{\"op\":\"hello\",\"token\":\"{token}\"}}"
+                "kaviri: every connection must begin with {{\"op\":\"hello\",\"token\":\"{token}\"}}"
             );
-            eprintln!("lensa: --port opens a local control socket; prefer stdin mode when one client is enough");
+            eprintln!("kaviri: --port opens a local control socket; prefer stdin mode when one client is enough");
 
             let mut accept_errors = 0u32;
             loop {
                 if cdp::shutting_down() {
-                    eprintln!("lensa: interrupted; shutting down");
+                    eprintln!("kaviri: interrupted; shutting down");
                     break;
                 }
                 match listener.accept() {
@@ -924,7 +925,7 @@ fn run_serve(a: &Args) -> Result<(), String> {
                         accept_errors = 0;
                         if CLIENTS.load(Ordering::Relaxed) >= MAX_CLIENTS {
                             eprintln!(
-                                "lensa: refusing a connection; {} clients already attached",
+                                "kaviri: refusing a connection; {} clients already attached",
                                 MAX_CLIENTS
                             );
                             continue;
@@ -936,13 +937,13 @@ fn run_serve(a: &Args) -> Result<(), String> {
                         // The listener is non-blocking so the accept loop can see a
                         // signal; the connection itself is driven by its own timeout.
                         if let Err(e) = conn.set_nonblocking(false) {
-                            eprintln!("lensa: cannot configure socket for {peer}: {e}");
+                            eprintln!("kaviri: cannot configure socket for {peer}: {e}");
                             continue;
                         }
                         let writer = match conn.try_clone() {
                             Ok(c) => c,
                             Err(e) => {
-                                eprintln!("lensa: cannot clone socket for {peer}: {e}");
+                                eprintln!("kaviri: cannot clone socket for {peer}: {e}");
                                 continue;
                             }
                         };
@@ -952,7 +953,7 @@ fn run_serve(a: &Args) -> Result<(), String> {
                         let out_path = a.out.clone();
                         CLIENTS.fetch_add(1, Ordering::Relaxed);
                         std::thread::spawn(move || {
-                            eprintln!("lensa: client {peer} connected");
+                            eprintln!("kaviri: client {peer} connected");
                             let mut src = SocketLines {
                                 sock: conn,
                                 buf: Vec::new(),
@@ -961,7 +962,7 @@ fn run_serve(a: &Args) -> Result<(), String> {
                             let outcome =
                                 serve_stream(&shared, &mut src, &mut w, &out_path, Some(&token));
                             failed.fetch_add(outcome.failed_ops, Ordering::Relaxed);
-                            eprintln!("lensa: client {peer} disconnected");
+                            eprintln!("kaviri: client {peer} disconnected");
                             CLIENTS.fetch_sub(1, Ordering::Relaxed);
                         });
                     }
@@ -984,7 +985,7 @@ fn run_serve(a: &Args) -> Result<(), String> {
                          * is trying to capture frames.
                          */
                         accept_errors += 1;
-                        eprintln!("lensa: accept failed: {e}");
+                        eprintln!("kaviri: accept failed: {e}");
                         if accept_errors >= 50 {
                             return Err(format!("accept kept failing: {e}"));
                         }
@@ -1000,7 +1001,7 @@ fn run_serve(a: &Args) -> Result<(), String> {
             }
         }
         None => {
-            eprintln!("lensa: reading NDJSON ops from stdin");
+            eprintln!("kaviri: reading NDJSON ops from stdin");
             let mut src = StdinLines::spawn();
             let mut out = std::io::stdout();
             let outcome = serve_stream(&s, &mut src, &mut out, &a.out, None);
@@ -1044,7 +1045,7 @@ fn run_serve(a: &Args) -> Result<(), String> {
 }
 
 fn main() {
-    // First: every cleanup lensa does lives in a Drop, and the default signal
+    // First: every cleanup kaviri does lives in a Drop, and the default signal
     // disposition runs none of them.
     cdp::install_signal_handlers();
 
@@ -1066,7 +1067,7 @@ fn main() {
         m => Err(format!("unknown mode: {m}\n\n{USAGE}")),
     };
     if let Err(e) = r {
-        eprintln!("lensa: error: {e}");
+        eprintln!("kaviri: error: {e}");
         std::process::exit(1);
     }
 }

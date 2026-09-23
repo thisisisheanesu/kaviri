@@ -932,7 +932,7 @@ mod tests {
         // Per-process, because a fixed name in a shared temp directory is another
         // user's directory on a build machine: create_dir_all then succeeds and the
         // write fails, which reads as a bug in the encoder rather than in the test.
-        let dir = std::env::temp_dir().join(format!("lensa-png-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("kaviri-png-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("p.png");
         let (w, h) = (7u32, 5u32);
@@ -960,7 +960,7 @@ mod tests {
 
     #[test]
     fn plate_covers_the_frame_and_opens_a_window() {
-        let dir = std::env::temp_dir().join(format!("lensa-plate-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("kaviri-plate-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let (w, h) = (320u32, 200u32);
         let bg = background("tide").unwrap();

@@ -65,7 +65,7 @@ const PATH_BUDGET_TOTAL: usize = 192;
 /// A filter graph longer than this is handed to ffmpeg as a file instead of an argument.
 ///
 /// Linux caps one argv element at 128 KiB. Staying with an argument for ordinary takes keeps
-/// lensa off `-filter_complex_script`, which recent ffmpeg deprecates, while still having a
+/// kaviri off `-filter_complex_script`, which recent ffmpeg deprecates, while still having a
 /// path that works when a very long take generates a graph an argument cannot hold.
 const GRAPH_ARG_LIMIT: usize = 32 * 1024;
 
@@ -170,7 +170,7 @@ pub fn events_from_marks(
         ev.path.retain(|p| p.0 > ev.t + EASE && p.0 < ev.end - EASE);
         if ev.path.len() < before {
             eprintln!(
-                "lensa: {} pan waypoint(s) of the interaction at {:.1}s fall outside the zoom \
+                "kaviri: {} pan waypoint(s) of the interaction at {:.1}s fall outside the zoom \
                  window and were dropped",
                 before - ev.path.len(),
                 first.t
@@ -184,7 +184,7 @@ pub fn events_from_marks(
              * zoom was a lower event count in a sidecar nobody reads.
              */
             eprintln!(
-                "lensa: the interaction at {:.1}s is too close to the end of the {duration:.1}s \
+                "kaviri: the interaction at {:.1}s is too close to the end of the {duration:.1}s \
                  take to be zoomed; add a trailing wait before stop_recording",
                 first.t
             );
@@ -342,14 +342,14 @@ pub fn build_expr(events: &[ZoomEvent], which: &str) -> String {
 /// Find an ffmpeg to shell out to.
 ///
 /// Deliberately not bundled: shipping ffmpeg means shipping its licence, and the builds that
-/// can write H.264 are the GPL ones. Using whichever the machine already has keeps lensa's own
+/// can write H.264 are the GPL ones. Using whichever the machine already has keeps kaviri's own
 /// terms its own business.
 pub fn find_ffmpeg() -> Result<String, String> {
-    if let Ok(p) = std::env::var("LENSA_FFMPEG") {
+    if let Some(p) = crate::env::var("FFMPEG") {
         /*
          * A bare command name means "this one, off PATH", which is how the sibling
-         * LENSA_CHROMIUM already behaves. Treating it as a filesystem path made
-         * LENSA_FFMPEG=ffmpeg7 fail with a message asserting that a binary which exists
+         * KAVIRI_CHROMIUM already behaves. Treating it as a filesystem path made
+         * KAVIRI_FFMPEG=ffmpeg7 fail with a message asserting that a binary which exists
          * does not.
          */
         if runs(&p) {
@@ -360,7 +360,7 @@ pub fn find_ffmpeg() -> Result<String, String> {
         } else {
             "which is not a runnable ffmpeg on PATH"
         };
-        return Err(format!("LENSA_FFMPEG points at {p}, {named}"));
+        return Err(format!("KAVIRI_FFMPEG points at {p}, {named}"));
     }
     if runs("ffmpeg") {
         return Ok("ffmpeg".into());
@@ -397,7 +397,7 @@ pub fn find_ffmpeg() -> Result<String, String> {
     }
     Err(format!(
         "ffmpeg not found. Looked in:\n  {}\nInstall one (apt install ffmpeg, brew install \
-         ffmpeg, or a static build) or point LENSA_FFMPEG at it.",
+         ffmpeg, or a static build) or point KAVIRI_FFMPEG at it.",
         tried.join("\n  ")
     ))
 }
@@ -434,7 +434,7 @@ fn stderr_tail(bytes: &[u8]) -> String {
 
 /// Where the render's intermediates live for the length of one render.
 ///
-/// Two takes rendering into the same output directory used to share one `.lensa-tmp` next to
+/// Two takes rendering into the same output directory used to share one `.kaviri-tmp` next to
 /// the output, so each overwrote the other's raw.mp4 and whichever finished first deleted the
 /// plate the other was still reading. The directory is now unique per run and under TMPDIR,
 /// which is also what the action's TMPDIR redirection has always claimed to cover, and the
@@ -465,7 +465,7 @@ impl TempDir {
                 .build_hasher()
                 .finish();
             let path = base.join(format!(
-                "lensa-render-{stem}-{}-{salt:016x}",
+                "kaviri-render-{stem}-{}-{salt:016x}",
                 std::process::id()
             ));
             let mut b = std::fs::DirBuilder::new();
@@ -501,7 +501,7 @@ impl Drop for TempDir {
     fn drop(&mut self) {
         if self.keep {
             eprintln!(
-                "lensa: render intermediates kept in {}",
+                "kaviri: render intermediates kept in {}",
                 self.path.display()
             );
             return;
@@ -780,7 +780,7 @@ fn render_zoom(
 ///
 /// A backdrop is decoration, so nothing here is fatal: a failed probe falls
 /// back to the deterministic default, and a failed render falls back to the
-/// full-frame take that lensa produced before backdrops existed.
+/// full-frame take that kaviri produced before backdrops existed.
 fn plate_for(
     choice: Choice,
     tmp_dir: &Path,
@@ -808,13 +808,13 @@ fn plate_for(
     match backdrop::build(tmp_dir, bg, out_w, out_h, aspect) {
         Ok(p) => {
             eprintln!(
-                "lensa: backdrop {} ({how}), content {}x{} at {},{}",
+                "kaviri: backdrop {} ({how}), content {}x{} at {},{}",
                 p.name, p.content.0, p.content.1, p.origin.0, p.origin.1
             );
             Some(p)
         }
         Err(e) => {
-            eprintln!("lensa: backdrop unavailable ({e}); rendering full-frame");
+            eprintln!("kaviri: backdrop unavailable ({e}); rendering full-frame");
             None
         }
     }
@@ -844,9 +844,9 @@ fn tail_pad_for(marks: &[Mark], raw_end: f64) -> f64 {
 /// carries each navigate label, which is a fully resolved URL including any query string or
 /// token, so delivering it alongside the deliverable is a decision the user should make.
 fn telemetry_path(out_path: &str, keep_temp: bool) -> Option<String> {
-    match std::env::var("LENSA_TELEMETRY") {
-        Ok(v) if v == "0" || v == "off" => None,
-        Ok(v) if !v.is_empty() => Some(v),
+    match crate::env::var("TELEMETRY") {
+        Some(v) if v == "0" || v == "off" => None,
+        Some(v) if !v.is_empty() => Some(v),
         _ if keep_temp => Some(format!("{out_path}.telemetry.json")),
         _ => None,
     }
@@ -890,7 +890,7 @@ pub fn render(
     let raw_path = tmp.join("raw.mp4");
 
     eprintln!(
-        "lensa: viewport {css_w}x{css_h}, capture {fw}x{fh} ({scale:.2}x), output {out_w}x{out_h}"
+        "kaviri: viewport {css_w}x{css_h}, capture {fw}x{fh} ({scale:.2}x), output {out_w}x{out_h}"
     );
 
     let raw_end = spool.frames().last().map(|f| f.t).unwrap_or(0.0) + 0.4;
@@ -928,8 +928,8 @@ pub fn render(
         let body = serde_json::to_string_pretty(&telemetry).unwrap_or_else(|_| "{}".into());
         match std::fs::write(&sidecar, body) {
             // Said out loud because the labels include every URL the script visited.
-            Ok(()) => eprintln!("lensa: telemetry (including visited URLs) written to {sidecar}"),
-            Err(e) => eprintln!("lensa: could not write telemetry to {sidecar}: {e}"),
+            Ok(()) => eprintln!("kaviri: telemetry (including visited URLs) written to {sidecar}"),
+            Err(e) => eprintln!("kaviri: could not write telemetry to {sidecar}: {e}"),
         }
     }
 
@@ -1420,11 +1420,11 @@ mod tests {
         match find_ffmpeg() {
             Ok(f) => Some(f),
             Err(e) => {
-                if std::env::var("LENSA_SKIP_FFMPEG_TESTS").as_deref() == Ok("1") {
-                    eprintln!("lensa: skipping an ffmpeg test (LENSA_SKIP_FFMPEG_TESTS=1): {e}");
+                if crate::env::var("SKIP_FFMPEG_TESTS").as_deref() == Some("1") {
+                    eprintln!("kaviri: skipping an ffmpeg test (KAVIRI_SKIP_FFMPEG_TESTS=1): {e}");
                     return None;
                 }
-                panic!("{e}\n\nSet LENSA_SKIP_FFMPEG_TESTS=1 to skip the tests that need ffmpeg.");
+                panic!("{e}\n\nSet KAVIRI_SKIP_FFMPEG_TESTS=1 to skip the tests that need ffmpeg.");
             }
         }
     }

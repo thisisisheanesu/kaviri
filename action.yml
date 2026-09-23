@@ -1,4 +1,4 @@
-name: lensa
+name: kaviri
 description: Record a product demo from a script, in CI, so it is never out of date.
 author: Vambo AI
 
@@ -21,7 +21,7 @@ inputs:
   preset:
     description: >-
       Shape of the take: desktop, tiktok, reels, shorts, square, landscape, readme, phone.
-      Run `lensa presets` to see the sizes.
+      Run `kaviri presets` to see the sizes.
     required: false
     default: desktop
   background:
@@ -80,8 +80,8 @@ runs:
               if command -v sudo >/dev/null 2>&1; then
                 SUDO='sudo'
               else
-                echo "lensa: installing ffmpeg needs root, and this job has neither root nor sudo." >&2
-                echo "lensa: pre-install ffmpeg and a Chromium in your container image instead." >&2
+                echo "kaviri: installing ffmpeg needs root, and this job has neither root nor sudo." >&2
+                echo "kaviri: pre-install ffmpeg and a Chromium in your container image instead." >&2
                 exit 1
               fi
             fi
@@ -98,7 +98,7 @@ runs:
               $SUDO apt-get update -qq
             fi
             if [ "$need_ffmpeg" -eq 1 ]; then
-              # ffmpeg does the encoding and lensa shells out to it; it is deliberately not
+              # ffmpeg does the encoding and kaviri shells out to it; it is deliberately not
               # bundled, because the builds that can write H.264 are the GPL ones.
               $SUDO apt-get install -y -qq ffmpeg
             fi
@@ -121,13 +121,13 @@ runs:
             fi
             ;;
           *)
-            echo "lensa's action supports Linux and macOS runners; RUNNER_OS is '${RUNNER_OS:-unset}'." >&2
+            echo "kaviri's action supports Linux and macOS runners; RUNNER_OS is '${RUNNER_OS:-unset}'." >&2
             exit 1
             ;;
         esac
 
         if [ -z "$browser" ]; then
-          echo "lensa: no Chromium or Chrome on this runner, and none could be installed." >&2
+          echo "kaviri: no Chromium or Chrome on this runner, and none could be installed." >&2
           exit 1
         fi
 
@@ -135,8 +135,8 @@ runs:
         # transitional stub for the snap. A snap-confined browser cannot read a profile or a
         # frame spool under RUNNER_TEMP, and it fails by never opening the debugger port, which
         # surfaces forty seconds later as an error that names neither snap nor the profile.
-        if [ -z "${LENSA_CHROMIUM:-}" ]; then
-          echo "LENSA_CHROMIUM=$browser" >> "$GITHUB_ENV"
+        if [ -z "${KAVIRI_CHROMIUM:-}" ]; then
+          echo "KAVIRI_CHROMIUM=$browser" >> "$GITHUB_ENV"
         fi
         # The official rust images put cargo somewhere other than $HOME, and a cache keyed on a
         # literal ~/.cargo silently stores nothing there.
@@ -160,10 +160,10 @@ runs:
         # A GitHub cache entry is immutable once written, so a key that never changes freezes the
         # first build's target/ forever and the rebuild creeps back towards a cold one. Keying on
         # the commit writes a fresh entry every run and the prefix restores the newest of them.
-        key: lensa-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
-        restore-keys: lensa-${{ runner.os }}-${{ runner.arch }}-
+        key: kaviri-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+        restore-keys: kaviri-${{ runner.os }}-${{ runner.arch }}-
 
-    - name: Build lensa
+    - name: Build kaviri
       shell: bash
       working-directory: ${{ github.action_path }}
       run: cargo build --release --locked --quiet
@@ -182,13 +182,13 @@ runs:
         BACKGROUND: ${{ inputs.background }}
         SCALE: ${{ inputs.scale }}
         # Chromium's sandbox cannot start inside a CI container. This is a real reduction in
-        # isolation, which is why lensa does not do it by default and the runner opts in.
-        LENSA_CHROMIUM_ARGS: --no-sandbox --disable-dev-shm-usage ${{ inputs.chromium-args }}
+        # isolation, which is why kaviri does not do it by default and the runner opts in.
+        KAVIRI_CHROMIUM_ARGS: --no-sandbox --disable-dev-shm-usage ${{ inputs.chromium-args }}
         # /tmp on a runner is small and shared. Spool beside the workspace instead.
         TMPDIR: ${{ runner.temp }}
       run: |
         set -euo pipefail
-        "$ACTION_PATH/target/release/lensa" record \
+        "$ACTION_PATH/target/release/kaviri" record \
           --script "$SCRIPT" \
           --out "$OUT" \
           --preset "$PRESET" \

@@ -35,7 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           # The two tests that validate the generated filter graph and the hand-rolled PNG shell
-          # out to a real ffmpeg. LENSA_SKIP_FFMPEG_TESTS is deliberately left unset here so that
+          # out to a real ffmpeg. KAVIRI_SKIP_FFMPEG_TESTS is deliberately left unset here so that
           # a missing encoder is a red build rather than two silently skipped tests.
           export DEBIAN_FRONTEND=noninteractive
           sudo apt-get update -qq
@@ -57,8 +57,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: lensa-ci-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: lensa-ci-${{ runner.os }}-
+          key: kaviri-ci-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: kaviri-ci-${{ runner.os }}-
 
       - name: Formatting
         run: cargo fmt --all -- --check

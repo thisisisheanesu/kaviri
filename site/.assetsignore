@@ -1,0 +1,6 @@
+# Uploaded assets are public. These are the files that live in this directory for wrangler's
+# sake, not the browser's. worker.js refuses them at request time as well, so this is the belt
+# and the braces both.
+worker.js
+wrangler.toml
+.assetsignore

@@ -1,5 +1,5 @@
 # ngano.dev, shot vertical for TikTok / Reels / Shorts.
-#   lensa record --preset tiktok --script examples/ngano-vertical.jsonl --out ngano-tiktok.mp4
+#   kaviri record --preset tiktok --script examples/ngano-vertical.jsonl --out ngano-tiktok.mp4
 #
 # A vertical frame is narrow and tall, so this is a different shot list from the desktop
 # take: scrolls read better than side-by-side panels, the map is the opening image rather

@@ -1,0 +1,17 @@
+kaviri
+Copyright 2026 Isheanesu Misi
+
+This product includes software developed by Isheanesu Misi and the kaviri
+contributors (https://kaviri.dev).
+
+Licensed under the Apache License, Version 2.0. A copy of the licence is in
+the LICENSE file beside this one, and at
+http://www.apache.org/licenses/LICENSE-2.0.
+
+kaviri does not bundle ffmpeg or Chromium. It finds them on the host at run
+time and runs them as separate processes, so they remain the user's own
+software under their own licences. See THIRD-PARTY.md.
+
+Third-party crates compiled into kaviri carry their own copyright notices.
+They are reproduced in THIRD-PARTY.md, which travels with any distribution of
+this software in source or binary form.

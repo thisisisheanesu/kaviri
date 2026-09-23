@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 156 38" width="156" height="38" role="img" aria-label="kaviri">
+  <title>kaviri</title>
+  <!-- Mark, then wordmark. Geometric lowercase, drawn as strokes on a 5 unit
+       pen so the letterforms are the same weight as the mark. -->
+  <g transform="translate(-2.14 0.86) scale(1.069)">
+    <rect x="2" y="2" width="18" height="18" rx="2" fill="#0f0f10"/>
+    <rect x="11.5" y="11.5" width="18" height="18" rx="2" fill="none" stroke="#c7361a" stroke-width="3"/>
+  </g>
+  <g transform="translate(35 0)">
+    <g fill="none" stroke="#0f0f10" stroke-width="4.6" stroke-linecap="butt" stroke-linejoin="miter">
+      <path d="M10 3V34"/>
+      <path d="M27 13L13.5 25.5"/>
+      <path d="M18 21L27.5 34"/>
+      <path d="M57 12V34"/>
+      <path d="M57 14A11 11 0 1 0 57 32"/>
+      <path d="M65 12L74 34L83 12"/>
+      <path d="M91 12V34"/>
+      <path d="M100 12V34"/>
+      <path d="M100 19C100 14.5 104 12 109.5 12"/>
+      <path d="M116 12V34"/>
+    </g>
+    <circle cx="91" cy="5.5" r="2.3" fill="#0f0f10"/>
+    <circle cx="116" cy="5.5" r="2.3" fill="#0f0f10"/>
+  </g>
+</svg>

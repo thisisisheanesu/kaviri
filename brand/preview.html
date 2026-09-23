@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kaviri brand</title>
+<link rel="icon" href="favicon.svg">
+<link rel="stylesheet" href="tokens.css">
+<style>
+  /* This page is the specimen, not a component library. It uses tokens only, so
+     a token that is wrong is visible here before it is visible on the site. */
+  .wrap { max-width: var(--max-width); margin: 0 auto; padding: var(--space-8) var(--gutter) var(--space-10); }
+  header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); }
+  .lockup { height: 32px; }
+  .lockup.dark { display: none; }
+  :root[data-theme="dark"] .lockup.light { display: none; }
+  :root[data-theme="dark"] .lockup.dark { display: block; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .lockup.light { display: none; }
+    :root:not([data-theme="light"]) .lockup.dark { display: block; }
+  }
+  h1 { font-size: var(--text-3xl); line-height: var(--leading-tight); letter-spacing: var(--tracking-display); font-weight: var(--weight-semibold); margin: var(--space-8) 0 var(--space-4); max-width: 16ch; }
+  h2 { font-size: var(--text-lg); letter-spacing: var(--tracking-tight); font-weight: var(--weight-semibold); margin: 0 0 var(--space-4); }
+  p { max-width: var(--measure); color: var(--text-muted); margin: 0 0 var(--space-4); }
+  p.lead { font-size: var(--text-md); color: var(--text); max-width: var(--measure-narrow); }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  section { border-top: var(--border-width) solid var(--border); padding: var(--space-7) 0 var(--space-6); }
+  .eyebrow { font-size: var(--text-2xs); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--text-faint); margin: 0 0 var(--space-3); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-4); }
+  .swatch { border: var(--border-width) solid var(--border); border-radius: var(--radius-2); overflow: hidden; }
+  .swatch .chip { height: 64px; }
+  .swatch .meta { padding: var(--space-3); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); }
+  .swatch .meta b { display: block; color: var(--text); font-weight: var(--weight-medium); }
+  .btn { display: inline-flex; align-items: center; gap: var(--space-2); font: inherit; font-weight: var(--weight-medium); font-size: var(--text-sm); padding: 0 var(--space-4); height: 38px; border-radius: var(--radius-1); border: var(--border-width) solid transparent; cursor: pointer; text-decoration: none; transition: background var(--duration-1) var(--ease-out); }
+  .btn-primary { background: var(--accent); color: var(--accent-contrast); }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-secondary { background: var(--surface); color: var(--text); border-color: var(--border-strong); }
+  .btn-secondary:hover { background: var(--bg-subtle); }
+  pre { background: var(--code-bg); border: var(--border-width) solid var(--border); border-radius: var(--radius-2); padding: var(--space-4); overflow-x: auto; font-family: var(--font-mono); font-size: var(--text-sm); line-height: var(--leading-snug); color: var(--text); margin: 0; }
+  .fail { color: var(--fail); }
+  .ok { color: var(--ok); }
+  .type-row { display: flex; align-items: baseline; gap: var(--space-5); border-bottom: var(--border-width) solid var(--border); padding: var(--space-3) 0; }
+  .type-row code { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-faint); min-width: 8ch; }
+  .marks { display: flex; align-items: flex-end; gap: var(--space-6); color: var(--text); }
+  .shadows { display: flex; gap: var(--space-5); flex-wrap: wrap; }
+  .shadows div { width: 120px; height: 72px; background: var(--surface-raised); border-radius: var(--radius-2); display: grid; place-items: center; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img class="lockup light" src="logo.svg" alt="kaviri">
+    <img class="lockup dark" src="logo-dark.svg" alt="kaviri">
+    <button class="btn btn-secondary" id="theme">Toggle theme</button>
+  </header>
+
+  <h1>Your demo video is a build artifact.</h1>
+  <p class="lead">It changes when your product does, or the build fails. kaviri records agents, not people: the camera follows the text caret, because there is no hand on a mouse.</p>
+  <p>
+    <a class="btn btn-primary" href="#">Record a take</a>
+    <a class="btn btn-secondary" href="#">Read the docs</a>
+  </p>
+
+  <section>
+    <p class="eyebrow">Colour</p>
+    <h2>One accent, ember</h2>
+    <p>The accent marks the thing that changed. One per view. Everything else is ink on paper.</p>
+    <div class="grid">
+      <div class="swatch"><div class="chip" style="background: var(--accent)"></div><div class="meta"><b>--accent</b>#c7361a / #ff6b3d</div></div>
+      <div class="swatch"><div class="chip" style="background: var(--text)"></div><div class="meta"><b>--text</b>ink</div></div>
+      <div class="swatch"><div class="chip" style="background: var(--bg-subtle); border-bottom: var(--border-width) solid var(--border)"></div><div class="meta"><b>--bg-subtle</b>paper</div></div>
+      <div class="swatch"><div class="chip" style="background: var(--border-strong)"></div><div class="meta"><b>--border-strong</b>structure</div></div>
+      <div class="swatch"><div class="chip" style="background: var(--ok)"></div><div class="meta"><b>--ok</b>status only</div></div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Type</p>
+    <h2>Inter, and mono for anything a machine typed</h2>
+    <div class="type-row"><code>4xl</code><span style="font-size: var(--text-4xl); letter-spacing: var(--tracking-display); font-weight: var(--weight-semibold); line-height: var(--leading-none)">kaviri</span></div>
+    <div class="type-row"><code>2xl</code><span style="font-size: var(--text-2xl); letter-spacing: var(--tracking-display); font-weight: var(--weight-semibold)">Made again, not re-recorded</span></div>
+    <div class="type-row"><code>lg</code><span style="font-size: var(--text-lg); letter-spacing: var(--tracking-tight)">A section heading</span></div>
+    <div class="type-row"><code>base</code><span>Body copy. Plain, concrete, and honest about what it costs you.</span></div>
+    <div class="type-row"><code>sm mono</code><span style="font-family: var(--font-mono); font-size: var(--text-sm)">kaviri record --script demo.jsonl --out demo.mp4</span></div>
+    <div class="type-row"><code>2xs caps</code><span class="eyebrow" style="margin:0">Section label</span></div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Output</p>
+    <h2>The failing build is the pitch</h2>
+    <pre>$ kaviri record --script docs/demo.jsonl --out docs/demo.mp4
+<span class="ok">ok</span>    navigate   http://localhost:3000        420ms
+<span class="ok">ok</span>    type       #email                        1.1s
+<span class="fail">fail</span>  click      [data-test=submit]  not found
+<span class="fail">error: the demo no longer matches the product</span></pre>
+  </section>
+
+  <section>
+    <p class="eyebrow">Mark</p>
+    <h2>The same frame, taken again</h2>
+    <div class="marks">
+      <img src="logomark.svg" width="16" height="16" alt="">
+      <img src="logomark.svg" width="24" height="24" alt="">
+      <img src="logomark.svg" width="48" height="48" alt="">
+      <img src="favicon.svg" width="16" height="16" alt="">
+      <img src="favicon.svg" width="48" height="48" alt="">
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Depth</p>
+    <h2>Borders first</h2>
+    <div class="shadows">
+      <div style="border: var(--border-width) solid var(--border)">border</div>
+      <div style="box-shadow: var(--shadow-1)">shadow-1</div>
+      <div style="box-shadow: var(--shadow-2)">shadow-2</div>
+      <div style="box-shadow: var(--shadow-3)">shadow-3</div>
+    </div>
+  </section>
+</div>
+<script>
+  // The toggle only writes data-theme, because both dark blocks in tokens.css
+  // are driven by that one attribute and the OS preference.
+  document.getElementById('theme').addEventListener('click', function () {
+    var dark = matchMedia('(prefers-color-scheme: dark)').matches;
+    var now = document.documentElement.getAttribute('data-theme') || (dark ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', now === 'dark' ? 'light' : 'dark');
+  });
+</script>
+</body>
+</html>

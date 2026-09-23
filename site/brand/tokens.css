@@ -1,0 +1,248 @@
+/* kaviri design tokens.
+   Every visible value in the landing page and the docs comes from here, so a
+   colour or a size is changed in one place and nowhere else. Raw hex outside
+   this file is a bug.
+
+   Light is the default. Dark is applied twice on purpose: once from the OS
+   preference, guarded so an explicit light choice always wins, and once from an
+   explicit dark choice, so a theme toggle works without JavaScript touching
+   anything but the data-theme attribute. */
+
+:root {
+  /* ---- Palette: the raw ramp -------------------------------------------- */
+  /* Warm neutrals, not blue-grey. Paper, not screen. */
+  --kv-white: #ffffff;
+  --kv-n-50: #f7f7f5;
+  --kv-n-100: #ededea;
+  --kv-n-200: #dfdfdb;
+  --kv-n-300: #c4c4be;
+  --kv-n-400: #8a8a85;
+  --kv-n-500: #5a5a57;
+  --kv-n-600: #3a3a3a;
+  --kv-n-700: #2a2a2b;
+  --kv-n-800: #161617;
+  --kv-ink: #0f0f10;
+
+  /* One accent. Ember. It is the colour of the take that is running now.
+     5.3:1 on paper, so it can carry text, not only decoration. */
+  --kv-accent-600: #a72b12;
+  --kv-accent-500: #c7361a;
+  --kv-accent-400: #ff6b3d;
+  --kv-accent-300: #ff8158;
+  --kv-accent-wash: #f7e9e3;
+  --kv-accent-wash-dark: #2a140d;
+
+  /* ---- Semantic colour: use these, not the ramp ------------------------- */
+  --bg: var(--kv-white);
+  --bg-subtle: var(--kv-n-50);
+  --surface: var(--kv-white);
+  --surface-raised: var(--kv-white);
+  --code-bg: var(--kv-n-50);
+
+  --text: var(--kv-ink);
+  --text-muted: var(--kv-n-500);
+  --text-faint: var(--kv-n-400);
+  --text-inverse: var(--kv-n-50);
+
+  --border: var(--kv-n-200);
+  --border-strong: var(--kv-n-300);
+  --border-inverse: var(--kv-n-700);
+
+  --accent: var(--kv-accent-500);
+  --accent-hover: var(--kv-accent-600);
+  --accent-contrast: var(--kv-white);
+  --accent-wash: var(--kv-accent-wash);
+
+  /* Success and failure exist because the product's whole claim is a build
+     that passes or fails. They are status, never branding. */
+  --ok: #16653c;
+  --fail: var(--kv-accent-500);
+  --focus: var(--kv-accent-500);
+  --selection: var(--kv-accent-wash);
+
+  /* ---- Type ------------------------------------------------------------- */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --text-2xs: 0.6875rem; /* 11px, only for the tracked-out eyebrow label */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-md: 1.125rem;
+  --text-lg: 1.375rem;
+  --text-xl: 1.75rem;
+  --text-2xl: 2.25rem;
+  --text-3xl: 3rem;
+  --text-4xl: 4rem;
+
+  --leading-none: 1;
+  --leading-tight: 1.15;
+  --leading-snug: 1.3;
+  --leading-normal: 1.55;
+  --leading-loose: 1.7;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* Big type needs negative tracking or it looks loose. Small caps labels need
+     positive tracking or they look like a typo. */
+  --tracking-display: -0.032em;
+  --tracking-tight: -0.015em;
+  --tracking-normal: 0;
+  --tracking-caps: 0.09em;
+
+  --measure: 68ch;
+  --measure-narrow: 52ch;
+
+  /* ---- Space: 4px base, no in-between values --------------------------- */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+  --space-9: 6rem;
+  --space-10: 8rem;
+  --space-11: 12rem;
+
+  --gutter: 1.5rem;
+  --max-width: 1120px;
+  --max-width-prose: 720px;
+
+  /* ---- Radii: square by default ---------------------------------------- */
+  --radius-0: 0;
+  --radius-1: 3px;  /* buttons, inputs, chips */
+  --radius-2: 6px;  /* cards, code blocks */
+  --radius-3: 10px; /* media, the video frame */
+  --radius-full: 999px;
+
+  --border-width: 1px;
+
+  /* ---- Elevation: borders first, shadow only when something floats ------ */
+  --shadow-0: none;
+  --shadow-1: 0 1px 2px rgba(15, 15, 16, 0.06);
+  --shadow-2: 0 4px 12px rgba(15, 15, 16, 0.08);
+  --shadow-3: 0 16px 48px rgba(15, 15, 16, 0.12);
+  --ring: 0 0 0 3px rgba(199, 54, 26, 0.28);
+
+  /* ---- Motion: short, and honest about easing -------------------------- */
+  --duration-1: 90ms;
+  --duration-2: 160ms;
+  --duration-3: 320ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+/* Dark from the OS preference. The :root:not([data-theme="light"]) guard is
+   what lets an explicit light choice survive a dark system setting. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b0b0c;
+    --bg-subtle: #101012;
+    --surface: #141416;
+    --surface-raised: #1a1a1d;
+    --code-bg: #131315;
+
+    --text: #f2f2ef;
+    --text-muted: #a1a1a0;
+    --text-faint: #6e6e6c;
+    --text-inverse: var(--kv-ink);
+
+    --border: #26262a;
+    --border-strong: #3a3a3f;
+    --border-inverse: var(--kv-n-200);
+
+    --accent: var(--kv-accent-400);
+    --accent-hover: var(--kv-accent-300);
+    --accent-contrast: #1a0a05;
+    --accent-wash: var(--kv-accent-wash-dark);
+
+    --ok: #46c48a;
+    --fail: var(--kv-accent-400);
+    --focus: var(--kv-accent-400);
+    --selection: #3a1a0f;
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.55);
+    --shadow-3: 0 16px 48px rgba(0, 0, 0, 0.65);
+    --ring: 0 0 0 3px rgba(255, 107, 61, 0.32);
+  }
+}
+
+/* Dark chosen explicitly. Same values, no media query, so the toggle is a
+   single attribute on the html element. */
+:root[data-theme="dark"] {
+  --bg: #0b0b0c;
+  --bg-subtle: #101012;
+  --surface: #141416;
+  --surface-raised: #1a1a1d;
+  --code-bg: #131315;
+
+  --text: #f2f2ef;
+  --text-muted: #a1a1a0;
+  --text-faint: #6e6e6c;
+  --text-inverse: var(--kv-ink);
+
+  --border: #26262a;
+  --border-strong: #3a3a3f;
+  --border-inverse: var(--kv-n-200);
+
+  --accent: var(--kv-accent-400);
+  --accent-hover: var(--kv-accent-300);
+  --accent-contrast: #1a0a05;
+  --accent-wash: var(--kv-accent-wash-dark);
+
+  --ok: #46c48a;
+  --fail: var(--kv-accent-400);
+  --focus: var(--kv-accent-400);
+  --selection: #3a1a0f;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.55);
+  --shadow-3: 0 16px 48px rgba(0, 0, 0, 0.65);
+  --ring: 0 0 0 3px rgba(255, 107, 61, 0.32);
+}
+
+/* ---- The small amount of base styling the tokens imply ----------------- */
+
+html {
+  color-scheme: light dark;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  /* Explicit, so a page that forgets to set one still has the right paper. */
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  font-weight: var(--weight-regular);
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--selection);
+  color: var(--text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,4 +1,4 @@
-# lensa demo: local page (no network), typing with typewriter effect
+# kaviri demo: local page (no network), typing with typewriter effect
 {"op":"start_recording"}
 {"op":"navigate","url":"examples/demo.html"}
 {"op":"wait","ms":600}

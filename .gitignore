@@ -5,18 +5,18 @@
 # they are re-admitted below rather than the pattern being narrowed: a take
 # recorded while debugging should never be committable by accident.
 *.mp4
-!examples/lensa-readme.mp4
+!examples/kaviri-readme.mp4
 
 # The telemetry sidecar written next to a take. It carries every URL the take
 # visited, including query strings and canonicalised local file:// paths, so
 # it stays out of the repo even when the video beside it does not.
 *.telemetry.json
-!examples/lensa-readme.mp4.telemetry.json
+!examples/kaviri-readme.mp4.telemetry.json
 
 # The render intermediate. Modern runs put it under the system temp directory
 # with a per-run suffix, but --keep-temp and older builds leave one beside the
 # output, so the pattern has to match the suffixed form as well as the bare name.
-.lensa-tmp*
+.kaviri-tmp*
 
 # Editor and OS droppings.
 .DS_Store
