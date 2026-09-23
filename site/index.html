@@ -48,8 +48,7 @@
     <h1>Your demo video is a build artifact.</h1>
     <p class="lede">It changes when your product does, or the build fails.</p>
     <div class="actions">
-      <a class="btn btn-primary" href="#how">Get started</a>
-      <a class="btn btn-secondary" href="/play/">Try it in the browser</a>
+      <a class="btn btn-primary" href="/play/">Try it in the browser</a>
       <a class="btn btn-secondary" href="https://github.com/thisisisheanesu/kaviri">GitHub</a>
     </div>
   </section>
@@ -240,8 +239,27 @@ awk -v p="$psnr" 'BEGIN { exit (p + 0 &lt; 50.0) ? 0 : 1 }' \
     </p>
     <div class="actions">
       <a class="btn btn-primary" href="https://github.com/thisisisheanesu/kaviri">Read the source</a>
-      <a class="btn btn-secondary" href="mailto:hello@kaviri.dev?subject=kaviri%20hosted%20waitlist">Join the waitlist</a>
     </div>
+
+    <form id="wl" class="waitlist" novalidate>
+      <h3>The hosted service, when it is ready</h3>
+      <p class="muted">
+        A queue, storage and a stable URL you can point a README at. One email when it exists,
+        nothing in between.
+      </p>
+      <div class="wl-row">
+        <label class="sr-only" for="wl-email">Email</label>
+        <input id="wl-email" name="email" type="email" inputmode="email" autocomplete="email"
+               placeholder="you@company.com" required>
+        <button class="btn btn-primary" type="submit">Join</button>
+      </div>
+      <label class="sr-only" for="wl-note">What demo of yours is out of date?</label>
+      <input id="wl-note" name="note" type="text" maxlength="500"
+             placeholder="Optional: which demo of yours is out of date?">
+      <!-- Not for people. A bot that fills this in is answered with a cheerful 200. -->
+      <input class="hp" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <p class="wl-msg" id="wl-msg" role="status"></p>
+    </form>
   </section>
 
 </main>
@@ -257,5 +275,6 @@ awk -v p="$psnr" 'BEGIN { exit (p + 0 &lt; 50.0) ? 0 : 1 }' \
   </div>
 </footer>
 
+<script src="/waitlist.js"></script>
 </body>
 </html>

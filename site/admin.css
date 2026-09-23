@@ -1,0 +1,53 @@
+/* The admin. Same tokens as the site, laid out for reading a table rather than for a pitch. */
+
+.adm { padding-top: var(--k-space-3); padding-bottom: var(--k-space-5); max-width: 1180px; }
+.adm h1 { font-size: clamp(1.6rem, 4vw, 2.1rem); margin-bottom: var(--k-space-2); }
+
+.adm-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--k-space-2);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.adm-actions { display: flex; gap: var(--k-space-1); align-items: center; }
+.adm-actions form { margin: 0; }
+.adm button { cursor: pointer; font-family: inherit; }
+
+.login { display: grid; gap: var(--k-space-1); max-width: 22rem; margin-top: var(--k-space-2); }
+.login input {
+  padding: 11px 13px;
+  border: 1px solid var(--line, var(--k-line));
+  border-radius: 8px;
+  background: var(--paper, var(--k-paper));
+  color: var(--ink, var(--k-ink));
+  font: inherit;
+}
+.login button { justify-content: center; }
+
+.adm table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--k-space-2);
+  font-size: 0.9rem;
+  /* The table is wider than a phone and the alternative is a stack of cards that nobody can
+     scan. It scrolls, and the page does not. */
+  display: block;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.adm th, .adm td {
+  text-align: left;
+  padding: 8px 14px 8px 0;
+  border-bottom: 1px solid var(--line, var(--k-line));
+  vertical-align: top;
+}
+
+.adm th { font-weight: 620; font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted, var(--k-muted)); }
+.adm .mono { font-family: var(--k-mono); font-size: 0.82rem; color: var(--muted, var(--k-muted)); }
+.adm .note { white-space: normal; max-width: 34ch; }
+.adm .ok { color: var(--muted, var(--k-muted)); }
+.adm .pending { color: var(--muted, var(--k-muted)); font-style: italic; }
+.adm .bad, .adm .err { color: var(--accent, var(--k-accent)); }

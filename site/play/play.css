@@ -100,3 +100,14 @@
   /* The camera is the content here, so it is not disabled, but nothing else animates. */
   #stage { will-change: auto; }
 }
+
+/* A third and fourth button in the row want a quieter one to sit beside them, or the eye has
+   nothing to rest on and the whole row reads as equally important. */
+.btn-ghost {
+  border-color: transparent;
+  color: var(--muted, var(--k-muted));
+}
+.btn-ghost:hover { color: var(--ink, var(--k-ink)); border-color: var(--line, var(--k-line)); }
+
+.play .actions { flex-wrap: wrap; }
+.play .actions + .small { margin-top: var(--k-space-1); max-width: 46rem; }

@@ -10,6 +10,9 @@
 
 // Files that sit in the asset directory because they have to be next to the
 // page, but that must never be served. wrangler.toml carries the account ID.
+import { signup, retryUnconfirmed } from "./wsrc/waitlist.js";
+import * as admin from "./wsrc/admin.js";
+
 const PRIVATE_PATHS = new Set(["/worker.js", "/wrangler.toml", "/.assetsignore"]);
 
 // A build step that fingerprints a file puts the hash in the name, which is the
@@ -61,7 +64,12 @@ const CSP = [
    */
   "frame-ancestors 'self'",
   "base-uri 'none'",
-  "form-action 'none'",
+    /*
+   * 'self', not 'none'. The admin's login is a real form post to this origin, and 'none'
+   * refuses it before it leaves the page. The value that matters is still there: a form on
+   * this site cannot be made to submit anywhere else.
+   */
+  "form-action 'self'",
   "upgrade-insecure-requests",
 ].join("; ");
 
@@ -77,7 +85,13 @@ const CSP = [
 const PERMISSIONS_POLICY = [
   "accelerometer=()",
   "camera=()",
-  "display-capture=()",
+  /*
+   * The playground records its own preview and hands the viewer a file, which needs tab
+   * capture. 'self' rather than '*': this page may ask, anything this page embeds may not,
+   * and the browser still shows its own picker and its own recording indicator, so nothing is
+   * captured without the person choosing it in an interface that is not ours.
+   */
+  "display-capture=(self)",
   "geolocation=()",
   "gyroscope=()",
   "magnetometer=()",
@@ -165,11 +179,43 @@ function securityHeaders(headers) {
   return headers;
 }
 
+/**
+ * The security headers belong on everything this Worker answers, not only on the files it
+ * serves from the asset store. A 303 out of the admin login with no CSP on it is still a
+ * response from this origin.
+ */
+function withSecurity(response) {
+  const out = new Response(response.body, response);
+  securityHeaders(out.headers);
+  return out;
+}
+
 export default {
-  async fetch(request, env) {
+  /*
+   * Anything whose confirmation could not be sent is retried here rather than being lost. It
+   * is the difference between "the mail provider was down for ten minutes" and "those four
+   * people never heard back".
+   */
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(retryUnconfirmed(env, 50));
+  },
+
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // The site is read-only. Answering anything else with a clear 405 is more
+    /*
+     * Three things here are not the static site: the waitlist endpoint, the admin surface and
+     * the scheduled retry. They are handled before the method gate and before the asset store,
+     * because they are the only paths that accept a POST.
+     */
+    if (url.pathname === "/api/waitlist" && request.method === "POST") {
+      return withSecurity(await signup(request, env, ctx));
+    }
+    if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
+      return withSecurity(await admin.handle(request, env, url));
+    }
+
+    // The rest of the site is read-only. Answering anything else with a clear 405 is more
     // useful than letting a POST fall through to the asset store's 404, which
     // reads like the page is missing rather than like the method is wrong.
     if (request.method !== "GET" && request.method !== "HEAD") {

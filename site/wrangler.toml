@@ -51,3 +51,34 @@ custom_domain = true
 #
 # Adding Web Analytics later means adding static.cloudflareinsights.com to script-src and
 # connect-src in worker.js first, otherwise the beacon is blocked with no visible symptom.
+
+# The waitlist. D1 rather than the hosted service's Postgres on purpose: a mailing list is a
+# website concern, it has to keep working when the render fleet does not, and it should not be
+# a reason for the marketing site to hold a credential for the production database.
+[[d1_databases]]
+binding = "kaviri_waitlist"
+database_name = "kaviri-waitlist"
+database_id = "1fab7a49-aba5-4bf3-b33b-886a86e3e70a"
+
+[triggers]
+# Retry any confirmation that did not go out. Hourly is often enough that nobody waits long and
+# rare enough that a provider outage is not hammered.
+crons = ["17 * * * *"]
+
+# Cloudflare's own sender. It can only deliver to an address already verified on the account,
+# which rules it out for confirming a signup and makes it exactly right for telling the owner
+# one happened. No API key, no third party, no monthly quota.
+[[send_email]]
+name = "OWNER_MAIL"
+destination_address = "inmisimail@gmail.com"
+
+[vars]
+MAIL_FROM = "kaviri <ishe@vambo.ai>"
+OWNER_EMAIL = "inmisimail@gmail.com"
+
+# Secrets, set with `npx wrangler secret put NAME`, never here:
+#   ADMIN_PASSWORD   the one password for /admin. Until it is set, /admin answers 503.
+#   RESEND_API_KEY   preferred sender. Set this and SMTP is not used.
+#   SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASS   an SMTP sender, and SMTP_ENABLED=1 to arm it.
+#     Measured not to work from a Worker on this account: Cloudflare black-holes the outbound
+#     submission ports, so it hangs rather than failing. Off unless deliberately armed.

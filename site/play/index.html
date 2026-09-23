@@ -52,8 +52,16 @@
 {"op":"stop_recording"}</textarea>
     <div class="actions">
       <button id="run" class="btn btn-primary" type="button">Run</button>
-      <button id="reset" class="btn btn-secondary" type="button">Reset</button>
+      <button id="download" class="btn btn-secondary" type="button">Run and download</button>
+      <button id="getscript" class="btn btn-secondary" type="button">Get the .jsonl</button>
+      <button id="reset" class="btn btn-ghost" type="button">Reset</button>
     </div>
+    <p class="muted small">
+      <b>Run and download</b> records this tab while the script runs and hands you a WebM. Your
+      browser asks first and shows its own recording indicator throughout. It is the camera, not
+      the render: the binary films at twice the resolution, draws the cursor and the backdrop,
+      and writes H.264.
+    </p>
     <ul id="log" aria-live="polite"></ul>
   </div>
 

@@ -11,3 +11,7 @@ README.md
 # wrangler writes its build scratch here, including a source map for worker.js. Uploading
 # that would publish the Worker source the rest of this file exists to keep out.
 .wrangler/
+
+# The Worker's own modules. wrangler bundles them into the script; serving them as
+# assets as well would publish the admin's session logic next to the page it protects.
+wsrc/

@@ -13,6 +13,7 @@
  */
 
 import { Camera } from "./camera.js";
+import { canRecord, startCapture, offer, offerScript } from "./record.js";
 
 const APPS = {
   "app": "Parcel, a tracking form",
@@ -271,7 +272,7 @@ function startCamera(cam) {
   };
 }
 
-async function run() {
+async function run(withCapture) {
   if (running) return;
   els.log.innerHTML = "";
   const { ops, errors } = parseScript(els.script.value);
@@ -279,7 +280,23 @@ async function run() {
     errors.forEach((e) => log("error", e, true));
     return;
   }
+  /*
+   * The capture is started before anything moves and after the script has been validated, so
+   * the browser's permission prompt is not sitting over the first second of the take and a
+   * broken script does not cost anyone a permission dialog.
+   */
+  let capture = null;
+  if (withCapture) {
+    try {
+      capture = await startCapture();
+    } catch (e) {
+      log("error", `capture was not allowed: ${e.message}`, true);
+      return;
+    }
+  }
+
   els.run.disabled = true;
+  els.download.disabled = true;
   els.run.textContent = "Running";
 
   const frame = { w: els.frame.clientWidth, h: els.frame.clientHeight };
@@ -297,11 +314,22 @@ async function run() {
     log("error", e.message, true);
   } finally {
     // Let the last hold lapse on screen rather than snapping back the moment the script ends.
-    setTimeout(() => {
+    setTimeout(async () => {
       stopCam();
       els.stage.style.transform = "";
       els.rec.hidden = true;
+      if (capture) {
+        const blob = await capture.stop().catch(() => null);
+        if (blob) {
+          const ext = capture.mimeType.includes("mp4") ? "mp4" : "webm";
+          offer(blob, `kaviri-preview.${ext}`);
+          log("download", `kaviri-preview.${ext}, ${(blob.size / 1e6).toFixed(1)} MB`);
+        } else if (capture.abandoned) {
+          log("error", "capture was stopped before the take finished", true);
+        }
+      }
       els.run.disabled = false;
+      els.download.disabled = false;
       els.run.textContent = "Run";
       running = null;
     }, 2600);
@@ -309,10 +337,16 @@ async function run() {
 }
 
 function boot() {
-  for (const id of ["script", "run", "frame", "stage", "log", "rec", "reset"]) {
+  for (const id of ["script", "run", "download", "getscript", "frame", "stage", "log", "rec", "reset"]) {
     els[id] = document.getElementById(id);
   }
-  els.run.addEventListener("click", run);
+  els.run.addEventListener("click", () => run(false));
+  els.download.addEventListener("click", () => run(true));
+  els.getscript.addEventListener("click", () => offerScript(els.script.value));
+  if (!canRecord()) {
+    els.download.disabled = true;
+    els.download.title = "This browser cannot capture a tab. Chrome and Edge can.";
+  }
   els.reset.addEventListener("click", () => {
     els.script.value = els.script.dataset.default;
     els.log.innerHTML = "";
