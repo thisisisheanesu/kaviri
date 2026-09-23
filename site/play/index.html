@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kaviri playground</title>
+<meta name="description" content="Write a kaviri script and watch the camera it produces, live in the browser.">
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="/brand/tokens.css">
+<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="play.css">
+</head>
+<body>
+
+<header class="site-head wrap">
+  <a class="wordmark" href="/">kaviri<span class="dot">.</span>dev</a>
+  <nav>
+    <a href="/#how">How it works</a>
+    <a href="/#ci">CI</a>
+    <a href="/llms-full.txt">For agents</a>
+    <a href="https://github.com/thisisisheanesu/kaviri">GitHub</a>
+  </nav>
+</header>
+
+<section class="wrap play-intro">
+  <p class="eyebrow">Playground</p>
+  <h1>Change the script. Watch the camera.</h1>
+  <p class="lede">
+    This runs the real op set and the real camera model against a small app, in this tab. It
+    does not make a file: there is no ffmpeg in a browser. It shows you the thing that is hard
+    to picture from a JSON file, which is where the camera goes and how it gets there.
+  </p>
+</section>
+
+<section class="wrap play">
+  <div class="play-left">
+    <p class="filename">take.jsonl</p>
+    <textarea id="script" spellcheck="false" aria-label="kaviri script">{"op":"navigate","url":"app.html"}
+{"op":"wait","selector":"#q","timeout_ms":30000}
+{"op":"start_recording"}
+{"op":"wait","ms":900}
+{"op":"type","selector":"#q","text":"14 Rue Lafayette, Paris"}
+{"op":"wait","ms":400}
+{"op":"click","selector":"#go"}
+{"op":"wait","selector":"li","timeout_ms":15000}
+{"op":"wait","ms":1200}
+{"op":"mark","label":"tracked"}
+{"op":"type","selector":"#q","text":"Kigali Heights, KG 7 Ave"}
+{"op":"wait","ms":400}
+{"op":"click","selector":"#go"}
+{"op":"wait","ms":1800}
+{"op":"stop_recording"}</textarea>
+    <div class="actions">
+      <button id="run" class="btn btn-primary" type="button">Run</button>
+      <button id="reset" class="btn btn-secondary" type="button">Reset</button>
+    </div>
+    <ul id="log" aria-live="polite"></ul>
+  </div>
+
+  <div class="play-right">
+    <div class="viewport">
+      <div id="stage">
+        <iframe id="frame" src="app" title="the app being filmed"></iframe>
+      </div>
+      <span id="rec" hidden>REC</span>
+    </div>
+    <p class="muted small">
+      The camera is derived from the ops, never described by them. A <code>type</code> leans
+      further left than a <code>click</code>, because a line of text grows away to the right as
+      it is written and the beginning of it is the part you want to keep.
+    </p>
+  </div>
+</section>
+
+<section class="wrap">
+  <hr class="rule">
+  <div class="cols" style="padding-top:var(--k-space-4)">
+    <div>
+      <h2>Things worth trying</h2>
+      <ul>
+        <li>Delete the <code>wait</code> before <code>stop_recording</code>. The script is
+          refused before it runs, because that last zoom would be cut off.</li>
+        <li>Put <code>"typewriter_ms": 120</code> on a <code>type</code> and watch the camera
+          keep up rather than chase.</li>
+        <li>Point a <code>click</code> at <code>#nope</code>. You get the line number and the
+          selector, which is what a CI log needs to be useful.</li>
+        <li>Remove <code>start_recording</code> entirely.</li>
+      </ul>
+    </div>
+    <div>
+      <h2>What the binary adds</h2>
+      <p>
+        An MP4. A real Chromium at a device scale factor of 2, so text is sharp rather than
+        upscaled. The backdrop and the rounded plate. A cursor that is drawn rather than
+        captured. And any URL at all, rather than the one app bundled here, because it drives
+        its own browser instead of borrowing yours.
+      </p>
+      <pre><code>cargo install --git https://github.com/thisisisheanesu/kaviri
+kaviri record --script take.jsonl --out take.mp4</code></pre>
+    </div>
+  </div>
+</section>
+
+<footer class="site-foot wrap">
+  <p class="pron">kaviri &middot; ka-VEE-ree</p>
+  <p>ChiShona for twice, a second time. The demo is not re-recorded. It is made again.</p>
+  <div class="foot-links">
+    <a href="/">Home</a>
+    <a href="/llms-full.txt">For agents</a>
+    <a href="https://github.com/thisisisheanesu/kaviri">GitHub</a>
+    <a href="mailto:hello@kaviri.dev">hello@kaviri.dev</a>
+  </div>
+</footer>
+
+<script type="module" src="play.js"></script>
+</body>
+</html>

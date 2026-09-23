@@ -1,0 +1,102 @@
+/* The playground. Everything not defined here comes from /style.css and /brand/tokens.css,
+   and every colour goes through a token so the brand owns the palette here too. */
+
+.play-intro { padding-top: var(--k-space-3); padding-bottom: var(--k-space-3); }
+.play-intro h1 { font-size: clamp(1.9rem, 5vw, 3rem); max-width: 18ch; }
+.play-intro .lede { max-width: 58ch; }
+
+.play {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--k-space-3);
+  padding-top: 0;
+  padding-bottom: var(--k-space-4);
+  align-items: start;
+}
+
+/* Side by side only when both halves are usable. Below this the editor is too narrow to read
+   a line of JSON in and the viewport is too small to see a camera move in. */
+@media (min-width: 900px) {
+  .play { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: var(--k-space-4); }
+}
+
+#script {
+  width: 100%;
+  min-height: 330px;
+  resize: vertical;
+  padding: var(--k-space-2);
+  border: 1px solid var(--line, var(--k-line));
+  border-radius: var(--k-radius);
+  background: var(--code-bg, var(--k-code-bg));
+  color: var(--code-ink, var(--k-code-ink));
+  font-family: var(--k-mono);
+  font-size: 0.76rem;
+  line-height: 1.62;
+  /* One op per line is the format. Wrapping would hide that, so it scrolls sideways. */
+  white-space: pre;
+  overflow-x: auto;
+  tab-size: 2;
+}
+
+#script:focus-visible { outline: 2px solid var(--accent, var(--k-accent)); outline-offset: 2px; }
+
+.play .actions { margin-top: var(--k-space-1); }
+.play button { cursor: pointer; font-family: inherit; }
+.play button[disabled] { opacity: 0.55; cursor: default; }
+
+#log {
+  list-style: none;
+  margin: var(--k-space-2) 0 0;
+  padding: 0;
+  max-height: 210px;
+  overflow-y: auto;
+  font-family: var(--k-mono);
+  font-size: 0.74rem;
+  line-height: 1.75;
+}
+
+#log:empty { display: none; }
+#log li { color: var(--muted, var(--k-muted)); border-top: 1px solid var(--line, var(--k-line)); padding: 3px 0; }
+#log li b { color: var(--ink, var(--k-ink)); font-weight: 620; margin-right: 8px; }
+#log li.bad { color: var(--accent, var(--k-accent)); }
+#log li.bad b { color: var(--accent, var(--k-accent)); }
+
+/* The viewport is the frame the camera crops to. #stage inside it is what gets transformed,
+   so the iframe itself never learns it is being moved and nothing inside it reflows. */
+.viewport {
+  position: relative;
+  aspect-ratio: 900 / 540;
+  border: 1px solid var(--line, var(--k-line));
+  border-radius: var(--k-radius);
+  overflow: hidden;
+  background: var(--surface, var(--k-surface));
+}
+
+#stage {
+  width: 100%;
+  height: 100%;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+#frame { width: 100%; height: 100%; border: 0; display: block; background: var(--paper, var(--k-paper)); }
+
+#rec {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--accent, var(--k-accent));
+  color: var(--accent-ink, var(--k-accent-ink));
+  font-family: var(--k-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+}
+
+.small { font-size: 0.86rem; margin-top: var(--k-space-1); }
+
+@media (prefers-reduced-motion: reduce) {
+  /* The camera is the content here, so it is not disabled, but nothing else animates. */
+  #stage { will-change: auto; }
+}

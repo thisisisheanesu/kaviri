@@ -1515,6 +1515,43 @@ mod tests {
         );
     }
 
+    /// The playground on kaviri.dev runs a JavaScript port of this camera, because there is no
+    /// ffmpeg in a browser tab and a preview is worth more than nothing. Two copies of a model
+    /// drift, and the numbers are where drift is invisible: the motion still looks plausible,
+    /// it is just not what the binary will do. This is the only thing keeping them honest.
+    #[test]
+    fn the_preview_constants_match() {
+        let js = include_str!("../site/play/camera.js");
+        let expect: [(&str, f64); 10] = [
+            ("EASE", EASE),
+            ("LEAD_IN", LEAD_IN),
+            ("HOLD_AFTER", HOLD_AFTER),
+            ("FIT_MARGIN", FIT_MARGIN),
+            ("LEFT_BIAS_TYPE", LEFT_BIAS_TYPE),
+            ("LEFT_BIAS_CLICK", LEFT_BIAS_CLICK),
+            ("KEEP_IN_FRAME", KEEP_IN_FRAME),
+            ("SPRING_TAU", SPRING_TAU),
+            ("DEADZONE", DEADZONE),
+            ("MAX_SPEED", MAX_SPEED),
+        ];
+        for (name, want) in expect {
+            let needle = format!("export const {name} = ");
+            let at = js
+                .find(&needle)
+                .unwrap_or_else(|| panic!("site/play/camera.js does not export {name}"));
+            let rest = &js[at + needle.len()..];
+            let end = rest.find(';').expect("no semicolon after the value");
+            let got: f64 = rest[..end]
+                .trim()
+                .parse()
+                .unwrap_or_else(|e| panic!("{name} in camera.js is not a number: {e}"));
+            assert!(
+                (got - want).abs() < 1e-9,
+                "{name} is {want} here and {got} in site/play/camera.js"
+            );
+        }
+    }
+
     /// The one property this tool cannot ship without.
     ///
     /// Smooth is not a matter of taste here, it is a bound on the second difference of the

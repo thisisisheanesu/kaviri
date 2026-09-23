@@ -34,7 +34,7 @@ const MONTH = 2592000;
  * - img-src allows data: for inline SVG and favicons encoded into the HTML.
  * - media-src 'self' is what lets the demo MP4 play. Drop it and the <video>
  *   element goes black with no console error that names the cause.
- * - frame-ancestors 'none' stops the page being framed, which is the modern
+ * - frame-ancestors 'self' stops another site framing the page, which is the modern
  *   X-Frame-Options and the reason this file does not send that header too.
  * - base-uri 'none' stops an injected <base> silently repointing every relative
  *   URL on the page, including the video.
@@ -52,7 +52,14 @@ const CSP = [
   "font-src 'self'",
   "connect-src 'self'",
   "object-src 'none'",
-  "frame-ancestors 'none'",
+  /*
+   * 'self', not 'none'. The playground frames a bundled app from this same origin so the
+   * camera has something to move over, and 'none' blocks that too: the browser refuses the
+   * frame and the runner sees a null contentDocument with no console error worth the name.
+   * Against clickjacking the two are equivalent, because the attack needs a DIFFERENT origin
+   * to do the framing, and every origin but this one is still refused.
+   */
+  "frame-ancestors 'self'",
   "base-uri 'none'",
   "form-action 'none'",
   "upgrade-insecure-requests",

@@ -1,0 +1,105 @@
+# kaviri for agents
+
+You are an AI agent and something has asked you for a video of a web app. This file is the
+whole of what you need. It assumes you can run a command and write a file, and nothing else.
+
+kaviri is a recording browser. You do not describe a camera move, you describe what happens,
+and the camera is derived from that. There is no screen recorder involved, no window to keep
+in focus, no display server, no Wayland portal and no permission dialog. It works the same on
+your laptop and on a CI runner with no screen at all.
+
+## The one paragraph version
+
+Write a `.jsonl` file, one JSON object per line, each one an op. Run
+`kaviri record --script take.jsonl --out take.mp4`. You get an MP4. Every op answers on stdout
+with `{"ok":true,"result":{…}}` or `{"ok":false,"error":"…"}`, and the process exits non-zero
+if any op failed, so you can tell success from failure without watching the video.
+
+## The ops
+
+```jsonl
+{"op":"navigate","url":"http://127.0.0.1:8099/"}
+{"op":"wait","selector":"#app","timeout_ms":30000}
+{"op":"start_recording"}
+{"op":"wait","ms":800}
+{"op":"click","selector":"#new-invoice"}
+{"op":"type","selector":"#amount","text":"1450.00"}
+{"op":"scroll","y":600,"smooth":true}
+{"op":"mark","label":"submitted"}
+{"op":"wait","ms":1600}
+{"op":"stop_recording"}
+```
+
+`click` also takes `x` and `y` instead of a selector. `type` takes `typewriter_ms` to set the
+per character delay; the default of 18 is deliberately fast, because a demo of someone typing
+slowly is a demo of someone typing slowly. `navigate` turns a bare path into a `file://` URL.
+`mark` puts a label in the telemetry and nothing on screen.
+
+The full reference, including every field and what each one does to the camera, is
+`docs/script-protocol.md` in the repository. How the camera decides what to do is `docs/camera.md` in the repository.
+
+## The five things agents get wrong
+
+**1. Recording before the page is ready.** `start_recording` after the `wait` that proves the
+app is up, not before. Otherwise the first two seconds of your video are a blank page, and the
+zoom on the first interaction fires while the layout is still moving.
+
+**2. No trailing wait.** An interaction needs about two seconds after it to be zoomed at all,
+and a script that ends `{"op":"click"},{"op":"stop_recording"}` throws away the zoom on the one
+thing it was demonstrating. kaviri says so on stderr rather than silently:
+`the interaction at 28.4s is too close to the end of the 29.0s take`. End with a `wait` of at
+least 1600ms.
+
+**3. Assuming a selector resolved.** If a modal, a cookie banner or a loading overlay is over
+your target, kaviri refuses rather than clicking through it:
+`selector #q is covered by <div#loader> at its centre point`. That message is telling you the
+page is not in the state you think it is. Dismiss the overlay in the script.
+
+**4. Not serving the app.** `navigate` does not start anything. In CI, start the server and
+poll it until it answers before the recorder runs. `docs/ci.md` in the repository has the step.
+
+**5. One video per step.** If you are driving a long session, use `kaviri serve`, which holds
+one browser open across many ops and produces one take. Spawning `record` per step gives you a
+folder of two-second clips.
+
+## Serve mode, which is the one built for you
+
+```
+kaviri serve
+```
+
+NDJSON ops on stdin, one JSON result line per op on stdout. The browser stays open between
+ops, so you can interleave kaviri ops with your own reasoning, read each result, and decide
+the next op from what actually happened. Send `{"op":"start_recording"}` when the part worth
+filming begins and `{"op":"stop_recording"}` when it ends; everything before and after still
+drives the browser, it is just not in the video.
+
+`kaviri serve --port <n>` exists and you should think before using it. The op set can navigate
+to `file://` and write an MP4 to any path, and any web page the user visits can `fetch()` a
+loopback port. The first line of a connection must be `{"op":"hello","token":"…"}` with the
+token printed on stderr at startup, and that is the only thing standing between a visited page
+and your filesystem. Prefer stdin, where the ops come from the process you started.
+
+## Reading the result
+
+```json
+{"ok":true,"result":{"duration":14.63,"event":"recording_rendered","frames":95,
+                     "path":"take.mp4","zoom_events":1}}
+```
+
+`zoom_events: 0` means no `click` or `type` ever resolved a bounding box, so the take is a flat
+screen recording with no camera work at all. That is almost always a broken script rather than
+a choice, and it is the single most useful thing to assert on.
+
+## What it will not do
+
+It will not record a native application, a terminal, or anything outside the browser it starts.
+It will not record audio yet. It will not find the interesting part of your app for you: the
+script is the storyboard, and a bad storyboard films perfectly.
+
+## Determinism
+
+The same script against the same app gives the same take, within the noise of how fast the page
+renders. That is the reason for the whole design: a video that can be regenerated in CI is a
+video that is never out of date, and one that has to be re-recorded by a human never gets
+re-recorded.

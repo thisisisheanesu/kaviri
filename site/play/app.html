@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Parcel</title>
+<style>
+  :root{
+    --ink:#16181d; --mute:#6b7280; --line:#e6e8ec; --panel:#fff; --bg:#f4f5f7;
+    --brand:#4f46e5; --ok:#0f7b52; --ok-bg:#e7f5ee;
+    --sans:ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--sans);
+    display:grid;place-items:center;min-height:100vh;padding:24px}
+  .app{width:100%;max-width:560px;background:var(--panel);border:1px solid var(--line);
+    border-radius:14px;overflow:hidden;box-shadow:0 12px 32px rgba(15,18,25,.07)}
+  header{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--line)}
+  .dot{width:26px;height:26px;border-radius:7px;background:var(--brand)}
+  header b{font-size:15px;letter-spacing:-.01em}
+  header span{margin-left:auto;font:11px var(--mono);color:var(--mute)}
+  .body{padding:20px}
+  label{display:block;font-size:12px;font-weight:600;color:var(--mute);margin-bottom:6px}
+  .row{display:flex;gap:10px}
+  input{flex:1;min-width:0;font:15px var(--sans);padding:11px 13px;border:1px solid var(--line);
+    border-radius:9px;background:var(--bg);color:var(--ink)}
+  input:focus{outline:2px solid var(--brand);outline-offset:1px;background:var(--panel)}
+  button{font:600 14px var(--sans);padding:11px 18px;border:0;border-radius:9px;
+    background:var(--brand);color:#fff;cursor:pointer;white-space:nowrap}
+  ul{list-style:none;margin:18px 0 0;padding:0}
+  li{display:flex;align-items:center;gap:12px;padding:12px 2px;border-top:1px solid var(--line)}
+  li .id{font:12px var(--mono);color:var(--mute);width:78px}
+  li .where{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  li .tag{font:600 11px var(--sans);padding:3px 9px;border-radius:999px;
+    background:var(--ok-bg);color:var(--ok)}
+  .empty{color:var(--mute);font-size:14px;padding:14px 2px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+  <div class="app">
+    <header><span class="dot"></span><b>Parcel</b><span>demo</span></header>
+    <div class="body">
+      <label for="q">Track a shipment</label>
+      <div class="row">
+        <input id="q" placeholder="Tracking number or address" autocomplete="off">
+        <button id="go">Track</button>
+      </div>
+      <ul id="list"></ul>
+      <div class="empty" id="empty">Nothing tracked yet.</div>
+    </div>
+  </div>
+<script src="app.js"></script>
+</body>
+</html>
