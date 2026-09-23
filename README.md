@@ -9,7 +9,7 @@ nothing.
 
 Apache 2.0, one binary, no account, nothing phones home.
 
-*kaviri* is Shona for "twice, a second time" (ka-VEE-ree).
+*kaviri* is ChiShona for "twice, a second time" (ka-VEE-ree).
 
 ```sh
 kaviri record --script demos/checkout.jsonl --out checkout.mp4

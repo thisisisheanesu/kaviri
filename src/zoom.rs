@@ -33,6 +33,38 @@ const KEEP_IN_FRAME: f64 = 0.06;
 /// Leave a little margin around the target rather than filling the crop with it exactly.
 const FIT_MARGIN: f64 = 1.15;
 
+/*
+ * The camera is simulated, not interpolated.
+ *
+ * Interactions arrive as a list of instants: a click here, a caret there, another caret 120ms
+ * later. Joining those points directly and walking along the line is what a naive pan does, and
+ * it is wrong in three separate ways at once. The camera reaches each point exactly when the
+ * interaction did, so it must have set off before the interaction happened. It changes speed
+ * at every point, which reads as a series of small lurches. And two points close in time but
+ * far apart in space ask for a speed no real camera has: the shipped demo asked for 489px in
+ * 40ms, which is 12,000px a second, and it looked like a cut.
+ *
+ * So instead of interpolating the points, a camera chases them. It is a critically damped
+ * spring, which is the standard way to move something to a place without overshoot and without
+ * a discontinuity in its velocity. It starts at rest, it ends at rest, it never changes
+ * direction abruptly, and its speed is capped. The list of interactions becomes what the
+ * camera WANTS, and the path it actually takes is whatever the spring produces.
+ */
+/// Simulation step for the camera. Finer than the frame rate so the spring is integrated
+/// accurately rather than at whatever the output happens to be.
+const SIM_DT: f64 = 1.0 / 120.0;
+/// Seconds for the camera to close most of the distance to what it is chasing. Under about
+/// 0.25 the follow is tight enough to look twitchy on per-character caret samples; over about
+/// 0.6 it lags far enough behind fast typing to read as a separate, late move.
+const SPRING_TAU: f64 = 0.38;
+/// The camera ignores an error smaller than this fraction of the crop, so a few characters of
+/// typing do not move the frame at all. It stacks with the left bias, which leans the same way,
+/// so it stays small: the two together must not push the thing being filmed off the edge.
+const DEADZONE: f64 = 0.07;
+/// Ceiling on camera speed, in crop widths per second. A whip pan is the single most obvious
+/// artefact a generated take can have, and no interaction is worth one.
+const MAX_SPEED: f64 = 1.1;
+
 /// Seconds to stay zoomed after an interaction.
 const HOLD_AFTER: f64 = 2.1;
 /// Seconds to start easing before the interaction moment.
@@ -44,12 +76,12 @@ const TAIL_MARGIN: f64 = 0.05;
 /// The most the tail of a take will be stretched to give the last interaction its zoom.
 const MAX_TAIL_PAD: f64 = HOLD_AFTER + EASE;
 
-/// Minimum spacing between pan waypoints on the time axis.
+/// Closest two interactions can be in time and still both be chased.
 ///
-/// ops.rs samples the caret every 0.12s while typing. A floor at or above that interval pushes
-/// every single sample later than it happened, and the error accumulates: a 4.3s typing pan
-/// measured 5.4s of waypoints and finished a second and a half after the typing did. The floor
-/// only has to keep a segment from having zero length, which is far below the sampling rate.
+/// ops.rs samples the caret every 0.12s while typing, and this only exists to drop the
+/// duplicate instants that a burst of ops can produce. It used to push such a sample later
+/// instead of dropping it, which slid every later sample later too: a 4.3s typing pan measured
+/// 5.4s and finished a second and a half after the typing did.
 const WAYPOINT_MIN_GAP: f64 = 0.04;
 
 /// Most waypoints kept for one event, and across the whole take.
@@ -59,8 +91,8 @@ const WAYPOINT_MIN_GAP: f64 = 0.04;
 /// unbounded a five-minute take builds a filter graph larger than the kernel will accept as a
 /// single argument. The shape of a pan survives decimation; its byte count is what has to stop
 /// growing.
-const PATH_BUDGET: usize = 16;
-const PATH_BUDGET_TOTAL: usize = 192;
+const PATH_BUDGET: usize = 28;
+const PATH_BUDGET_TOTAL: usize = 240;
 
 /// A filter graph longer than this is handed to ffmpeg as a file instead of an argument.
 ///
@@ -68,6 +100,9 @@ const PATH_BUDGET_TOTAL: usize = 192;
 /// kaviri off `-filter_complex_script`, which recent ffmpeg deprecates, while still having a
 /// path that works when a very long take generates a graph an argument cannot hold.
 const GRAPH_ARG_LIMIT: usize = 32 * 1024;
+
+/// An absolute time and a crop centre: one point on a camera path.
+type Waypoint = (f64, f64, f64);
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ZoomEvent {
@@ -77,7 +112,7 @@ pub struct ZoomEvent {
     pub cy: f64,
     pub z: f64,
     /// Waypoints (absolute t, cx, cy) the view pans through while zoomed.
-    pub path: Vec<(f64, f64, f64)>,
+    pub path: Vec<Waypoint>,
 }
 
 /// Build zoom events from interaction marks.
@@ -125,8 +160,14 @@ pub fn events_from_marks(
             } else {
                 LEFT_BIAS_CLICK
             };
-            // Cap the lean so the target's own right edge stays comfortably inside the crop.
-            let room = 0.5 - (w * scale / 2.0) / crop_w - KEEP_IN_FRAME;
+            /*
+             * Cap the lean so the target's own right edge stays comfortably inside the crop.
+             * The deadzone is subtracted as well as the margin: the camera is allowed to trail
+             * what it is chasing by a full deadzone, and that trailing leans the same way the
+             * bias does, so budgeting for only one of the two puts the target on the edge of
+             * the frame exactly when it is moving.
+             */
+            let room = 0.5 - (w * scale / 2.0) / crop_w - KEEP_IN_FRAME - DEADZONE;
             let bias = want.min(room.max(0.0));
             let cx = (x + w / 2.0) * scale - crop_w * bias;
             Some(Target {
@@ -151,32 +192,43 @@ pub fn events_from_marks(
             z: first.z,
             path: Vec::new(),
         };
+        /*
+         * What the camera wants, at the times it wanted it. These are not waypoints: nothing
+         * makes the camera be at one of them at the moment it is listed. They are the input to
+         * the simulation below, which decides where the camera actually goes.
+         */
+        let mut want: Vec<Waypoint> = vec![(first.t, first.cx, first.cy)];
         let mut j = i + 1;
         while j < targets.len() && targets[j].t < ev.end + MERGE_GAP {
             let next = &targets[j];
-            let dist = ((next.cx - ev.cx).powi(2) + (next.cy - ev.cy).powi(2)).sqrt();
-            let last_wp_t = ev.path.last().map(|p| p.0).unwrap_or(ev.t + EASE);
-            let wp_t = next.t.max(last_wp_t + WAYPOINT_MIN_GAP);
-            if dist > 6.0 {
-                ev.path.push((wp_t, next.cx, next.cy));
+            /*
+             * Two samples at the same instant used to be pushed apart in time to keep the
+             * segment between them non-degenerate, which moved every later sample later still
+             * and slid the whole pan off the typing it was following. A duplicate instant is
+             * not a move, so drop it instead.
+             */
+            if next.t - want.last().map(|w| w.0).unwrap_or(f64::NEG_INFINITY) >= WAYPOINT_MIN_GAP {
+                want.push((next.t, next.cx, next.cy));
             }
-            ev.end = wp_t + HOLD_AFTER;
+            ev.end = next.t + HOLD_AFTER;
             ev.z = ev.z.min(next.z); // never tighter than the loosest merged target
             j += 1;
         }
-        // Clamp into the recording and keep waypoints inside the eased window.
+        // Clamp into the recording.
         ev.end = ev.end.min(duration - TAIL_MARGIN);
-        let before = ev.path.len();
-        ev.path.retain(|p| p.0 > ev.t + EASE && p.0 < ev.end - EASE);
-        if ev.path.len() < before {
-            eprintln!(
-                "kaviri: {} pan waypoint(s) of the interaction at {:.1}s fall outside the zoom \
-                 window and were dropped",
-                before - ev.path.len(),
-                first.t
-            );
-        }
         if ev.end - ev.t >= 2.0 * EASE + 0.15 {
+            /*
+             * The pan lives strictly between the two eases. The simulation is handed that
+             * window, and its first position becomes what the ease-in delivers, so the two
+             * meet at the same place with the same velocity: the spring starts at rest and the
+             * smoothstep arrives at rest.
+             */
+            let crop_w = frame_w / ev.z;
+            let crop_h = frame_h / ev.z;
+            let (path, start) = follow(&want, ev.t + EASE, ev.end - EASE, crop_w, crop_h);
+            ev.cx = start.0;
+            ev.cy = start.1;
+            ev.path = path;
             events.push(ev);
         } else {
             /*
@@ -193,6 +245,79 @@ pub fn events_from_marks(
     }
     thin_paths(&mut events);
     events
+}
+
+/// What the camera wants at time `t`: the most recent interaction, held until the next one.
+///
+/// Holding, rather than interpolating between them, is the whole point. Two interactions 2.8s
+/// apart are not one slow move across the page; they are a thing, a pause, and another thing.
+/// Interpolating invented a constant drift through the pause, which is the motion a viewer
+/// notices most because nothing on screen explains it.
+fn wanted_at(want: &[Waypoint], t: f64) -> (f64, f64) {
+    let mut v = (want[0].1, want[0].2);
+    for w in want {
+        if w.0 > t {
+            break;
+        }
+        v = (w.1, w.2);
+    }
+    v
+}
+
+/// The part of an error that is outside the deadzone. Inside it, the camera does not move.
+fn beyond(err: f64, dead: f64) -> f64 {
+    if err > dead {
+        err - dead
+    } else if err < -dead {
+        err + dead
+    } else {
+        0.0
+    }
+}
+
+/// Run the camera over `[t_start, t_end]` and return the path it took, plus where it began.
+///
+/// A critically damped spring: the acceleration is proportional to how far the camera is from
+/// what it is chasing, minus a damping term tuned so it arrives without overshooting. Velocity
+/// is a state variable, so it is continuous by construction, which is the property the old
+/// piecewise-linear pan did not have and could not be given.
+fn follow(
+    want: &[Waypoint],
+    t_start: f64,
+    t_end: f64,
+    crop_w: f64,
+    crop_h: f64,
+) -> (Vec<Waypoint>, (f64, f64)) {
+    let (mut x, mut y) = wanted_at(want, t_start);
+    let start = (x, y);
+    // One interaction is a zoom, not a follow. Nothing to chase, so nothing to simulate.
+    if want.len() < 2 || t_end <= t_start {
+        return (Vec::new(), start);
+    }
+    let (mut vx, mut vy) = (0.0f64, 0.0f64);
+    let omega = 1.0 / SPRING_TAU;
+    let (dead_x, dead_y) = (crop_w * DEADZONE, crop_h * DEADZONE);
+    let v_max = MAX_SPEED * crop_w;
+    let mut path = Vec::with_capacity(((t_end - t_start) / SIM_DT) as usize + 2);
+    let mut t = t_start;
+    while t < t_end {
+        t = (t + SIM_DT).min(t_end);
+        let (wx, wy) = wanted_at(want, t);
+        // Chase only the part of the error the deadzone does not swallow.
+        let (tx, ty) = (x + beyond(wx - x, dead_x), y + beyond(wy - y, dead_y));
+        vx += (omega * omega * (tx - x) - 2.0 * omega * vx) * SIM_DT;
+        vy += (omega * omega * (ty - y) - 2.0 * omega * vy) * SIM_DT;
+        let speed = vx.hypot(vy);
+        if speed > v_max {
+            let k = v_max / speed;
+            vx *= k;
+            vy *= k;
+        }
+        x += vx * SIM_DT;
+        y += vy * SIM_DT;
+        path.push((t, x, y));
+    }
+    (path, start)
 }
 
 /// Reduce each event's waypoints to a budget, keeping the ones that carry the shape.
@@ -215,7 +340,7 @@ fn thin_paths(events: &mut [ZoomEvent]) {
 /// Ramer-Douglas-Peucker with a point budget: repeatedly keep whichever remaining waypoint is
 /// furthest from the straight line the pan would otherwise take through its neighbours.
 /// Dropping points uniformly instead would flatten exactly the corners a viewer notices.
-fn thin_path(path: &[(f64, f64, f64)], budget: usize) -> Vec<(f64, f64, f64)> {
+fn thin_path(path: &[Waypoint], budget: usize) -> Vec<Waypoint> {
     if path.len() <= budget {
         return path.to_vec();
     }
@@ -256,15 +381,47 @@ fn thin_path(path: &[(f64, f64, f64)], budget: usize) -> Vec<(f64, f64, f64)> {
     keep.iter().map(|&i| path[i]).collect()
 }
 
-/// Constant-rate move from `va` to `vb`. Used between pan waypoints, where easing every
-/// segment would make the camera stop at each one. The delta is folded in here rather than
-/// emitted as `(b-a)`, because this text is repeated once per waypoint per axis.
-fn linear(va: f64, vb: f64, t0: f64, t1: f64) -> String {
-    format!(
-        "({va:.2}+{:.2}*clip((it-{t0:.3})/({:.3}),0,1))",
-        vb - va,
-        (t1 - t0).max(0.001)
-    )
+/// One cubic Hermite segment, in Horner form so `p` is written three times and not nine.
+///
+/// The simulated path is smooth, but it is sampled and then decimated to a handful of points
+/// before it reaches ffmpeg, and straight lines between those points put a corner at every one
+/// of them. A cubic that matches both the value AND the slope at each end reproduces the curve
+/// the simulation actually took, which is the whole reason for simulating it.
+fn hermite(va: f64, vb: f64, ma: f64, mb: f64, t0: f64, t1: f64) -> String {
+    let dt = (t1 - t0).max(0.001);
+    let d = vb - va;
+    let c1 = ma * dt;
+    let c2 = 3.0 * d - dt * (2.0 * ma + mb);
+    let c3 = -2.0 * d + dt * (ma + mb);
+    let p = format!("clip((it-{t0:.3})/({dt:.3}),0,1)");
+    format!("({va:.2}+{p}*({c1:.2}+{p}*({c2:.2}+{p}*{c3:.2})))")
+}
+
+/// Slopes for a Hermite chain through `pts`, in value units per second.
+///
+/// Fritsch-Carlson: the slope at a point is the average of the two secants either side, but
+/// zero wherever they disagree in sign and never more than three times the shallower of them.
+/// Plain Catmull-Rom tangents would overshoot on the way into a reversal, which on a camera
+/// path means sailing past the thing being followed and coming back.
+fn slopes(pts: &[(f64, f64)]) -> Vec<f64> {
+    let n = pts.len();
+    let mut m = vec![0.0; n];
+    if n < 3 {
+        return m;
+    }
+    for k in 1..n - 1 {
+        let s0 = (pts[k].1 - pts[k - 1].1) / (pts[k].0 - pts[k - 1].0).max(1e-6);
+        let s1 = (pts[k + 1].1 - pts[k].1) / (pts[k + 1].0 - pts[k].0).max(1e-6);
+        m[k] = if s0 * s1 <= 0.0 {
+            0.0
+        } else {
+            let avg = (s0 + s1) / 2.0;
+            let cap = 3.0 * s0.abs().min(s1.abs());
+            avg.clamp(-cap, cap)
+        };
+    }
+    // The ends are handed over to the eases, which arrive and leave at rest.
+    m
 }
 
 fn smooth(a: &str, b: &str, t0: f64, t1: f64) -> String {
@@ -317,15 +474,22 @@ pub fn build_expr(events: &[ZoomEvent], which: &str) -> String {
             let v_last = format!("{:.2}", pts[pts.len() - 1].1);
             let ease_in = smooth(base, &v_first, t0, t0 + EASE);
             let ease_out = smooth(&v_last, base, t1 - EASE, t1);
-            // Straight lines between waypoints, not a smoothstep per segment. Easing each
-            // segment separately drives the velocity to zero at every waypoint, so a run of
-            // close samples reads as stepping rather than gliding. The ease belongs at the two
-            // ends of the whole move, which is where it already is.
+            /*
+             * A Hermite chain, not straight lines and not a smoothstep per segment. Easing
+             * each segment drives the velocity to zero at every point, which reads as
+             * stepping; straight lines hold the velocity but change it instantly at every
+             * point, which reads as a series of small lurches. Matching the slope at both ends
+             * of every segment is the only one of the three that is continuous in velocity all
+             * the way through, and it is what makes the decimated path look like the simulated
+             * one again. The two end slopes are zero, which is exactly what the eases either
+             * side of this chain arrive and depart with.
+             */
+            let m = slopes(&pts);
             let mut mid = v_last.clone();
             for k in (0..pts.len() - 1).rev() {
                 let (ta, va) = pts[k];
                 let (tb, vb) = pts[k + 1];
-                let seg = linear(va, vb, ta, tb);
+                let seg = hermite(va, vb, m[k], m[k + 1], ta, tb);
                 mid = format!("if(lt(it,{tb:.3}),{seg},{mid})");
             }
             format!(
@@ -1107,17 +1271,21 @@ mod tests {
     #[test]
     fn the_crop_leans_left_of_an_interaction() {
         let (fw, fh, dur) = (1000.0, 800.0, 20.0);
-        // Same box either way, far enough right that centring would cut its left edge off.
-        let bbox = (600.0, 300.0, 300.0, 60.0);
+        /*
+         * A small box, because the lean is capped by how much room the target itself leaves in
+         * the crop and a wide one uses that room up. The narrow case is also the real one: a
+         * typing mark carries the caret's box, not the field's.
+         */
+        let small = (600.0, 300.0, 40.0, 60.0);
 
-        let typed = events_from_marks(&[mark("type", 3.0, bbox)], 1.0, fw, fh, dur);
-        let clicked = events_from_marks(&[mark("click", 3.0, bbox)], 1.0, fw, fh, dur);
+        let typed = events_from_marks(&[mark("type", 3.0, small)], 1.0, fw, fh, dur);
+        let clicked = events_from_marks(&[mark("click", 3.0, small)], 1.0, fw, fh, dur);
         assert_eq!(typed.len(), 1);
         assert_eq!(clicked.len(), 1);
 
         let t = &typed[0];
         let c = &clicked[0];
-        let centre = bbox.0 + bbox.2 / 2.0;
+        let centre = small.0 + small.2 / 2.0;
 
         assert!(
             t.cx < c.cx,
@@ -1131,13 +1299,32 @@ mod tests {
             c.cx
         );
 
-        // Whatever the lean, the target has to stay in the crop.
-        for (name, ev) in [("type", t), ("click", c)] {
+        /*
+         * A target wide enough to use the room up gets whatever lean is left over, which may be
+         * none, and the two kinds converge. That is the cap doing its job, not a bug.
+         */
+        let wide = (600.0, 300.0, 300.0, 60.0);
+        let wt = events_from_marks(&[mark("type", 3.0, wide)], 1.0, fw, fh, dur);
+        let wc = events_from_marks(&[mark("click", 3.0, wide)], 1.0, fw, fh, dur);
+        assert!(
+            wt[0].cx >= wide.0 + wide.2 / 2.0 - fw / wt[0].z * LEFT_BIAS_TYPE,
+            "a wide target is not allowed the full typing lean"
+        );
+
+        // Whatever the lean, the target has to stay in the crop, and it has to still be there
+        // once the camera has trailed behind by a whole deadzone.
+        for (name, ev, bbox) in [
+            ("type", t, small),
+            ("click", c, small),
+            ("type wide", &wt[0], wide),
+            ("click wide", &wc[0], wide),
+        ] {
             let crop_w = fw / ev.z;
-            let (l, r) = (ev.cx - crop_w / 2.0, ev.cx + crop_w / 2.0);
+            let lag = crop_w * DEADZONE;
+            let (l, r) = (ev.cx - lag - crop_w / 2.0, ev.cx - lag + crop_w / 2.0);
             assert!(
                 bbox.0 >= l && bbox.0 + bbox.2 <= r,
-                "{name}: target [{}, {}] escaped crop [{l}, {r}]",
+                "{name}: target [{}, {}] escaped trailing crop [{l:.1}, {r:.1}]",
                 bbox.0,
                 bbox.0 + bbox.2
             );
@@ -1147,7 +1334,7 @@ mod tests {
     /// Waypoints are joined by straight lines. Easing each segment separately brings the
     /// camera to a stop at every sample, which over a typing pan reads as stepping.
     #[test]
-    fn a_pan_moves_at_a_constant_rate_between_waypoints() {
+    fn a_pan_eases_only_at_its_two_ends() {
         let marks: Vec<Mark> = (0..6)
             .map(|k| {
                 let t = 3.0 + k as f64 * 0.12;
@@ -1162,8 +1349,10 @@ mod tests {
             evs[0].path.len()
         );
 
-        // Exactly two eases in the horizontal move: into the zoom and back out of it. One per
-        // segment as well would be the stepping, and would grow with the number of samples.
+        // Exactly two smoothsteps in the horizontal move: into the zoom and back out of it.
+        // One per segment as well would be the stepping, and would grow with the number of
+        // samples. Everything between the two is the Hermite chain, which is smooth without
+        // ever coming to rest.
         let cx = build_expr(&evs, "cx");
         let eases = cx.matches("*(3-2*").count();
         assert_eq!(
@@ -1223,7 +1412,7 @@ mod tests {
             prev = v;
         }
         assert!(
-            worst < 80.0,
+            worst < 50.0,
             "the camera jumps {worst:.1}px in one frame somewhere in the move"
         );
     }
@@ -1295,9 +1484,12 @@ mod tests {
 
     /// Waypoints used to be spaced no closer than 0.15s while the caret is sampled every
     /// 0.12s, so every sample was pushed later than it happened and the pan finished well
-    /// after the typing did.
+    /// after the typing did. The camera is a spring now, so it is allowed to arrive slightly
+    /// late, but it has to have settled by the time the hold is over rather than still be
+    /// travelling towards a caret that stopped moving seconds ago.
     #[test]
     fn a_typing_pan_keeps_up_with_the_typing() {
+        let (fw, fh) = (1600.0, 900.0);
         let n = 30;
         let marks: Vec<Mark> = (0..n)
             .map(|k| {
@@ -1306,14 +1498,93 @@ mod tests {
             })
             .collect();
         let last_typed = 5.0 + (n - 1) as f64 * 0.12;
-        let evs = events_from_marks(&marks, 1.0, 1600.0, 900.0, 40.0);
+        let evs = events_from_marks(&marks, 1.0, fw, fh, 40.0);
         assert_eq!(evs.len(), 1);
-        let last_wp = evs[0].path.last().unwrap().0;
+
+        let expr = build_expr(&evs, "cx");
+        let settled = eval(&expr, last_typed + 0.6, fw, fh);
+        let resting = eval(&expr, evs[0].end - EASE - 0.01, fw, fh);
+        // Against the crop, not in absolute pixels, so the bound means the same thing at any
+        // zoom. Four percent of the width is below what reads as movement.
+        let slack = (fw / evs[0].z) * 0.04;
         assert!(
-            last_wp <= last_typed + 0.2,
-            "the pan finishes {:.2}s after the typing did",
-            last_wp - last_typed
+            (settled - resting).abs() < slack,
+            "the camera is still {:.1}px from where it ends up 0.6s after the typing stopped, \
+             which is more than the {slack:.1}px that a viewer would not notice",
+            (settled - resting).abs()
         );
+    }
+
+    /// The one property this tool cannot ship without.
+    ///
+    /// Smooth is not a matter of taste here, it is a bound on the second difference of the
+    /// crop centre. A path can be continuous and still look terrible if its velocity jumps,
+    /// which is what straight lines between waypoints did at every waypoint. This walks the
+    /// generated expression frame by frame, exactly as ffmpeg will, and holds both the speed
+    /// and the change in speed to what a camera can do.
+    #[test]
+    fn the_camera_never_jerks() {
+        let (fw, fh) = (2200.0, 1240.0);
+        /*
+         * The shape that produced the worst artefact in the shipped demo: a caret crossing the
+         * frame, a long pause, then a caret starting again at the far left. The old pan asked
+         * for 489px in 40ms across the handover into it.
+         */
+        let mut marks: Vec<Mark> = Vec::new();
+        marks.push(mark("click", 3.0, (900.0, 600.0, 120.0, 44.0)));
+        for k in 0..18 {
+            let t = 3.6 + k as f64 * 0.12;
+            marks.push(mark("type", t, (420.0 + k as f64 * 55.0, 620.0, 3.0, 40.0)));
+        }
+        for k in 0..18 {
+            let t = 8.2 + k as f64 * 0.12;
+            marks.push(mark("type", t, (430.0 + k as f64 * 55.0, 625.0, 3.0, 40.0)));
+        }
+        let evs = events_from_marks(&marks, 1.0, fw, fh, 16.0);
+        assert!(!evs.is_empty());
+
+        let dt = 1.0 / FPS as f64;
+        for which in ["cx", "cy", "z"] {
+            let expr = build_expr(&evs, which);
+            /*
+             * The benchmark for both caps is the ease itself, which is the smoothest move in
+             * the take by construction: a 0.7s smoothstep over 600px peaks at 6*600/0.7^2, or
+             * about 7,300px/s^2, and the caps sit just above that. The pan is not allowed to
+             * be rougher than the ease that hands over to it. For scale, the piecewise-linear
+             * pan this replaced changed speed by 366px between two frames at the handover,
+             * which is thirty times the cap below.
+             */
+            let (speed_cap, accel_cap) = if which == "z" {
+                (0.12, 0.05)
+            } else {
+                (1500.0 * dt, 350.0 * dt)
+            };
+            let ev = &evs[0];
+            let mut t = ev.t;
+            let (mut prev, mut prev_step) = (eval(&expr, t, fw, fh), 0.0f64);
+            let (mut worst_step, mut worst_jerk, mut at) = (0.0f64, 0.0f64, 0.0f64);
+            while t < ev.end {
+                t += dt;
+                let v = eval(&expr, t, fw, fh);
+                let step = v - prev;
+                if (step - prev_step).abs() > worst_jerk {
+                    worst_jerk = (step - prev_step).abs();
+                    at = t;
+                }
+                worst_step = worst_step.max(step.abs());
+                prev = v;
+                prev_step = step;
+            }
+            assert!(
+                worst_step <= speed_cap,
+                "{which} moves {worst_step:.1} in one frame, over the {speed_cap:.1} cap"
+            );
+            assert!(
+                worst_jerk <= accel_cap,
+                "{which} changes speed by {worst_jerk:.1} between two frames at {at:.2}s, over \
+                 the {accel_cap:.1} cap"
+            );
+        }
     }
 
     /// The filter graph is one argv element, which the kernel caps at 128 KiB. A long take

@@ -6,7 +6,7 @@ is missing, not the page.
 
 ## The name
 
-**kaviri**, pronounced **ka-VEE-ree**. Shona for "twice, a second time".
+**kaviri**, pronounced **ka-VEE-ree**. ChiShona for "twice, a second time".
 
 Always lowercase, even at the start of a sentence, and never capitalised as
 "Kaviri" in headings or nav. It is not an acronym, so no full caps.
