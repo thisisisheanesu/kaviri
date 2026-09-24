@@ -1421,7 +1421,20 @@ pub fn render(
     }
     zoomed?;
 
-    let duration = match loop_seam(out_path, &ffmpeg, duration, loop_tail, &tmp) {
+    /*
+     * The camera has to have stopped before the dissolve starts. Cross-fading a frame that is
+     * still zooming against a still one gives two pictures at two sizes at once, which is the
+     * artefact --smooth on was removed for, arriving by a different route.
+     */
+    let camera_still_at = events.iter().fold(0.0_f64, |a, e| a.max(e.end));
+    let duration = match loop_seam(
+        out_path,
+        &ffmpeg,
+        duration,
+        loop_tail,
+        camera_still_at,
+        &tmp,
+    ) {
         Ok(d) => d,
         Err(e) => {
             // The take is already written and watchable. A seam that could not be made is
@@ -1453,11 +1466,41 @@ fn loop_seam(
     ffmpeg: &str,
     duration: f64,
     tail: f64,
+    /* When the last camera move finishes. The dissolve must start after this. */
+    camera_still_at: f64,
     tmp: &TempDir,
 ) -> Result<f64, String> {
     if tail <= 0.0 {
         return Ok(duration);
     }
+
+    /*
+     * The dissolve has to fit in the still tail, the part of the take after the camera has
+     * settled. Laid over the zoom out instead, it blends a moving frame against a stationary
+     * one and the result is the take at two sizes at once, a fade that reads as the video
+     * ending rather than as a loop. Measured on the hero: 0.374s of a 0.700s dissolve sat on
+     * top of the ease out, and that was the whole of what looked wrong.
+     *
+     * The dissolve ends at `duration - tail`, so it starts at `duration - 2 * tail`. Rather
+     * than fail, take what the still tail allows and say what was taken.
+     */
+    let still = duration - camera_still_at;
+    let tail = if tail * 2.0 > still {
+        let fits = (still / 2.0).max(0.0);
+        if fits < 0.2 {
+            return Err(format!(
+                "the camera is still moving until {camera_still_at:.1}s of a {duration:.1}s take,                  which leaves {still:.1}s of still tail and no room for a seam. End the script                  with a longer wait."
+            ));
+        }
+        eprintln!(
+            "kaviri: the camera settles at {camera_still_at:.1}s, so the loop seam is {:.0}ms              rather than the {:.0}ms asked for. A longer wait at the end of the script buys              the rest.",
+            fits * 1000.0,
+            tail * 1000.0
+        );
+        fits
+    } else {
+        tail
+    };
     /*
      * The body has to be longer than the dissolve or xfade has nothing to start from. Three
      * times is not arbitrary: the opening still, the dissolve and something in between that is

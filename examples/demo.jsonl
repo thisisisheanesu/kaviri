@@ -7,5 +7,5 @@
 {"op":"click","selector":"#go"}
 {"op":"wait","selector":"li","timeout_ms":15000}
 {"op":"mark","label":"tracked"}
-{"op":"wait","ms":1700}
+{"op":"wait","ms":2800}
 {"op":"stop_recording"}
