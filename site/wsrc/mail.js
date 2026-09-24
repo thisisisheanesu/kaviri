@@ -47,29 +47,59 @@ function withDeadline(promise, via) {
   return Promise.race([promise, bell]).finally(() => clearTimeout(timer));
 }
 
-export async function sendMail(env, { to, subject, text, replyTo }) {
+/**
+ * Send one email.
+ *
+ * `text` is required and `html` is optional, never the other way round. A multipart message
+ * with a real plain-text alternative is what a terminal client, a screen reader and most spam
+ * filters actually read, and an HTML-only mail from a new domain is the single easiest way to
+ * land in a spam folder.
+ *
+ * `listUnsubscribe` turns on the header pair that makes Gmail and Apple Mail show their own
+ * unsubscribe control next to the sender. Offering it is what stops a reader who wants out
+ * from using the report-spam button instead, which costs the whole domain's reputation rather
+ * than one subscriber.
+ */
+export async function sendMail(env, { to, subject, text, html, replyTo, listUnsubscribe }) {
   const from = env.MAIL_FROM || "kaviri <hello@kaviri.dev>";
   const which = senderName(env);
   if (!which) return { sent: false, via: null, error: "no sender configured" };
   try {
     const work =
       which === "resend"
-        ? viaResend(env, { from, to, subject, text, replyTo })
-        : viaSmtp(env, { from, to, subject, text, replyTo });
+        ? viaResend(env, { from, to, subject, text, html, replyTo, listUnsubscribe })
+        : viaSmtp(env, { from, to, subject, text, html, replyTo, listUnsubscribe });
     return await withDeadline(work, which);
   } catch (e) {
     return { sent: false, via: which, error: String(e && e.message ? e.message : e) };
   }
 }
 
-async function viaResend(env, { from, to, subject, text, replyTo }) {
+/** The two headers, or nothing. Half of the pair is worse than neither: One-Click without a URL. */
+function unsubHeaders(listUnsubscribe) {
+  if (!listUnsubscribe) return {};
+  return {
+    "List-Unsubscribe": `<${listUnsubscribe}>`,
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+  };
+}
+
+async function viaResend(env, { from, to, subject, text, html, replyTo, listUnsubscribe }) {
   const r = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${env.RESEND_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ from, to: [to], subject, text, reply_to: replyTo }),
+    body: JSON.stringify({
+      from,
+      to: [to],
+      subject,
+      text,
+      ...(html ? { html } : {}),
+      reply_to: replyTo,
+      ...(listUnsubscribe ? { headers: unsubHeaders(listUnsubscribe) } : {}),
+    }),
   });
   if (!r.ok) return { sent: false, via: "resend", error: `${r.status} ${(await r.text()).slice(0, 200)}` };
   return { sent: true, via: "resend" };
@@ -121,7 +151,7 @@ function header(v) {
   return String(v).replace(/[\r\n]+/g, " ").trim();
 }
 
-async function viaSmtp(env, { from, to, subject, text, replyTo }) {
+async function viaSmtp(env, { from, to, subject, text, html, replyTo, listUnsubscribe }) {
   const port = Number(env.SMTP_PORT || 587);
   const socket = connect({ hostname: env.SMTP_HOST, port }, { secureTransport: "starttls" });
 
@@ -162,21 +192,55 @@ async function viaSmtp(env, { from, to, subject, text, replyTo }) {
     await say(`RCPT TO:<${to}>`, [250, 251]);
     await say("DATA", [354]);
 
-    const body = [
+    // A lone dot on a line ends DATA, so any line that is just a dot gets one more.
+    const stuff = (s) => String(s).replace(/\r?\n/g, "\r\n").replace(/^\.$/gm, "..");
+
+    /*
+     * multipart/alternative when there is HTML, and the plain part goes FIRST. The order is
+     * the spec's way of saying which part is preferred: a client picks the last one it can
+     * render, so text before html means an HTML client shows the HTML and a plain one shows
+     * the text. Reversed, everybody gets plain text.
+     */
+    const bound = `kv-${crypto.randomUUID()}`;
+    const unsub = unsubHeaders(listUnsubscribe);
+
+    const head = [
       `From: ${header(from)}`,
       `To: ${header(to)}`,
       replyTo ? `Reply-To: ${header(replyTo)}` : null,
       `Subject: ${header(subject)}`,
+      ...Object.entries(unsub).map(([k, v]) => `${k}: ${header(v)}`),
       "MIME-Version: 1.0",
-      'Content-Type: text/plain; charset="utf-8"',
-      "Content-Transfer-Encoding: 8bit",
-      "",
-      // A lone dot on a line ends DATA, so any line that is just a dot gets one more.
-      String(text).replace(/\r?\n/g, "\r\n").replace(/^\.$/gm, ".."),
-      ".",
-    ]
-      .filter((l) => l !== null)
-      .join("\r\n");
+    ].filter((l) => l !== null);
+
+    const body = (
+      html
+        ? [
+            ...head,
+            `Content-Type: multipart/alternative; boundary="${bound}"`,
+            "",
+            `--${bound}`,
+            'Content-Type: text/plain; charset="utf-8"',
+            "Content-Transfer-Encoding: 8bit",
+            "",
+            stuff(text),
+            `--${bound}`,
+            'Content-Type: text/html; charset="utf-8"',
+            "Content-Transfer-Encoding: 8bit",
+            "",
+            stuff(html),
+            `--${bound}--`,
+            ".",
+          ]
+        : [
+            ...head,
+            'Content-Type: text/plain; charset="utf-8"',
+            "Content-Transfer-Encoding: 8bit",
+            "",
+            stuff(text),
+            ".",
+          ]
+    ).join("\r\n");
 
     await writer.write(enc.encode(body + "\r\n"));
     const done = await rd.next();

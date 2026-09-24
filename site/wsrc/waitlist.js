@@ -6,6 +6,7 @@
  */
 
 import { sendMail, senderName, notifyOwner } from "./mail.js";
+import { compose, ensureSchemaOnce, newToken, unsubscribeUrl } from "./sequence.js";
 
 export const SCHEMA = `
 create table if not exists waitlist (
@@ -21,7 +22,12 @@ create table if not exists waitlist (
   created_at   text not null default (datetime('now')),
   confirmed_at text,
   confirm_via  text,
-  confirm_err  text
+  confirm_err  text,
+  -- Random per person, carried in the unsubscribe link. Random rather than an HMAC over the
+  -- address so that one person's can be revoked without changing everybody's, and so that no
+  -- secret has to exist and then never change. See sequence.js.
+  unsub_token  text,
+  unsubscribed_at text
 );
 create unique index if not exists waitlist_email_key on waitlist(email_key);
 create index if not exists waitlist_created on waitlist(created_at desc);
@@ -39,25 +45,6 @@ const json = (body, status = 200, extra = {}) =>
     status,
     headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", ...extra },
   });
-
-function welcome(email) {
-  return `You are on the kaviri waitlist.
-
-kaviri records a demo video from a script, so the video is a build artifact and CI can
-re-render it every time the product changes. The recorder is free and open source. The hosted
-service takes the script and hands back an MP4 with a stable URL, and that is the part you have
-just put your name down for.
-
-You will hear from me when it is ready, and not in between. If you have a demo that is already
-out of date and you want to tell me about it, reply to this: it is the most useful thing you
-could send.
-
-https://kaviri.dev
-https://kaviri.dev/play   (the script, running in your browser)
-
--- Ishe
-`;
-}
 
 export async function signup(request, env, ctx) {
   let body;
@@ -81,12 +68,25 @@ export async function signup(request, env, ctx) {
   const key = email.toLowerCase();
   const db = env.kaviri_waitlist;
 
+  // The insert below writes unsub_token, which a database deployed before the sequence existed
+  // does not have. Swallowed: if it fails the insert fails too and says so properly.
+  await ensureSchemaOnce(env).catch(() => {});
+
   const existing = await db.prepare("select id from waitlist where email_key = ?").bind(key).first();
   if (existing) return json({ ok: true, already: true });
 
   await db
-    .prepare("insert into waitlist (email, email_key, note, source, country) values (?, ?, ?, ?, ?)")
-    .bind(email, key, note || null, String(body.source || "site").slice(0, 40), request.cf?.country || null)
+    .prepare(
+      "insert into waitlist (email, email_key, note, source, country, unsub_token) values (?, ?, ?, ?, ?, ?)"
+    )
+    .bind(
+      email,
+      key,
+      note || null,
+      String(body.source || "site").slice(0, 40),
+      request.cf?.country || null,
+      newToken()
+    )
     .run();
 
   /*
@@ -113,11 +113,23 @@ export async function signup(request, env, ctx) {
 
 async function confirm(env, email, key, note) {
   const db = env.kaviri_waitlist;
+
+  /*
+   * Step 0 of the sequence, sent inline rather than by the scheduler so that it arrives while
+   * the person still remembers filling the form in. The token is read back rather than passed
+   * in because the retry path calls this too, and a row from before unsubscribe existed has
+   * had one backfilled by then.
+   */
+  const row = await db.prepare("select unsub_token from waitlist where email_key = ?").bind(key).first();
+  const mail = compose(0, row?.unsub_token);
+
   const r = await sendMail(env, {
     to: email,
-    subject: "You are on the kaviri waitlist",
-    text: welcome(email),
+    subject: mail.subject,
+    text: mail.text,
+    html: mail.html,
     replyTo: "hello@kaviri.dev",
+    listUnsubscribe: unsubscribeUrl(row?.unsub_token),
   });
   /*
    * Plain positional placeholders. D1 binds by position, and an earlier version of this used
@@ -170,7 +182,10 @@ export async function keepDatabaseAwake(env) {
 export async function retryUnconfirmed(env, limit = 20) {
   if (!senderName(env)) return { retried: 0, reason: "no sender configured" };
   const { results } = await env.kaviri_waitlist
-    .prepare("select email, email_key, note from waitlist where confirmed_at is null order by id limit ?")
+    .prepare(
+      // Somebody who unsubscribed before their welcome went out does not then get it.
+      "select email, email_key, note from waitlist where confirmed_at is null and unsubscribed_at is null order by id limit ?"
+    )
     .bind(limit)
     .all();
   let ok = 0;

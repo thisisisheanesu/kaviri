@@ -11,6 +11,7 @@
 // Files that sit in the asset directory because they have to be next to the
 // page, but that must never be served. wrangler.toml carries the account ID.
 import { keepDatabaseAwake, retryUnconfirmed, signup } from "./wsrc/waitlist.js";
+import { ensureSchema, runSequence, unsubscribe } from "./wsrc/sequence.js";
 import * as admin from "./wsrc/admin.js";
 import * as stripe from "./wsrc/stripe.js";
 
@@ -198,7 +199,18 @@ export default {
    * people never heard back".
    */
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(retryUnconfirmed(env, 50));
+    /*
+     * Order matters and this is deliberately one awaited chain rather than three waitUntils.
+     * ensureSchema creates the table runSequence reads, and retryUnconfirmed can move somebody
+     * to confirmed, which is what makes them eligible for step 1 in the same run.
+     */
+    ctx.waitUntil(
+      (async () => {
+        await ensureSchema(env).catch(() => {});
+        await retryUnconfirmed(env, 50).catch(() => {});
+        await runSequence(env).catch(() => {});
+      })()
+    );
     // A free Supabase project pauses after a week idle, and a paused project is a dead
     // service with no warning. One cheap request an hour is the whole defence.
     ctx.waitUntil(keepDatabaseAwake(env));
@@ -225,6 +237,15 @@ export default {
     }
     if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
       return withSecurity(await admin.handle(request, env, url));
+    }
+    /*
+     * Unsubscribe takes both verbs. GET is the link at the bottom of the mail; POST is what
+     * Gmail and Apple Mail send for their own one-click control, and it must work without a
+     * confirmation page or they do not show the control at all. Both are before the method
+     * gate because the gate allows only GET and HEAD.
+     */
+    if (url.pathname === "/unsubscribe" && (request.method === "GET" || request.method === "POST")) {
+      return withSecurity(await unsubscribe(request, env, url));
     }
 
     // The rest of the site is read-only. Answering anything else with a clear 405 is more

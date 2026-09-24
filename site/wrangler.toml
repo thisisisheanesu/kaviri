@@ -73,7 +73,9 @@ name = "OWNER_MAIL"
 destination_address = "inmisimail@gmail.com"
 
 [vars]
-MAIL_FROM = "kaviri <ishe@vambo.ai>"
+# kaviri.dev is the verified sending domain in Resend. vambo.ai is not one, and a From on an
+# unverified domain is rejected by the API rather than merely landing in spam.
+MAIL_FROM = "kaviri <hello@kaviri.dev>"
 OWNER_EMAIL = "inmisimail@gmail.com"
 
 # Secrets, set with `npx wrangler secret put NAME`, never here:

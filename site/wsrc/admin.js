@@ -11,6 +11,7 @@
 
 import { pending } from "./stripe.js";
 import { retryUnconfirmed } from "./waitlist.js";
+import { STEPS, ensureSchema, ensureSchemaOnce, runSequence } from "./sequence.js";
 
 const COOKIE = "kaviri_admin";
 const TTL = 60 * 60 * 12;
@@ -94,13 +95,46 @@ function esc(s) {
 
 async function dashboard(env) {
   const db = env.kaviri_waitlist;
+  // The select below reads unsubscribed_at, which a database deployed before the sequence
+  // existed does not have, and a missing column is a 500 rather than a null.
+  await ensureSchemaOnce(env).catch(() => {});
   const { results } = await db
-    .prepare("select id, email, note, country, created_at, confirmed_at, confirm_via, confirm_err from waitlist order by id desc limit 500")
+    .prepare(
+      `select id, email, note, country, created_at, confirmed_at, confirm_via, confirm_err, unsubscribed_at
+         from waitlist order by id desc limit 500`
+    )
     .all();
   const rows = results || [];
   const total = rows.length;
   const confirmed = rows.filter((r) => r.confirmed_at).length;
   const failed = rows.filter((r) => !r.confirmed_at && r.confirm_err).length;
+  const gone = rows.filter((r) => r.unsubscribed_at).length;
+
+  /*
+   * How far through the sequence each person is. One query for the whole page rather than one
+   * per row: a hundred signups would otherwise be a hundred round trips to render a table.
+   */
+  const progress = new Map();
+  const seqRows = await db
+    .prepare(
+      `select email_key, max(case when sent_at is not null then step end) as done,
+              max(case when sent_at is null then step end) as stuck,
+              max(case when sent_at is null then error end) as err
+         from waitlist_sends group by email_key`
+    )
+    .all()
+    .catch(() => ({ results: [] }));
+  for (const s of seqRows.results || []) progress.set(s.email_key, s);
+
+  const last = STEPS.length - 1;
+  const step = (r) => {
+    if (r.unsubscribed_at) return '<span class="bad">unsubscribed</span>';
+    if (!r.confirmed_at) return '<span class="pending">not started</span>';
+    const s = progress.get(String(r.email).toLowerCase());
+    const done = s && s.done != null ? s.done : 0;
+    if (s && s.err) return `<span class="bad">${done}/${last} stuck: ${esc(String(s.err).slice(0, 50))}</span>`;
+    return `<span class="${done >= last ? "ok" : ""}">${done}/${last}</span>`;
+  };
 
   const body = rows
     .map(
@@ -113,6 +147,7 @@ async function dashboard(env) {
   <td class="${r.confirmed_at ? "ok" : r.confirm_err ? "bad" : "pending"}">${
     r.confirmed_at ? `sent, ${esc(r.confirm_via)}` : r.confirm_err ? esc(r.confirm_err.slice(0, 90)) : "pending"
   }</td>
+  <td class="mono">${step(r)}</td>
 </tr>`
     )
     .join("");
@@ -129,19 +164,24 @@ async function dashboard(env) {
   <div class="adm-actions">
     <a class="btn btn-secondary" href="/admin/export.csv">Export CSV</a>
     <form method="POST" action="/admin/retry"><button class="btn btn-secondary" type="submit">Retry unsent</button></form>
+    <form method="POST" action="/admin/sequence"><button class="btn btn-secondary" type="submit">Run sequence now</button></form>
     <form method="POST" action="/admin/logout"><button class="btn btn-secondary" type="submit">Sign out</button></form>
   </div>
 </div>
-<p class="muted">${total} on the list, ${confirmed} confirmed${failed ? `, <b class="bad">${failed} failed to send</b>` : ""}.
+<p class="muted">${total} on the list, ${confirmed} confirmed${failed ? `, <b class="bad">${failed} failed to send</b>` : ""}${
+    gone ? `, ${gone} unsubscribed` : ""
+  }.
 Mail goes out through ${env.RESEND_API_KEY ? "Resend" : env.SMTP_HOST ? "SMTP" : "<b class='bad'>nothing: no sender is configured</b>"}.</p>
+<p class="muted">Sequence: ${STEPS.length} steps, the last at day ${STEPS[STEPS.length - 1].after}. It runs on the hourly
+cron, at most one step per person per run. The column on the right is how far each person has got.</p>
 <p class="muted">Stripe: ${
     owed.length === 0
       ? "no events waiting."
       : `<b>${owed.length}</b> event${owed.length === 1 ? "" : "s"} received and waiting for the billing service to drain them` +
         `${owed.some((e) => e.livemode) ? ', <b class="bad">including live ones</b>' : " (all test mode)"}.`
   }</p>
-<table><thead><tr><th>#</th><th>Email</th><th>Note</th><th>CC</th><th>When</th><th>Confirmation</th></tr></thead>
-<tbody>${body || '<tr><td colspan="6" class="muted">Nobody yet.</td></tr>'}</tbody></table>`);
+<table><thead><tr><th>#</th><th>Email</th><th>Note</th><th>CC</th><th>When</th><th>Confirmation</th><th>Sequence</th></tr></thead>
+<tbody>${body || '<tr><td colspan="7" class="muted">Nobody yet.</td></tr>'}</tbody></table>`);
 }
 
 export async function handle(request, env, url) {
@@ -201,6 +241,18 @@ export async function handle(request, env, url) {
 
   if (url.pathname === "/admin/retry" && request.method === "POST") {
     await retryUnconfirmed(env, 50);
+    return new Response(null, { status: 303, headers: { Location: "/admin" } });
+  }
+
+  /*
+   * The same thing the cron does, on demand. Useful on the day the sequence ships and on any
+   * day the hourly run is not soon enough to see whether a change to a step works. ensureSchema
+   * first, so the first press on a database that predates waitlist_sends creates it rather than
+   * throwing.
+   */
+  if (url.pathname === "/admin/sequence" && request.method === "POST") {
+    await ensureSchema(env).catch(() => {});
+    await runSequence(env);
     return new Response(null, { status: 303, headers: { Location: "/admin" } });
   }
 
