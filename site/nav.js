@@ -27,6 +27,13 @@
   function set(open) {
     head.setAttribute("data-nav", open ? "open" : "closed");
     button.setAttribute("aria-expanded", open ? "true" : "false");
+    /*
+     * The panel covers the page, so the page must not scroll behind it. Without this, a
+     * flick that starts on the menu and runs off its end scrolls the article underneath and
+     * the reader loses their place, which is the exact thing covering the page was meant to
+     * avoid.
+     */
+    document.documentElement.classList.toggle("nav-open", open);
   }
 
   /*

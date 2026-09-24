@@ -12,6 +12,7 @@
 // page, but that must never be served. wrangler.toml carries the account ID.
 import { keepDatabaseAwake, retryUnconfirmed, signup } from "./wsrc/waitlist.js";
 import { ensureSchema, runSequence, unsubscribe } from "./wsrc/sequence.js";
+import { beat } from "./wsrc/stats.js";
 import * as admin from "./wsrc/admin.js";
 import * as stripe from "./wsrc/stripe.js";
 
@@ -207,8 +208,16 @@ export default {
     ctx.waitUntil(
       (async () => {
         await ensureSchema(env).catch(() => {});
-        await retryUnconfirmed(env, 50).catch(() => {});
-        await runSequence(env).catch(() => {});
+        /*
+         * Each step leaves a heartbeat. /admin shows them, and they are the only way to tell
+         * "the cron ran and there was nothing to do" from "the cron has not run since a bad
+         * deploy", which look identical in the tables themselves.
+         */
+        const retried = await retryUnconfirmed(env, 50).catch((e) => ({ error: String(e) }));
+        await beat(env, "last_retry", JSON.stringify(retried));
+        const sent = await runSequence(env).catch((e) => ({ error: String(e) }));
+        await beat(env, "last_sequence", JSON.stringify(sent));
+        await beat(env, "last_cron", `retried ${retried?.retried ?? 0}, sequence sent ${sent?.sent ?? 0}`);
       })()
     );
     // A free Supabase project pauses after a week idle, and a paused project is a dead

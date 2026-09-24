@@ -12,6 +12,8 @@
 import { pending } from "./stripe.js";
 import { retryUnconfirmed } from "./waitlist.js";
 import { STEPS, ensureSchema, ensureSchemaOnce, runSequence } from "./sequence.js";
+import * as stats from "./stats.js";
+import { beat } from "./stats.js";
 
 const COOKIE = "kaviri_admin";
 const TTL = 60 * 60 * 12;
@@ -126,6 +128,8 @@ async function dashboard(env) {
     .catch(() => ({ results: [] }));
   for (const s of seqRows.results || []) progress.set(s.email_key, s);
 
+  const deep = stats.render(await stats.collect(env, STEPS));
+
   const last = STEPS.length - 1;
   const step = (r) => {
     if (r.unsubscribed_at) return '<span class="bad">unsubscribed</span>';
@@ -180,8 +184,11 @@ cron, at most one step per person per run. The column on the right is how far ea
       : `<b>${owed.length}</b> event${owed.length === 1 ? "" : "s"} received and waiting for the billing service to drain them` +
         `${owed.some((e) => e.livemode) ? ', <b class="bad">including live ones</b>' : " (all test mode)"}.`
   }</p>
+${deep}
+
+<section class="panel"><h2>Everyone</h2>
 <table><thead><tr><th>#</th><th>Email</th><th>Note</th><th>CC</th><th>When</th><th>Confirmation</th><th>Sequence</th></tr></thead>
-<tbody>${body || '<tr><td colspan="7" class="muted">Nobody yet.</td></tr>'}</tbody></table>`);
+<tbody>${body || '<tr><td colspan="7" class="muted">Nobody yet.</td></tr>'}</tbody></table></section>`);
 }
 
 export async function handle(request, env, url) {
@@ -252,7 +259,8 @@ export async function handle(request, env, url) {
    */
   if (url.pathname === "/admin/sequence" && request.method === "POST") {
     await ensureSchema(env).catch(() => {});
-    await runSequence(env);
+    const r = await runSequence(env);
+    await beat(env, "last_sequence", JSON.stringify(r));
     return new Response(null, { status: 303, headers: { Location: "/admin" } });
   }
 

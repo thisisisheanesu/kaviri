@@ -363,67 +363,85 @@ p code, li code {
   .site-head[data-nav="open"] .bars::before { transform: translateY(5px) rotate(45deg); }
   .site-head[data-nav="open"] .bars::after { transform: translateY(-5px) rotate(-45deg); }
 
-  /* The open and shut animation.
+  /* The menu is a panel over the page, not a drawer that pushes it down.
 
-     A collapse has to animate a height, and there is no height to animate between display
-     none and display flex. The grid row does it without JavaScript measuring anything: the
-     nav is a one row grid, that row is 1fr open and 0fr shut, and the row is what
-     transitions. The alternative is reading scrollHeight in a script and writing a pixel
-     max-height, which is a layout read on every toggle and a wrong number the moment the
-     font loads or the viewport turns.
+     Pushing the page down meant the reader's place on it moved under them, and at phone
+     width the five links plus the hero heading is more than a screen, so opening the menu
+     scrolled the thing they were reading out of view. A cover leaves the page exactly where
+     it was and puts it back untouched.
 
-     Everything that takes up space when the menu is open lives INSIDE .nav-links: the rule,
-     the gap above it, the links. A margin or a border on the nav itself would still be
-     drawn with the row at zero, so a shut menu would sit there as a stray line. */
+     Positioned against the header rather than the viewport, so `top: 100%` means "under the
+     header" with no measured pixel value to go stale when the font loads or the wordmark
+     wraps. That works because the header is sticky, which it needs to be anyway: a fixed
+     panel with the close button scrolled off the top is a trap. */
+  .site-head {
+    position: sticky;
+    top: 0;
+    z-index: 60;
+    background: var(--paper, var(--k-paper));
+  }
+
   html.js .site-head nav {
-    /* Full width, so the links land under the wordmark rather than beside the button. */
-    flex-basis: 100%;
-    display: grid;
-    grid-template-rows: 1fr;
+    position: absolute;
+    top: 100%;
+    /* Measured, not assumed: the containing block here is the header's BORDER box, so these
+       are already the screen edges and a negative offset over-bled the panel by a gutter.
+       (Chrome, 390px viewport: left:-16px put the panel at -16 and made it 422px wide on a
+       390px screen.) The panel's own padding is what puts the links back in line with the
+       wordmark. */
+    left: 0;
+    right: 0;
+    height: 100vh;
+    height: 100dvh;
+    padding: var(--k-space-2) var(--k-space-2) var(--k-space-6);
+    background: var(--paper, var(--k-paper));
+    border-top: 1px solid var(--line, var(--k-line));
+    display: flex;
+    flex-direction: column;
     gap: 0;
-    transition: grid-template-rows var(--duration-3, 320ms) var(--ease-out, ease),
-                opacity var(--duration-2, 160ms) linear;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity var(--duration-2, 160ms) linear,
+                transform var(--duration-3, 320ms) var(--ease-out, ease);
   }
 
+  /* Shut: lifted a little and faded, and taken out of the tab order once it has gone. The
+     delay on visibility is what keeps it on screen for the length of the fade. */
   html.js .site-head[data-nav="closed"] nav {
-    grid-template-rows: 0fr;
     opacity: 0;
+    transform: translateY(-6px);
+    visibility: hidden;
+    transition: opacity var(--duration-2, 160ms) linear,
+                transform var(--duration-2, 160ms) var(--ease-out, ease),
+                visibility 0s linear var(--duration-2, 160ms);
   }
 
+  /* One per line. A row of five would wrap into something that reads like a paragraph. */
   html.js .site-head nav .nav-links {
     display: flex;
     flex-direction: column;
-    /* Both are needed. min-height:0 lets a grid item shrink below its content, which by
-       default it will not, and overflow:hidden is what actually clips the links as it does. */
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  /* Not tabbable while it is shut, and not un-tabbable until it has finished shutting, which
-     is what the delay on the visibility transition is for. */
-  html.js .site-head[data-nav="closed"] nav .nav-links {
-    visibility: hidden;
-    transition: visibility 0s linear var(--duration-3, 320ms);
+    align-items: stretch;
   }
 
   .site-head nav a {
-    /* A 44px target, which is the smallest thing a thumb hits reliably. */
-    padding: 11px 0;
-    font-size: 1.02rem;
+    /* A 44px target at least, which is the smallest thing a thumb hits reliably. */
+    padding: 15px 0;
+    font-size: 1.15rem;
     color: var(--ink, var(--k-ink));
+    border-bottom: 1px solid var(--line, var(--k-line));
   }
 
-  /* The separator and the space above it belong to the first link, so that they are inside
-     the clipped box and vanish with it. */
-  html.js .site-head nav .nav-links a:first-child {
-    margin-top: var(--k-space-2);
-    border-top: 1px solid var(--line, var(--k-line));
-    padding-top: var(--k-space-2);
-  }
+  .site-head nav a:last-child { border-bottom: 0; }
+
+  /* Set by nav.js while the panel is up. Kept in the media query so a desktop window that
+     happens to have the class cannot lock its own scrolling. */
+  html.nav-open, html.nav-open body { overflow: hidden; }
 
   @media (prefers-reduced-motion: reduce) {
-    html.js .site-head nav,
-    html.js .site-head nav .nav-links { transition: none; }
+    html.js .site-head nav { transition: opacity 1ms linear, visibility 0s; }
+  }
   }
 }
 

@@ -51,3 +51,67 @@
 .adm .ok { color: var(--muted, var(--k-muted)); }
 .adm .pending { color: var(--muted, var(--k-muted)); font-style: italic; }
 .adm .bad, .adm .err { color: var(--accent, var(--k-accent)); }
+
+/* ---------------------------------------------------------------- statistics
+
+   Charts here are HTML and CSS and nothing else. The admin runs under the site's CSP, which
+   allows no inline script, and a bar is a div with a width. Every chart is ONE measure, so
+   there is one colour and the length carries the value: no palette to get wrong, and nothing
+   encoded by colour alone. Every number is printed beside its bar rather than hidden behind a
+   hover, because this page is read on a phone as often as at a desk. */
+
+/* style.css gives every <section> 72px of padding top and bottom, which is right for a
+   landing page and puts 144px between two rows of an admin table. */
+.adm .panel { padding-top: 0; padding-bottom: 0; margin-top: var(--k-space-4); }
+.adm .panel:first-of-type { margin-top: var(--k-space-3); }
+.panel h2 {
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted, var(--k-muted));
+  margin: 0 0 var(--k-space-2);
+}
+.adm .small { font-size: 0.82rem; }
+
+.cols2 { display: grid; gap: var(--k-space-4); grid-template-columns: 1fr; }
+@media (min-width: 760px) { .cols2 { grid-template-columns: 1fr 1fr; } }
+
+/* Headline figures. A number this size is read before any chart is, so the ones that can be
+   wrong in a way that matters (failures, a stopped cron) carry their own words underneath. */
+.tiles { display: grid; gap: var(--k-space-1); grid-template-columns: repeat(2, 1fr); }
+@media (min-width: 620px) { .tiles { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 960px) { .tiles { grid-template-columns: repeat(6, 1fr); } }
+
+.tile {
+  border: 1px solid var(--line, var(--k-line));
+  border-radius: 10px;
+  padding: var(--k-space-2);
+  min-width: 0;
+}
+.tile-n { font-size: 1.7rem; font-weight: 640; letter-spacing: -0.02em; line-height: 1.1; }
+.tile-k { font-size: 0.72rem; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted, var(--k-muted)); margin-top: 2px; }
+.tile-note { font-size: 0.78rem; color: var(--muted, var(--k-muted)); margin-top: 6px; overflow-wrap: anywhere; }
+
+/* Ranked bars. 4px on the far end only, so the bar reads as growing from its baseline rather
+   than as a floating pill. */
+.bars { display: grid; gap: 2px; }
+.bar-row { display: grid; grid-template-columns: minmax(6ch, 14ch) 1fr 4ch; gap: var(--k-space-1); align-items: center; }
+.bar-k { font-size: 0.82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { background: var(--surface, var(--k-surface)); border-radius: 0 4px 4px 0; height: 16px; }
+.bar-fill { height: 100%; background: var(--accent, var(--k-accent)); border-radius: 0 4px 4px 0; }
+.bar-n { font-family: var(--k-mono); font-size: 0.8rem; text-align: right; color: var(--muted, var(--k-muted)); }
+
+/* Thirty columns, one per day. A column and not a line: the measure counts discrete events,
+   and a line between two days draws a value on the day in between that never existed. */
+.spark { display: flex; align-items: flex-end; gap: 2px; height: 72px; }
+.spark-col { flex: 1; height: 100%; display: flex; align-items: flex-end; min-width: 0; }
+.spark-fill { width: 100%; background: var(--accent, var(--k-accent)); border-radius: 2px 2px 0 0; }
+/* A day with nothing is a visible baseline tick, not a gap. A gap reads as missing data. */
+.spark-fill.zero { background: var(--line, var(--k-line)); border-radius: 1px; }
+.spark-axis {
+  display: flex; justify-content: space-between; gap: var(--k-space-1);
+  font-family: var(--k-mono); font-size: 0.72rem; color: var(--muted, var(--k-muted));
+  margin-top: 6px;
+}
+
+.adm .panel table { margin-top: 0; }

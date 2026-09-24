@@ -28,6 +28,7 @@
 
 import { render, p, lead, h, code, button, link, rule, note } from "./brand-email.js";
 import { sendMail, senderName } from "./mail.js";
+import { SCHEMA as META_SCHEMA } from "./stats.js";
 
 const SITE = "https://kaviri.dev";
 const REPO = "https://github.com/thisisisheanesu/kaviri";
@@ -64,7 +65,7 @@ const COLUMNS = [
  */
 export async function ensureSchema(env) {
   const db = env.kaviri_waitlist;
-  for (const stmt of SCHEMA.split(";").map((s) => s.trim()).filter(Boolean)) {
+  for (const stmt of (SCHEMA + META_SCHEMA).split(";").map((s) => s.trim()).filter(Boolean)) {
     await db.prepare(stmt).run();
   }
   for (const stmt of COLUMNS) {
