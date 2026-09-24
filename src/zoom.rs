@@ -242,7 +242,39 @@ pub fn events_from_marks(
              */
             let room = 0.5 - (w * scale / 2.0) / crop_w - KEEP_IN_FRAME - DEADZONE;
             let bias = want.min(room.max(0.0));
-            let cx = (x + w / 2.0) * scale - crop_w * bias;
+            let mut cx = (x + w / 2.0) * scale - crop_w * bias;
+
+            /*
+             * Frame the surface, not the control.
+             *
+             * A button lives at the edge of the thing it belongs to. Centre on the Track
+             * button of a card and the crop starts past the card's left edge: the shot is of a
+             * button, and a viewer cannot see what it does. The left bias helps and is not
+             * enough, because it is a fixed fraction and the overhang depends on where in the
+             * card the control happens to sit.
+             *
+             * So when the page gave us the surface the control sits on, and that surface fits
+             * in the crop, the crop is slid the smallest distance that puts the whole of it
+             * inside. The lean survives wherever there is room for it, because this only ever
+             * moves the crop as far as it must.
+             */
+            let mut cy = cy;
+            if let Some((sx, sy, sw, sh)) = m.context {
+                // Slide right if the surface hangs off the left of the crop, left if off the
+                // right. Each axis independently, and only when the surface actually fits:
+                // a surface bigger than the crop cannot be framed and forcing it would just
+                // pick an arbitrary edge.
+                let fit = |centre: f64, lo: f64, hi: f64, crop: f64| {
+                    if hi - lo <= crop {
+                        centre.max(hi - crop / 2.0).min(lo + crop / 2.0)
+                    } else {
+                        centre
+                    }
+                };
+                cx = fit(cx, sx * scale, (sx + sw) * scale, crop_w);
+                cy = fit(cy, sy * scale, (sy + sh) * scale, frame_h / z);
+            }
+
             Some(Target {
                 t: m.t,
                 cx: cx.clamp(0.0, frame_w),
@@ -1309,9 +1341,13 @@ pub fn render(
             "scale": scale,
             "background": plate.as_ref().map(|p| p.name),
             "content_box": plate.as_ref().map(|p| vec![p.origin.0, p.origin.1, p.content.0, p.content.1]),
+            // The surface is in here because leaving it out cost an hour: a check against
+            // the sidecar said no mark had one, when every mark did and only the sidecar was
+            // blind. Telemetry that omits an input to the camera cannot explain the camera.
             "marks": marks.iter().map(|m| serde_json::json!({
                 "t": m.t, "kind": m.kind, "label": m.label,
                 "box": m.bbox.map(|(x,y,w,h)| vec![x,y,w,h]),
+                "context": m.context.map(|(x,y,w,h)| vec![x,y,w,h]),
             })).collect::<Vec<_>>(),
             "zoom_events": events,
         });
@@ -1351,7 +1387,63 @@ mod tests {
             label: String::new(),
             t,
             bbox: Some(bbox),
+            context: None,
         }
+    }
+
+    /// The same, on a surface, which is what a real page gives for a control inside a card.
+    fn mark_on(
+        kind: &str,
+        t: f64,
+        bbox: (f64, f64, f64, f64),
+        context: (f64, f64, f64, f64),
+    ) -> Mark {
+        Mark {
+            context: Some(context),
+            ..mark(kind, t, bbox)
+        }
+    }
+
+    /// A control at the edge of a card must not push the card out of shot.
+    ///
+    /// This is what the shipped demo looked wrong for: the Track button sits at the right of a
+    /// card, the crop centred on the button, and the left fifth of the card was outside the
+    /// frame. The viewer saw a button being pressed with no idea what it belonged to.
+    #[test]
+    fn a_control_does_not_crop_the_card_it_sits_on() {
+        let (fw, fh, dur) = (2200.0, 1240.0, 20.0);
+        // A card from x 291 to x 809, with its button hard against the right edge.
+        let card = (291.0, 240.0, 518.0, 150.0);
+        let button = (736.0, 297.0, 72.0, 41.0);
+
+        let framed = events_from_marks(&[mark_on("click", 4.0, button, card)], 2.0, fw, fh, dur);
+        let bare = events_from_marks(&[mark("click", 4.0, button)], 2.0, fw, fh, dur);
+        assert_eq!(framed.len(), 1);
+
+        let inside = |ev: &ZoomEvent| {
+            let crop = fw / ev.z;
+            let (l, r) = (ev.cx - crop / 2.0, ev.cx + crop / 2.0);
+            card.0 * 2.0 >= l && (card.0 + card.2) * 2.0 <= r
+        };
+
+        assert!(
+            inside(&framed[0]),
+            "the card is still cut off: crop centre {:.0}, z {:.2}",
+            framed[0].cx,
+            framed[0].z
+        );
+        assert!(
+            !inside(&bare[0]),
+            "the test proves nothing if the same shot frames the card without being told about it"
+        );
+
+        // And the surface is only ever a nudge: it must not take the crop off the button.
+        let crop = fw / framed[0].z;
+        let (l, r) = (framed[0].cx - crop / 2.0, framed[0].cx + crop / 2.0);
+        assert!(
+            button.0 * 2.0 >= l && (button.0 + button.2) * 2.0 <= r,
+            "framing the card lost the button"
+        );
     }
 
     /// A tiny evaluator for the subset of ffmpeg expression syntax `build_expr` emits, so the

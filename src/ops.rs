@@ -15,6 +15,13 @@ pub struct Mark {
     pub label: String,
     /// CSS-pixel viewport box (x, y, w, h) of the interaction target.
     pub bbox: Option<(f64, f64, f64, f64)>,
+    /// The surface the target sits on: the card, panel or form around it.
+    ///
+    /// A control is almost never the thing a viewer is reading. The Track button is at the
+    /// right edge of a card, so a crop centred on the button cuts the left of the card off,
+    /// and the shot is of a button with no idea what it belongs to. When this box is present
+    /// and it fits, the camera frames it instead of the target.
+    pub context: Option<(f64, f64, f64, f64)>,
 }
 
 /// Where an interaction lands, in CSS pixels: the point the mouse event goes
@@ -23,6 +30,8 @@ pub struct Mark {
 struct Aim {
     point: (f64, f64),
     bbox: Option<(f64, f64, f64, f64)>,
+    /// The surface the target sits on, if there is a sensible one. See Mark::context.
+    context: Option<(f64, f64, f64, f64)>,
     cursor: String,
 }
 
@@ -357,6 +366,16 @@ impl Session {
     }
 
     fn mark(&mut self, kind: &str, label: &str, bbox: Option<(f64, f64, f64, f64)>) -> Value {
+        self.mark_in(kind, label, bbox, None)
+    }
+
+    fn mark_in(
+        &mut self,
+        kind: &str,
+        label: &str,
+        bbox: Option<(f64, f64, f64, f64)>,
+        context: Option<(f64, f64, f64, f64)>,
+    ) -> Value {
         let t = self.cdp.now_rec();
         if self.cdp.is_recording() {
             self.marks.push(Mark {
@@ -364,6 +383,7 @@ impl Session {
                 kind: kind.to_string(),
                 label: label.to_string(),
                 bbox,
+                context,
             });
         }
         json!({
@@ -404,9 +424,23 @@ impl Session {
                if (t && t !== el && !el.contains(t) && !t.contains(el)) \
                  top = t.tagName.toLowerCase() + (t.id ? '#' + t.id : ''); \
              }} \
+             let ctx = null; \
+             for (let p = el.parentElement, hops = 0; p && hops < 8; p = p.parentElement, hops++) {{ \
+               const pr = p.getBoundingClientRect(), pcs = getComputedStyle(p); \
+               if (pr.width < r.width * 1.05 || pr.height < r.height * 1.5) continue; \
+               if (pr.width > innerWidth * 0.98 && pr.height > innerHeight * 0.98) break; \
+               const painted = (pcs.backgroundColor && \
+                     pcs.backgroundColor !== 'rgba(0, 0, 0, 0)' && \
+                     pcs.backgroundColor !== 'transparent') || \
+                   parseFloat(pcs.borderTopWidth) > 0 || \
+                   (pcs.boxShadow && pcs.boxShadow !== 'none'); \
+               if (painted || p.tagName === 'FORM') {{ \
+                 ctx = [pr.x, pr.y, pr.width, pr.height]; break; \
+               }} \
+             }} \
              return [r.x, r.y, r.width, r.height, {KIND_FN}(el), \
                      r.width * r.height > 0, \
-                     cs.visibility !== 'hidden' && cs.display !== 'none', top]; }})()"
+                     cs.visibility !== 'hidden' && cs.display !== 'none', top, ctx]; }})()"
         );
         let v = self.cdp.evaluate(&js)?;
         let a = v
@@ -430,9 +464,26 @@ impl Session {
                  close the overlay, or target the element that is actually on top"
             ));
         }
+        /*
+         * The surface the control sits on, when the page has one. Walked up from the target
+         * rather than guessed: the first ancestor that is painted (a background, a border, a
+         * shadow) or is a form, and is taller than the target rather than merely wider.
+         *
+         * Height is the discriminating axis and width barely is. A card is only slightly wider
+         * than the field inside it, so an early version requiring 1.4x the width found nothing
+         * for a text input and the typing shots stayed cropped; the same card is three or four
+         * times the height of its field. Eight hops stops a deeply nested control walking all
+         * the way to <body>, which is not a card and would frame nothing.
+         */
+        let context = a.get(8).and_then(|c| c.as_array()).and_then(|c| {
+            let n = |i: usize| c.get(i).and_then(|x| x.as_f64());
+            Some((n(0)?, n(1)?, n(2)?, n(3)?))
+        });
+
         Ok(Aim {
             point: (b.0 + b.2 / 2.0, b.1 + b.3 / 2.0),
             bbox: Some(b),
+            context,
             cursor: a
                 .get(4)
                 .and_then(|k| k.as_str())
@@ -490,6 +541,8 @@ impl Session {
             Ok(Aim {
                 point: (x, y),
                 bbox: Some((x - 10.0, y - 10.0, 20.0, 20.0)),
+                // A bare point has no element, so there is nothing to find a surface from.
+                context: None,
                 cursor: self.kind_at(x, y),
             })
         }
@@ -546,10 +599,11 @@ impl Session {
                 let aim = self.click_target(op)?;
                 let (x, y) = aim.point;
                 self.cursor_to(x, y, &aim.cursor)?;
-                let m = self.mark(
+                let m = self.mark_in(
                     "click",
                     op["selector"].as_str().unwrap_or("point"),
                     aim.bbox,
+                    aim.context,
                 );
                 self.mouse_click(x, y)?;
                 self.cdp.sleep_pump(250)?;
@@ -561,12 +615,14 @@ impl Session {
                 // does not hunt, and a viewer does not want to watch one. A take can still ask
                 // for slower with typewriter_ms when the point is to read along.
                 let per_char = duration_ms(op, "typewriter_ms", 18)?;
+                let mut context = None;
                 let bbox = if let Some(sel) = op["selector"].as_str() {
                     let aim = self.resolve_box(sel)?;
                     let (x, y) = aim.point;
                     self.cursor_to(x, y, &aim.cursor)?;
                     self.mouse_click(x, y)?;
                     self.cdp.sleep_pump(150)?;
+                    context = aim.context;
                     aim.bbox
                 } else {
                     // Input.insertText delivers to whatever holds focus, and on a
@@ -593,7 +649,7 @@ impl Session {
                     None
                 };
                 let sel = op["selector"].as_str().unwrap_or("").to_string();
-                let m = self.mark("type", &sel, bbox);
+                let m = self.mark_in("type", &sel, bbox, context);
                 let field_h = bbox.map(|(_, _, _, h)| h).unwrap_or(24.0);
                 let field_y = bbox.map(|(_, y, _, _)| y).unwrap_or(0.0);
                 // Measure the caret either side of the typing, never during it. Asking the page
@@ -636,6 +692,10 @@ impl Session {
                                     kind: "type".into(),
                                     label: sel.clone(),
                                     bbox: Some((x0 + (x1 - x0) * f, field_y, 2.0, field_h)),
+                                    // The caret's surface is the field's surface. Without this
+                                    // the pan would frame the card and then drift off it as
+                                    // soon as the caret marks took over.
+                                    context,
                                 });
                             }
                         }
