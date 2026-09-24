@@ -845,6 +845,26 @@ fn cfr_interpolated(
     std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
 
     let mut list = String::with_capacity(frames.len() * 64);
+
+    /*
+     * Hold frame zero for however long the take ran before it arrived.
+     *
+     * The streaming path in render_cfr starts its output clock at 0 and holds the first frame
+     * until frames[0].t, so its output is t_last seconds long and its timeline agrees with the
+     * marks. This path used to begin at frames[0].t, which made the video frames[0].t seconds
+     * SHORTER while still reporting t_last as the duration, so every zoom event derived from
+     * it fired that much late. It is usually only tens of milliseconds, and it is a systematic
+     * camera-to-footage desync rather than noise, which is the kind that looks like the camera
+     * is guessing.
+     */
+    if let Some(first) = frames.first() {
+        if first.t > 1.0 / 240.0 {
+            std::fs::write(dir.join("f000000.jpg"), spool.read(0)?)
+                .map_err(|e| format!("write lead frame: {e}"))?;
+            list.push_str(&format!("file 'f000000.jpg'\nduration {:.6}\n", first.t));
+        }
+    }
+
     for (i, f) in frames.iter().enumerate() {
         let name = format!("f{i:06}.jpg");
         std::fs::write(dir.join(&name), spool.read(i)?)
