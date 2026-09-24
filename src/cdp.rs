@@ -28,7 +28,14 @@ const PUMP_SLICE: Duration = Duration::from_millis(5);
 const PUMP_SLICE_MIN: Duration = Duration::from_millis(1);
 
 /// Slowest the screenshot pump will back off to when the browser cannot keep up.
-const SHOT_INTERVAL_MAX: Duration = Duration::from_millis(250);
+///
+/// 120ms, not the 250ms this used to be. The interval is measured from when a shot was SENT
+/// and only one is ever in flight, so a slow capture already paces itself: the ceiling only
+/// bites as idle time added after a reply lands, and after an abandoned shot. At 250ms that
+/// idle time was up to seven and a half output frames of held picture, which reads as a
+/// stutter rather than as a slow take. 120ms is under four, and because a second capture can
+/// never be queued it still cannot pile work onto the page being filmed.
+const SHOT_INTERVAL_MAX: Duration = Duration::from_millis(120);
 
 /// How long an unanswered `Page.captureScreenshot` is waited for before the pump
 /// writes it off and takes a new one. Only reached when the target is wedged.
@@ -113,6 +120,146 @@ fn create_private_dir(dir: &Path) -> Result<(), String> {
     b.create(dir).map_err(|e| format!("{}: {e}", dir.display()))
 }
 
+/// Prefixes a temp directory must carry before the sweep will consider removing it.
+///
+/// `lensa-` is the name this tool had before it was renamed. It is here because a machine
+/// that ran the old binary still has those directories, and each one is a Chromium profile of
+/// around 250MB. On the laptop this was written on there were eighteen of them holding 4.5GB,
+/// which was enough to exhaust a per-user tmpfs quota and make every subsequent take die
+/// mid-recording with a websocket reset. Removing the prefix means those are never cleaned up
+/// by anything, so it stays until it is certain nobody has one.
+const RUN_DIR_PREFIXES: [&str; 2] = ["kaviri-", "lensa-"];
+
+/// How old a run directory has to be before it is removed without knowing whose it was.
+///
+/// Only reached for a directory whose name carries no parseable process id, which means the
+/// old naming scheme. A week is far longer than any take and longer than any plausible
+/// `kaviri serve` session, so this cannot delete work in progress.
+const SWEEP_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
+/// Does this process exist?
+///
+/// `kill(pid, 0)` sends nothing and only asks. `EPERM` counts as alive: the process is there,
+/// it just belongs to someone else, and a directory of ours it does not own is not evidence
+/// that our run has ended.
+#[cfg(unix)]
+fn pid_alive(pid: u32) -> bool {
+    if pid == 0 {
+        return true;
+    }
+    // SAFETY: kill with signal 0 performs no action and only checks for the process.
+    if unsafe { libc::kill(pid as libc::pid_t, 0) } == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(not(unix))]
+fn pid_alive(_pid: u32) -> bool {
+    // No cheap equivalent, so nothing is ever swept on the strength of a dead process.
+    true
+}
+
+/// Should this entry in the temp root be removed?
+///
+/// Pure, so the rules can be tested without creating and destroying real directories, which
+/// is not a thing to get wrong in a function whose job is `remove_dir_all`.
+fn is_stale_run_dir(
+    name: &str,
+    self_pid: u32,
+    alive: &dyn Fn(u32) -> bool,
+    age: Option<Duration>,
+) -> bool {
+    let Some(rest) = RUN_DIR_PREFIXES.iter().find_map(|p| name.strip_prefix(p)) else {
+        return false;
+    };
+
+    /*
+     * Every number anywhere in the name, not just the first segment. The names are not all
+     * one shape: a session is `kaviri-<pid>-<token>`, but render scratch is
+     * `kaviri-render-sc-<pid>-<token>` and the old scheme was `lensa-profile-<port>`. Taking
+     * only the first segment found no pid in two of those three and left them to the age
+     * rule, which is a week of holding disk for a run that ended a minute ago.
+     *
+     * The 16-hex-character run token cannot be mistaken for one: sixteen digits does not fit
+     * in a u32, so it never parses.
+     */
+    let ids: Vec<u32> = rest
+        .split('-')
+        .filter_map(|s| s.parse::<u32>().ok())
+        .collect();
+
+    // Ours. We are about to put a browser profile in it.
+    if ids.contains(&self_pid) {
+        return false;
+    }
+    /*
+     * Something in the name is a process that exists, so leave it alone, and leave it alone
+     * however old it is. Age was tried as a tiebreak here and it is the wrong call: the cost
+     * of being wrong is deleting the profile out from under a `kaviri serve` session that an
+     * agent has held open, and the cost of being conservative is one directory that survives
+     * exactly as long as the process whose number is in its name. Pids are reused, so a
+     * number that was never a pid gets collected the next time nothing is holding it.
+     */
+    if ids.iter().any(|&id| alive(id)) {
+        return false;
+    }
+    // Every process named here is gone, so nothing is coming back for this.
+    if !ids.is_empty() {
+        return true;
+    }
+    // No number at all. Age is the only evidence there is.
+    age.map(|a| a >= SWEEP_MAX_AGE).unwrap_or(false)
+}
+
+/// Remove run directories left behind by runs that are over.
+///
+/// kaviri cleans up in a `Drop`, which covers an ordinary exit and a signal, and covers
+/// nothing at all when the process is killed or the browser takes it down with it. Every one
+/// of those leaves a Chromium profile behind, and on a snap-packaged Chromium the profile has
+/// to live under the temp root because the sandbox will not let it live anywhere else. They
+/// accumulate silently until the filesystem or the user's quota runs out, and the symptom
+/// then is not "out of space", it is takes that die part way through.
+///
+/// Nothing here is allowed to fail a run: a sweep that cannot read the temp root, or that
+/// trips over one directory it may not remove, has not stopped anyone from recording.
+fn sweep_stale_runs(root: &Path) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    let self_pid = std::process::id();
+    let now = SystemTime::now();
+    let mut removed = 0usize;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        // symlink_metadata, so a symlink named like a run directory is seen as a symlink and
+        // skipped rather than followed somewhere it should not be followed.
+        let Ok(meta) = entry.path().symlink_metadata() else {
+            continue;
+        };
+        if !meta.is_dir() {
+            continue;
+        }
+        let age = meta
+            .modified()
+            .ok()
+            .and_then(|m| now.duration_since(m).ok());
+        if !is_stale_run_dir(name, self_pid, &pid_alive, age) {
+            continue;
+        }
+        if std::fs::remove_dir_all(entry.path()).is_ok() {
+            removed += 1;
+        }
+    }
+    if removed > 0 && crate::env::is_set("DEBUG") {
+        eprintln!(
+            "kaviri[debug]: swept {removed} leftover run director{}",
+            if removed == 1 { "y" } else { "ies" }
+        );
+    }
+}
+
 static SESSION_DIR: OnceLock<Result<PathBuf, String>> = OnceLock::new();
 
 /// The one 0700 directory this run keeps its temporary state in.
@@ -125,6 +272,11 @@ pub fn session_dir() -> Result<PathBuf, String> {
     SESSION_DIR
         .get_or_init(|| {
             let root = std::env::temp_dir();
+            // Before taking a new one, give back the ones nobody is using. Once per process,
+            // because this initialiser runs once, and that is the right cadence: it is a
+            // directory listing, and it is the only moment kaviri is guaranteed to reach on
+            // every entry point that records anything.
+            sweep_stale_runs(&root);
             let mut last = String::new();
             for _ in 0..8 {
                 let dir = root.join(format!("kaviri-{}-{}", std::process::id(), run_token()));
@@ -642,6 +794,31 @@ impl Cdp {
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-extensions",
+            /*
+             * Software rasterisation, and it is the reason a take is choppy.
+             *
+             * Measured on this machine (Intel UHD 620, /dev/dri present) with the demo
+             * script: scale 1 gives 17 captured frames a second, scale 1.5 gives 12, and
+             * scale 2 gives 6. The output is 30fps, so at scale 2 every captured frame is
+             * held for five output frames.
+             *
+             * Dropping this flag was tried and the browser dies mid-take with a websocket
+             * reset, and so does --use-angle=swiftshader, so hardware compositing is not a
+             * fix that can simply be switched on here. Until that is understood, --smooth on
+             * is the answer for anything that has to look smooth, and the warning kaviri
+             * already prints when capture falls below 24fps is how you find out you need it.
+             */
+            /*
+             * Software rasterisation, and it was measured rather than assumed.
+             *
+             * On this machine (Intel UHD 620, /dev/dri present, snap Chromium) the demo
+             * script captured 7 frames a second with this flag, 7 without it, 6 with
+             * --use-angle=gl and 2 with --use-angle=swiftshader. Enabling the GPU buys
+             * nothing, so the flag stays: it is one less thing to go wrong on a CI runner
+             * with no display, and it is not what makes a take choppy. What makes a take
+             * choppy is how fast the browser paints, and under software rendering that is
+             * around ten frames a second whatever the flags say.
+             */
             "--disable-gpu",
             "--hide-scrollbars",
             /*
@@ -867,6 +1044,27 @@ impl Cdp {
             let slice = (deadline - now).min(PUMP_SLICE).max(PUMP_SLICE_MIN);
             self.set_ws_timeout(slice)?;
             self.pump()?;
+            /*
+             * Keep capturing while waiting for a command to answer.
+             *
+             * This used to pump only the socket, which left a hole in the footage for the
+             * whole of every round trip. That sounds small until you count them: resolving a
+             * selector is two Runtime.evaluate calls, the caret probe is a third that appends
+             * a node and forces layout, and a `wait` on a selector is an evaluate every
+             * 100ms. All of that happens in the moment around a click, which is exactly the
+             * moment the camera has zoomed in on.
+             *
+             * The CFR pass is sample-and-hold, so a gap in capture is emitted as N copies of
+             * the last frame and then the next real one, by which time the page has already
+             * finished changing. On screen that is a freeze followed by a snap: a jump cut,
+             * in the one second of the take that matters.
+             *
+             * The error is swallowed deliberately. A capture that cannot proceed must not
+             * take the op down with it, and if the socket is genuinely gone the pump above
+             * reports it on the next turn of this same loop.
+             */
+            let _ = self.shoot_if_due();
+            self.enforce_spool_limit();
         }
     }
 
@@ -1116,9 +1314,29 @@ impl Cdp {
         Ok(r["result"]["value"].clone())
     }
 
-    /// Begin capturing. `scale` above 1 switches to the screenshot pump, which is the
-    /// only path that yields more pixels than the CSS viewport has.
-    pub fn start_capture(&mut self, max_w: u32, max_h: u32, scale: f64) -> Result<(), String> {
+    /// Begin capturing.
+    ///
+    /// Screencast for everything. This used to switch to the screenshot pump whenever
+    /// `scale > 1`, on the belief that screencast could not deliver more pixels than the CSS
+    /// viewport has. That belief was wrong, and it cost most of the frame rate of every
+    /// supersampled take.
+    ///
+    /// Measured on the demo script at 1100x620@2x, software rendering:
+    ///
+    ///   screenshot poll   7 frames a second
+    ///   screencast       11 frames a second, spool frames 2200x1240
+    ///
+    /// The JPEGs on disk were checked, not just the number kaviri prints: screencast honours
+    /// maxWidth and maxHeight in device pixels, and --window-size already carries the scale,
+    /// so the compositor surface really is 2200x1240 and that is what arrives. The screenshot
+    /// path is slower because every frame is a full command round trip plus a base64 of a
+    /// 2.7 megapixel JPEG, and none of that is on the compositor's own path.
+    ///
+    /// The old path is kept behind KAVIRI_CAPTURE=screenshot, because screencast is the one
+    /// thing here that depends on the browser and a future Chromium could clamp it again.
+    /// If a take comes back at the CSS size when scale is above 1, that is the switch to try,
+    /// and this comment is wrong.
+    pub fn start_capture(&mut self, max_w: u32, max_h: u32) -> Result<(), String> {
         self.frames.reset()?;
         self.rec_t0 = Some(Instant::now());
         self.recording = true;
@@ -1126,7 +1344,7 @@ impl Cdp {
         self.last_shot = None;
         self.pending_shot = None;
         self.shot_sent = None;
-        if scale > 1.0 {
+        if crate::env::var("CAPTURE").as_deref() == Some("screenshot") {
             /*
              * 25ms is a target, not a guarantee: a screenshot of a heavy page takes
              * longer than that and the pump simply falls behind, which the CFR pass
@@ -1382,6 +1600,66 @@ pub fn jpeg_dims(data: &[u8]) -> Option<(u32, u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The sweep decides what to `remove_dir_all`, so the interesting cases are the ones
+    /// where it must say no.
+    #[test]
+    fn the_sweep_only_takes_directories_nobody_is_using() {
+        let dead = |_: u32| false;
+        let alive = |_: u32| true;
+        let old = Some(SWEEP_MAX_AGE + Duration::from_secs(1));
+        let fresh = Some(Duration::from_secs(60));
+
+        // Somebody else's finished run, which is the whole point of the thing.
+        assert!(is_stale_run_dir("kaviri-4242-abc123", 99, &dead, fresh));
+
+        // The pid is not always the first segment. Render scratch puts two words in front of
+        // it, and reading only the first segment left these behind for a week.
+        assert!(is_stale_run_dir(
+            "kaviri-render-sc-4242-eb1bfd2ccdf3b953",
+            99,
+            &dead,
+            fresh
+        ));
+        assert!(!is_stale_run_dir(
+            "kaviri-render-sc-4242-eb1bfd2ccdf3b953",
+            4242,
+            &dead,
+            fresh
+        ));
+
+        // The 16 hex characters of a run token are never read as a process id: sixteen
+        // digits does not fit in a u32, so an all-numeric token cannot collide with one.
+        assert!(is_stale_run_dir(
+            "kaviri-4242-1234567890123456",
+            99,
+            &dead,
+            fresh
+        ));
+
+        // Not ours to touch.
+        assert!(!is_stale_run_dir("some-other-tool-4242", 99, &dead, old));
+        assert!(!is_stale_run_dir("systemd-private-77bb", 99, &dead, old));
+
+        // Our own directory, which we are about to put a browser profile in.
+        assert!(!is_stale_run_dir("kaviri-4242-abc123", 4242, &dead, fresh));
+
+        // A run that is still going. This is the one that matters: a `kaviri serve` session
+        // an agent has held open for hours must not have its profile deleted underneath it.
+        assert!(!is_stale_run_dir("kaviri-4242-abc123", 99, &alive, old));
+
+        // The old naming scheme carries a port, not a process id. If nothing is holding that
+        // number it goes; if something is, it waits, however old it is. Waiting costs one
+        // directory, and the alternative risks deleting a live session's profile.
+        assert!(is_stale_run_dir("lensa-profile-46393", 99, &dead, fresh));
+        assert!(!is_stale_run_dir("lensa-profile-46393", 99, &alive, old));
+
+        // A name with no number in it at all. Age is the only evidence there is, and no
+        // mtime is no evidence.
+        assert!(is_stale_run_dir("lensa-plate-test", 99, &alive, old));
+        assert!(!is_stale_run_dir("lensa-plate-test", 99, &alive, fresh));
+        assert!(!is_stale_run_dir("lensa-plate-test", 99, &alive, None));
+    }
 
     /// The regression this guards: with a fixed 30ms socket read timeout and a
     /// loop that always ran at least once, an 18ms wait took 35ms, so a typewriter

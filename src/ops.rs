@@ -813,7 +813,7 @@ impl Session {
                 self.rendered = None;
                 let max_w = (self.css_w as f64 * self.scale) as u32;
                 let max_h = (self.css_h as f64 * self.scale) as u32;
-                self.cdp.start_capture(max_w, max_h, self.scale)?;
+                self.cdp.start_capture(max_w, max_h)?;
                 // Nudge a paint so the first frame arrives promptly.
                 let _ = self.cdp.evaluate("void 0");
                 self.cdp.sleep_pump(200)?;
