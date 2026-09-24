@@ -143,6 +143,29 @@ async function confirm(env, email, key, note) {
   }).catch(() => {});
 }
 
+/**
+ * Keep a free Supabase project from pausing.
+ *
+ * A free project pauses after about a week without activity, and a paused project is a dead
+ * service that gives no warning. Until the hosted side is on a paid plan this is the whole
+ * defence: one cheap authenticated request an hour, on the cron that already exists.
+ *
+ * It asks for nothing. `HEAD /rest/v1/` with the anon key is the smallest thing PostgREST
+ * will answer, so this costs a row of nothing and still counts as activity.
+ */
+export async function keepDatabaseAwake(env) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return { pinged: false, why: "not configured" };
+  try {
+    const r = await fetch(`${env.SUPABASE_URL.replace(/\/+$/, "")}/rest/v1/`, {
+      method: "HEAD",
+      headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${env.SUPABASE_ANON_KEY}` },
+    });
+    return { pinged: true, status: r.status };
+  } catch (e) {
+    return { pinged: false, why: String(e && e.message ? e.message : e) };
+  }
+}
+
 /** Anything the confirmation could not be sent for, retried on a schedule. */
 export async function retryUnconfirmed(env, limit = 20) {
   if (!senderName(env)) return { retried: 0, reason: "no sender configured" };

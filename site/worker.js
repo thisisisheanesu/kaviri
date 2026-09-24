@@ -10,7 +10,7 @@
 
 // Files that sit in the asset directory because they have to be next to the
 // page, but that must never be served. wrangler.toml carries the account ID.
-import { signup, retryUnconfirmed } from "./wsrc/waitlist.js";
+import { keepDatabaseAwake, retryUnconfirmed, signup } from "./wsrc/waitlist.js";
 import * as admin from "./wsrc/admin.js";
 import * as stripe from "./wsrc/stripe.js";
 
@@ -199,6 +199,9 @@ export default {
    */
   async scheduled(event, env, ctx) {
     ctx.waitUntil(retryUnconfirmed(env, 50));
+    // A free Supabase project pauses after a week idle, and a paused project is a dead
+    // service with no warning. One cheap request an hour is the whole defence.
+    ctx.waitUntil(keepDatabaseAwake(env));
   },
 
   async fetch(request, env, ctx) {
