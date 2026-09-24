@@ -13,6 +13,7 @@
 import { keepDatabaseAwake, retryUnconfirmed, signup } from "./wsrc/waitlist.js";
 import { ensureSchema, runSequence, unsubscribe } from "./wsrc/sequence.js";
 import { beat } from "./wsrc/stats.js";
+import { forgetOldSalts, pruneVisits, record } from "./wsrc/visits.js";
 import * as admin from "./wsrc/admin.js";
 import * as stripe from "./wsrc/stripe.js";
 
@@ -218,6 +219,8 @@ export default {
         const sent = await runSequence(env).catch((e) => ({ error: String(e) }));
         await beat(env, "last_sequence", JSON.stringify(sent));
         await beat(env, "last_cron", `retried ${retried?.retried ?? 0}, sequence sent ${sent?.sent ?? 0}`);
+        await forgetOldSalts(env);
+        await pruneVisits(env);
       })()
     );
     // A free Supabase project pauses after a week idle, and a paused project is a dead
@@ -301,6 +304,13 @@ export default {
         ),
       });
     }
+
+    /*
+     * Count the visit. waitUntil, so the two D1 writes happen after the response has gone and
+     * nobody waits for them, and after the www redirect and the private-path gate so neither
+     * shows up as a page somebody read.
+     */
+    ctx.waitUntil(record(request, env, url));
 
     // The original request is passed through untouched, which is what carries
     // Range, If-None-Match and If-Modified-Since to the asset store. Safari

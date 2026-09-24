@@ -52,6 +52,13 @@ export async function collect(env, steps) {
     stripeTypes,
     stripeOldest,
     heartbeats,
+    traffic,
+    perDayViews,
+    paths,
+    referrers,
+    visitorCountries,
+    devices,
+    entries,
   ] = await Promise.all([
     one(
       db,
@@ -123,7 +130,48 @@ export async function collect(env, steps) {
          from stripe_events group by k order by n desc limit 12`
     ),
     one(db, `select min(received_at) oldest from stripe_events where drained_at is null`),
-    rows(db, `select k, v, at from meta`),
+    rows(db, `select k, v, at from meta where k not like 'salt:%'`),
+    one(
+      db,
+      `select (select coalesce(sum(n),0) from views) views,
+              (select count(*) from visits) visitors,
+              (select coalesce(sum(n),0) from views where d >= date('now','-29 days')) views30,
+              (select count(*) from visits where d >= date('now','-29 days')) visitors30,
+              (select count(*) from visits where d = date('now')) today,
+              (select min(d) from visits) since`
+    ),
+    rows(
+      db,
+      `select v.d d, coalesce(vw.n, 0) views, count(*) visitors
+         from visits v
+         left join (select d, sum(n) n from views group by d) vw on vw.d = v.d
+        where v.d >= date('now','-29 days') group by v.d order by v.d`
+    ),
+    rows(
+      db,
+      `select path k, sum(n) n from views where d >= date('now','-29 days')
+        group by k order by n desc limit 12`
+    ),
+    rows(
+      db,
+      `select coalesce(nullif(referrer,''),'direct') k, count(*) n from visits
+        where d >= date('now','-29 days') group by k order by n desc limit 12`
+    ),
+    rows(
+      db,
+      `select coalesce(nullif(country,''),'unknown') k, count(*) n from visits
+        where d >= date('now','-29 days') group by k order by n desc limit 12`
+    ),
+    rows(
+      db,
+      `select coalesce(nullif(device,''),'unknown') k, count(*) n from visits
+        where d >= date('now','-29 days') group by k order by n desc`
+    ),
+    rows(
+      db,
+      `select coalesce(nullif(entry,''),'/') k, count(*) n from visits
+        where d >= date('now','-29 days') group by k order by n desc limit 8`
+    ),
   ]);
 
   const meta = Object.fromEntries((heartbeats || []).map((r) => [r.k, { v: r.v, at: r.at }]));
@@ -146,6 +194,13 @@ export async function collect(env, steps) {
     stripeTypes,
     stripeOldest: stripeOldest.oldest || null,
     meta,
+    traffic,
+    perDayViews: fillTraffic(perDayViews, 30),
+    paths,
+    referrers,
+    visitorCountries,
+    devices,
+    entries,
     sender: env.RESEND_API_KEY ? "Resend" : env.SMTP_ENABLED === "1" && env.SMTP_HOST ? "SMTP" : null,
   };
 }
@@ -161,6 +216,19 @@ function fillDays(found, n) {
   for (let i = n - 1; i >= 0; i--) {
     const d = new Date(now.getTime() - i * 86400000).toISOString().slice(0, 10);
     out.push({ d, n: have.get(d) || 0 });
+  }
+  return out;
+}
+
+/** Same reason as fillDays: a missing day is a zero, not an absence. */
+function fillTraffic(found, n) {
+  const have = new Map(found.map((r) => [r.d, r]));
+  const out = [];
+  const now = new Date();
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(now.getTime() - i * 86400000).toISOString().slice(0, 10);
+    const r = have.get(d);
+    out.push({ d, views: r?.views || 0, visitors: r?.visitors || 0 });
   }
   return out;
 }
@@ -203,21 +271,21 @@ function barList(items, { empty = "Nothing yet." } = {}) {
  * the peak are labelled: a number on all thirty is unreadable and is the thing that makes
  * small charts look busy.
  */
-function dayChart(days) {
-  const max = Math.max(...days.map((d) => d.n), 1);
-  const peak = days.reduce((a, b) => (b.n > a.n ? b : a), days[0] || { n: 0 });
-  const total = days.reduce((a, b) => a + b.n, 0);
-  return `<div class="spark" role="img" aria-label="${total} signups over the last 30 days, busiest day ${esc(peak.d)} with ${peak.n}">
+function dayChart(days, noun = "signups", key = "n") {
+  const max = Math.max(...days.map((d) => d[key]), 1);
+  const peak = days.reduce((a, b) => (b[key] > a[key] ? b : a), days[0] || { [key]: 0 });
+  const total = days.reduce((a, b) => a + b[key], 0);
+  return `<div class="spark" role="img" aria-label="${total} ${noun} over the last 30 days, busiest day ${esc(peak.d)} with ${peak[key]}">
   ${days
     .map(
       (d) =>
-        `<div class="spark-col" title="${esc(d.d)}: ${d.n}"><div class="spark-fill${
-          d.n === 0 ? " zero" : ""
-        }" style="height:${d.n === 0 ? 2 : Math.max((d.n / max) * 100, 6)}%"></div></div>`
+        `<div class="spark-col" title="${esc(d.d)}: ${d[key]} ${esc(noun)}"><div class="spark-fill${
+          d[key] === 0 ? " zero" : ""
+        }" style="height:${d[key] === 0 ? 2 : Math.max((d[key] / max) * 100, 6)}%"></div></div>`
     )
     .join("")}
 </div>
-<div class="spark-axis"><span>${esc(days[0]?.d || "")}</span><span class="muted">${total} in 30 days, busiest ${peak.n}</span><span>${esc(
+<div class="spark-axis"><span>${esc(days[0]?.d || "")}</span><span class="muted">${total} ${esc(noun)} in 30 days, busiest ${peak[key]}</span><span>${esc(
     days[days.length - 1]?.d || ""
   )}</span></div>`;
 }
@@ -250,6 +318,8 @@ const secs = (v) => {
 export function render(s) {
   const t = s.totals || {};
   const total = t.total || 0;
+  const tr = s.traffic || {};
+  const signups30 = (s.perDay || []).reduce((a, b) => a + b.n, 0);
 
   /*
    * The cron is the thing whose silence is invisible. It runs at :17, so anything past about
@@ -269,6 +339,15 @@ export function render(s) {
   return `
 <section class="panel">
   <div class="tiles">
+    ${tile("visitors", tr.visitors30 || 0, `${tr.views30 || 0} page views, 30 days`)}
+    ${tile("today", tr.today || 0, "visitors so far")}
+    ${tile(
+      "sign up rate",
+      tr.visitors30 ? `${pct(signups30, tr.visitors30)}%` : "n/a",
+      tr.visitors30
+        ? `${signups30} of ${tr.visitors30} visitors in 30 days`
+        : "no visitors recorded yet"
+    )}
     ${tile("on the list", total)}
     ${tile("confirmed", t.confirmed || 0, `<span class="${t.confirmed === total ? "ok" : ""}">${pct(t.confirmed || 0, total)}% of the list</span>`)}
     ${tile("failed to send", t.failed || 0, t.failed ? '<span class="bad">needs a retry</span>' : "none")}
@@ -287,6 +366,35 @@ export function render(s) {
 </section>
 
 <section class="panel">
+  <h2>Visitors</h2>
+  ${dayChart(s.perDayViews, "visitors", "visitors")}
+  <p class="muted small">Counted in the Worker, so this includes the people a beacon misses:
+  blockers, anyone who left before a script would have run, and every reader of the docs from
+  a terminal. Self-identifying crawlers are excluded, assets are not counted as pages, and
+  nothing is stored that can be joined to a person: no IP, no cookie, and a per-day hash whose
+  salt is deleted after two days. That is also why there is no returning-visitor figure. It
+  cannot be computed, on purpose.</p>
+  ${
+    (tr.visitors || 0) === 0
+      ? '<p class="muted small"><b>Nothing recorded yet.</b> Counting started at the deploy that added it, so this fills in from now rather than backwards.</p>'
+      : `<p class="muted small">${tr.views || 0} views and ${tr.visitors || 0} visitors all time, since ${esc(tr.since || "")}.</p>`
+  }
+</section>
+
+<section class="panel cols2">
+  <div><h2>Pages</h2>${barList(s.paths, { empty: "No page views yet." })}</div>
+  <div><h2>Came from</h2>${barList(s.referrers, { empty: "No referrers yet." })}</div>
+</section>
+
+<section class="panel cols2">
+  <div><h2>Visitor countries</h2>${barList(s.visitorCountries, { empty: "No visitors yet." })}</div>
+  <div>
+    <h2>Device</h2>${barList(s.devices, { empty: "No visitors yet." })}
+    <h2 style="margin-top:var(--k-space-3)">Landed on</h2>${barList(s.entries, { empty: "No visitors yet." })}
+  </div>
+</section>
+
+<section class="panel">
   <h2>Signups</h2>
   ${dayChart(s.perDay)}
   <p class="muted small">First ${esc(t.first_at || "n/a")}, latest ${esc(t.last_at || "n/a")}.
@@ -294,7 +402,7 @@ export function render(s) {
 </section>
 
 <section class="panel cols2">
-  <div><h2>Where from</h2>${barList(s.countries, { empty: "No countries recorded." })}</div>
+  <div><h2>Signup countries</h2>${barList(s.countries, { empty: "No countries recorded." })}</div>
   <div><h2>Source</h2>${barList(s.sources, { empty: "No sources recorded." })}</div>
 </section>
 
