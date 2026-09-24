@@ -20,6 +20,22 @@ set -euo pipefail
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# A git hook does not get your interactive PATH. It gets a short one, without ~/.cargo/bin,
+# so the first run of this from pre-push failed with "cargo: command not found" and reported
+# it as a formatting failure, which is a confusing way to learn about a PATH. Find the
+# toolchain rather than assume the caller has it.
+for dir in "$HOME/.cargo/bin" "$HOME/.local/bin" /usr/local/bin; do
+  case ":$PATH:" in
+    *":$dir:"*) ;;
+    *) [ -d "$dir" ] && PATH="$dir:$PATH" ;;
+  esac
+done
+export PATH
+command -v cargo >/dev/null || {
+  echo "ci: cargo is not on PATH and was not in ~/.cargo/bin either." >&2
+  exit 1
+}
+
 # The frame spool and ffmpeg's scratch go here rather than /tmp, which on this machine has a
 # per-user quota small enough that a render fills it and fails in a way that reads like an
 # ffmpeg bug.
