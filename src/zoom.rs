@@ -778,12 +778,102 @@ const SMOOTH_BELOW_FPS: f64 = 24.0;
 
 /// Motion interpolation, in a form ffmpeg will accept on one line.
 ///
-/// `mpdecimate` first, and it is safe here in a way it would not be anywhere else: the frames
-/// reaching this filter are the original JPEGs, so a duplicate is byte-identical and its block
-/// difference is exactly zero. The thresholds are set so low that only an exact repeat is
-/// dropped, never a frame where one character appeared.
-const SMOOTH_FILTER: &str = "mpdecimate=hi=1:lo=1:frac=0.9,\
-     minterpolate=fps=30:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1";
+/// No `mpdecimate` in front of it. That was the first attempt and it cost nine minutes and
+/// achieved nothing: with the duplicates already in the stream, the filter is being asked to
+/// work out which frames were real, and at thresholds strict enough not to eat a frame where
+/// one character appeared it dropped nothing at all, so minterpolate resampled thirty to
+/// thirty. The fix is not a better guess. It is to stop handing ffmpeg the duplicates: the
+/// interpolating path feeds each captured frame once, with its real duration, and this filter
+/// then has something to interpolate between.
+const SMOOTH_FILTER: &str = "minterpolate=fps=30:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1";
+
+/// Pass 1, the interpolating variant: every captured frame once, with its real duration.
+///
+/// The ordinary path duplicates frames up to a constant thirty, which is exactly right when
+/// nothing downstream cares which of them were real. Interpolation cares about nothing else,
+/// so this one writes the frames to disk and hands ffmpeg a concat list with a duration per
+/// entry. That is the only input form in ffmpeg that can say "this picture was on screen for
+/// 140 milliseconds", and without it there is no gap for minterpolate to fill.
+///
+/// It costs disk that the streaming path does not: one JPEG per captured frame, which for a
+/// slow capture is far fewer than the thirty a second the other path writes into x264, but is
+/// still the take's footprint twice over for the length of the render. That is the price of
+/// the flag, and the flag is off by default.
+fn cfr_interpolated(
+    spool: &FrameSpool,
+    raw_path: &str,
+    ffmpeg: &str,
+    t_last: f64,
+) -> Result<f64, String> {
+    let frames = spool.frames();
+    let dir = std::path::Path::new(raw_path)
+        .parent()
+        .ok_or("no parent directory for the raw video")?
+        .join("smooth");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+
+    let mut list = String::with_capacity(frames.len() * 64);
+    for (i, f) in frames.iter().enumerate() {
+        let name = format!("f{i:06}.jpg");
+        std::fs::write(dir.join(&name), spool.read(i)?)
+            .map_err(|e| format!("write {name}: {e}"))?;
+        /*
+         * A frame lasts until the next one arrives, and the last one lasts until the end of
+         * the take, which is what holds the closing frame while the zoom eases out.
+         */
+        let until = frames.get(i + 1).map(|n| n.t).unwrap_or(t_last);
+        let dur = (until - f.t).max(1.0 / 240.0);
+        // The concat demuxer takes the path as a quoted token; these names are ours and
+        // contain nothing that needs escaping, which is why they are generated rather than
+        // taken from anywhere.
+        list.push_str(&format!("file '{name}'\nduration {dur:.6}\n"));
+    }
+    // The demuxer ignores the duration of the final entry unless the file is repeated, which
+    // is the one piece of folklore in this function and the reason the last frame is listed
+    // twice.
+    if let Some(last) = frames.len().checked_sub(1) {
+        list.push_str(&format!("file 'f{last:06}.jpg'\n"));
+    }
+    let list_path = dir.join("list.txt");
+    std::fs::write(&list_path, list).map_err(|e| format!("write concat list: {e}"))?;
+
+    let out = Command::new(ffmpeg)
+        .args([
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            &arg_path(&list_path.display().to_string()),
+            "-vf",
+            &format!("crop=iw-mod(iw\\,2):ih-mod(ih\\,2),{SMOOTH_FILTER}"),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "18",
+            "-pix_fmt",
+            "yuv420p",
+            &arg_path(raw_path),
+        ])
+        .output()
+        .map_err(|e| format!("spawn ffmpeg: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "ffmpeg pass 1 (interpolate) failed, exit {}:\n{}",
+            out.status,
+            stderr_tail(&out.stderr)
+        ));
+    }
+    // The frames are only needed while ffmpeg reads them, and on a long take they are the
+    // largest thing on disk after the spool itself.
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(t_last)
+}
 
 fn render_cfr(
     spool: &FrameSpool,
@@ -814,11 +904,10 @@ fn render_cfr(
              take."
         );
     }
-    let vf = if interpolate {
-        format!("crop=iw-mod(iw\\,2):ih-mod(ih\\,2),{SMOOTH_FILTER}")
-    } else {
-        "crop=iw-mod(iw\\,2):ih-mod(ih\\,2)".to_string()
-    };
+    if interpolate {
+        return cfr_interpolated(spool, raw_path, ffmpeg, t_last);
+    }
+    let vf = "crop=iw-mod(iw\\,2):ih-mod(ih\\,2)".to_string();
     let mut child = Command::new(ffmpeg)
         .args([
             "-y",
