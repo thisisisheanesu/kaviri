@@ -1,18 +1,11 @@
 {"op":"navigate","url":"http://127.0.0.1:8099/"}
 {"op":"wait","selector":"#q","timeout_ms":30000}
 {"op":"start_recording"}
-{"op":"wait","ms":2200}
-{"op":"mark","label":"start"}
-{"op":"type","selector":"#q","text":"14 Rue Lafayette, Paris","typewriter_ms":70}
 {"op":"wait","ms":500}
+{"op":"type","selector":"#q","text":"14 Rue Lafayette, Paris","typewriter_ms":70}
+{"op":"wait","ms":350}
 {"op":"click","selector":"#go"}
 {"op":"wait","selector":"li","timeout_ms":15000}
-{"op":"wait","ms":1400}
 {"op":"mark","label":"tracked"}
-{"op":"type","selector":"#q","text":"Kigali Heights, KG 7 Ave","typewriter_ms":70}
-{"op":"wait","ms":500}
-{"op":"click","selector":"#go"}
-{"op":"wait","ms":1800}
-{"op":"mark","label":"second"}
-{"op":"wait","ms":1600}
+{"op":"wait","ms":1700}
 {"op":"stop_recording"}
