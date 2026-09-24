@@ -13,7 +13,7 @@
  */
 
 import { Camera } from "./camera.js";
-import { canRecord, startCapture, offer, offerScript } from "./record.js";
+import { canRecord, startCapture, offerScript } from "./record.js";
 
 const APPS = {
   "app": "Parcel, a tracking form",
@@ -253,6 +253,34 @@ async function runOp({ n, o }, cam, state) {
 
 /* -------------------------------------------------------------------- driver */
 
+/** Put the captured take on the page, with the file one click away rather than automatic. */
+function showResult(blob, mimeType) {
+  const ext = mimeType.includes("mp4") ? "mp4" : "webm";
+  if (els.result.dataset.url) URL.revokeObjectURL(els.result.dataset.url);
+  const url = URL.createObjectURL(blob);
+  els.result.dataset.url = url;
+  els.resultvideo.src = url;
+  els.resultdl.href = url;
+  els.resultdl.download = `kaviri-preview.${ext}`;
+  els.resultmeta.textContent = `${ext.toUpperCase()}, ${(blob.size / 1e6).toFixed(1)} MB`;
+  els.result.hidden = false;
+  els.resultvideo.play().catch(() => {
+    /* Autoplay can be refused; the controls are right there. */
+  });
+  els.result.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function closeResult() {
+  els.resultvideo.pause();
+  els.resultvideo.removeAttribute("src");
+  els.resultvideo.load();
+  if (els.result.dataset.url) {
+    URL.revokeObjectURL(els.result.dataset.url);
+    delete els.result.dataset.url;
+  }
+  els.result.hidden = true;
+}
+
 function startCamera(cam) {
   let last = performance.now();
   let stop = false;
@@ -321,9 +349,13 @@ async function run(withCapture) {
       if (capture) {
         const blob = await capture.stop().catch(() => null);
         if (blob) {
-          const ext = capture.mimeType.includes("mp4") ? "mp4" : "webm";
-          offer(blob, `kaviri-preview.${ext}`);
-          log("download", `kaviri-preview.${ext}, ${(blob.size / 1e6).toFixed(1)} MB`);
+          /*
+           * Played back here rather than dropped into the downloads folder. A take you have
+           * not watched is not a take you want, and the whole point of the playground is
+           * seeing what the camera did.
+           */
+          showResult(blob, capture.mimeType);
+          log("recorded", `${(blob.size / 1e6).toFixed(1)} MB, ready to play`);
         } else if (capture.abandoned) {
           log("error", "capture was stopped before the take finished", true);
         }
@@ -337,12 +369,14 @@ async function run(withCapture) {
 }
 
 function boot() {
-  for (const id of ["script", "run", "download", "getscript", "frame", "stage", "log", "rec", "reset"]) {
+  for (const id of ["script", "run", "download", "getscript", "frame", "stage", "log", "rec",
+                    "reset", "result", "resultvideo", "resultdl", "resultmeta", "resultclose"]) {
     els[id] = document.getElementById(id);
   }
   els.run.addEventListener("click", () => run(false));
   els.download.addEventListener("click", () => run(true));
   els.getscript.addEventListener("click", () => offerScript(els.script.value));
+  els.resultclose.addEventListener("click", closeResult);
   if (!canRecord()) {
     els.download.disabled = true;
     els.download.title = "This browser cannot capture a tab. Chrome and Edge can.";

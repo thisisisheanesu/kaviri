@@ -15,3 +15,6 @@ README.md
 # The Worker's own modules. wrangler bundles them into the script; serving them as
 # assets as well would publish the admin's session logic next to the page it protects.
 wsrc/
+
+# The docs generator runs before a deploy. The pages it writes are published; it is not.
+build-docs.py

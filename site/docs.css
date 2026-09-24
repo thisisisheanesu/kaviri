@@ -1,0 +1,69 @@
+/* The docs. A sidebar on a wide screen, one column on a phone, and prose that is comfortable
+   to read for longer than a landing page is. Everything comes from the same tokens. */
+
+.docs-shell {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--k-space-3);
+  padding-top: var(--k-space-3);
+  padding-bottom: var(--k-space-5);
+  align-items: start;
+}
+
+@media (min-width: 860px) {
+  .docs-shell { grid-template-columns: 13rem minmax(0, 1fr); gap: var(--k-space-5); }
+  /* Sticky only where there is a column for it to be sticky in. On a phone it is a short
+     list at the top of the page and pinning it would eat the screen. */
+  .docs-side { position: sticky; top: var(--k-space-2); }
+}
+
+.docs-side ul { list-style: none; margin: 0; padding: 0; }
+.docs-side li { margin-bottom: 4px; }
+.docs-side a { display: block; padding: 3px 0; text-decoration: none; color: var(--muted, var(--k-muted)); font-size: 0.94rem; }
+.docs-side a:hover { color: var(--ink, var(--k-ink)); }
+.docs-side li.here a { color: var(--ink, var(--k-ink)); font-weight: 620; }
+
+/* The generated body is plain Markdown output, so everything below styles element selectors
+   rather than classes. Scoped to .docs-main so none of it reaches the landing page. */
+.docs-main { min-width: 0; }
+.docs-main > h1:first-child { margin-top: 0; }
+.docs-main h1 { font-size: clamp(1.8rem, 4.5vw, 2.5rem); }
+.docs-main h2 {
+  font-size: 1.4rem;
+  margin-top: var(--k-space-4);
+  padding-top: var(--k-space-2);
+  border-top: 1px solid var(--line, var(--k-line));
+}
+.docs-main h3 { font-size: 1.05rem; margin-top: var(--k-space-3); }
+.docs-main p, .docs-main li { max-width: var(--k-measure); }
+.docs-main ul, .docs-main ol { padding-left: 1.2em; }
+.docs-main li { margin-bottom: 6px; }
+.docs-main li::marker { color: var(--muted, var(--k-muted)); }
+.docs-main blockquote {
+  margin: 0 0 var(--k-space-2);
+  padding-left: var(--k-space-2);
+  border-left: 2px solid var(--accent, var(--k-accent));
+  color: var(--muted, var(--k-muted));
+}
+
+/* A table of ops or errors is wider than a phone and turning it into cards makes it
+   unscannable, so it scrolls inside its own box and the page does not. */
+.docs-main table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0 0 var(--k-space-2);
+  font-size: 0.9rem;
+}
+.docs-main th, .docs-main td {
+  text-align: left;
+  padding: 7px 16px 7px 0;
+  border-bottom: 1px solid var(--line, var(--k-line));
+  vertical-align: top;
+}
+.docs-main th { font-weight: 620; white-space: nowrap; }
+.docs-main td code { white-space: nowrap; }
+
+.docs-main pre { font-size: 0.78rem; }
+.docs-main hr { border: 0; border-top: 1px solid var(--line, var(--k-line)); margin: var(--k-space-4) 0 var(--k-space-2); }
+.docs-foot { font-size: 0.86rem; }

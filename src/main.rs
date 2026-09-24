@@ -41,6 +41,12 @@ OPTIONS:
   --out-height <px>   video height (default: the viewport height, 64..8192)
   --background <name> backdrop the take is composited onto: a name, auto or
                       none (default auto); --backgrounds lists the names
+  --smooth <mode>     on, off or auto (default auto, which is off with a note).
+                      A browser under software rendering paints six to seventeen
+                      frames a second, so a take can be choppy however smooth
+                      the camera is. --smooth on invents the frames in between,
+                      which looks right and costs about twelve times the length
+                      of the take.
   --cursor <name>     pointer shape: auto, arrow, hand, text or none
                       (default auto: whatever the OS would show)
   --cursor-scale <f>  pointer size against a 1x system cursor (default 1.75)
@@ -173,6 +179,7 @@ struct Args {
     out_w: Option<u32>,
     out_h: Option<u32>,
     background: backdrop::Choice,
+    smooth: zoom::Smooth,
     cursor: CursorCfg,
     chromium: Option<String>,
     keep_temp: bool,
@@ -268,6 +275,7 @@ fn parse_argv() -> Result<Parsed, String> {
      * with the list, rather than at the point it was parsed.
      */
     let mut background = "auto".to_string();
+    let mut smooth = "auto".to_string();
     let mut cursor = "auto".to_string();
     let mut cursor_scale = DEFAULT_CURSOR_SCALE;
     let mut a = Args {
@@ -281,6 +289,7 @@ fn parse_argv() -> Result<Parsed, String> {
         out_w: None,
         out_h: None,
         background: backdrop::Choice::Auto,
+        smooth: zoom::Smooth::Auto,
         cursor: CursorCfg::default(),
         chromium: None,
         keep_temp: false,
@@ -332,6 +341,7 @@ fn parse_argv() -> Result<Parsed, String> {
                 return Ok(Parsed::Help(format!("Presets:\n{}", preset_help())));
             }
             "--background" => background = val("--background")?,
+            "--smooth" => smooth = val("--smooth")?,
             "--backgrounds" => {
                 return Ok(Parsed::Help(format!("Backgrounds:\n{}", backdrop::help())));
             }
@@ -357,6 +367,7 @@ fn parse_argv() -> Result<Parsed, String> {
         }
     }
     a.background = backdrop::parse_choice(&background)?;
+    a.smooth = zoom::Smooth::parse(&smooth)?;
     a.cursor = CursorCfg::parse(&cursor, cursor_scale)?;
     Ok(Parsed::Run(Box::new(a)))
 }
@@ -510,6 +521,7 @@ fn run_record(a: &Args) -> Result<(), String> {
     )?;
     s.out_path = Some(a.out.clone());
     s.background = a.background;
+    s.smooth = a.smooth;
     s.cdp
         .set_spool_config(a.spool_dir.clone(), a.max_spool_bytes);
     s.cdp.set_keep_spool(a.keep_temp);
@@ -888,6 +900,7 @@ fn run_serve(a: &Args) -> Result<(), String> {
     )?;
     sess.out_path = Some(a.out.clone());
     sess.background = a.background;
+    sess.smooth = a.smooth;
     sess.cdp
         .set_spool_config(a.spool_dir.clone(), a.max_spool_bytes);
     sess.cdp.set_keep_spool(a.keep_temp);

@@ -53,17 +53,46 @@ const FIT_MARGIN: f64 = 1.15;
 /// Simulation step for the camera. Finer than the frame rate so the spring is integrated
 /// accurately rather than at whatever the output happens to be.
 const SIM_DT: f64 = 1.0 / 120.0;
-/// Seconds for the camera to close most of the distance to what it is chasing. Under about
-/// 0.25 the follow is tight enough to look twitchy on per-character caret samples; over about
-/// 0.6 it lags far enough behind fast typing to read as a separate, late move.
-const SPRING_TAU: f64 = 0.38;
+/// Seconds for the camera to close most of the distance to what it is chasing.
+///
+/// Tuned by measuring, not by taste. At 0.38 the shipped demo's fastest camera movement landed
+/// at 5.5s for typing that finished at 4.0s: a second and a half late, so the motion had
+/// nothing on screen to explain it and 60% of the frames through the pan were pixel-identical
+/// to the one before. A camera that is still, then drifts for no visible reason, is the exact
+/// thing people mean when they say a take is not smooth. Continuity was never the problem.
+///
+/// At 0.16 the camera settles in about 0.7s, which is inside the time the interaction itself
+/// takes, so the movement coincides with the thing causing it. Much below this and per-character
+/// caret samples start to show through as twitch.
+const SPRING_TAU: f64 = 0.16;
 /// The camera ignores an error smaller than this fraction of the crop, so a few characters of
-/// typing do not move the frame at all. It stacks with the left bias, which leans the same way,
-/// so it stays small: the two together must not push the thing being filmed off the edge.
-const DEADZONE: f64 = 0.07;
+/// typing do not move the frame at all.
+///
+/// Widened along with the faster spring, and the two go together: a fast camera with a narrow
+/// deadzone chases every sample and jitters, while a fast camera with a wide one is properly
+/// still until there is a real reason to move, and then moves at the speed of the thing it is
+/// following. Still and decisive, rather than always slightly drifting.
+///
+/// It stacks with the left bias, which leans the same way, so the lean cap subtracts it.
+const DEADZONE: f64 = 0.10;
 /// Ceiling on camera speed, in crop widths per second. A whip pan is the single most obvious
-/// artefact a generated take can have, and no interaction is worth one.
-const MAX_SPEED: f64 = 1.1;
+/// artefact a generated take can have, and no interaction is worth one. Raised with the faster
+/// spring so that the cap is a backstop against a pathological jump rather than the thing
+/// shaping ordinary movement.
+const MAX_SPEED: f64 = 1.4;
+
+/// Ceiling on how fast the camera may change speed, in crop widths per second squared.
+///
+/// Capping speed alone is not enough. A spring this responsive answers a large step with a
+/// large acceleration: the second field in the shipped demo starts 900px left of where the
+/// first one ended, and the unclamped spring met that with 19,000px/s^2, which is a lurch even
+/// though the position and the velocity are both perfectly continuous. Smooth is a bound on
+/// the second derivative, so there is a bound on the second derivative.
+///
+/// At 9 crop widths per second squared the camera reaches its speed limit in about a sixth of
+/// a second and crosses most of a frame in two thirds of one, which is quick enough to keep up
+/// with typing and gentle enough that the start of the move is not the part you notice.
+const MAX_ACCEL: f64 = 9.0;
 
 /// Seconds to stay zoomed after an interaction.
 const HOLD_AFTER: f64 = 2.1;
@@ -86,13 +115,17 @@ const WAYPOINT_MIN_GAP: f64 = 0.04;
 
 /// Most waypoints kept for one event, and across the whole take.
 ///
-/// Every retained waypoint costs roughly ninety bytes in each of the three generated
-/// expressions, and the shipped 29-second README demo alone produced 78 of them. Left
-/// unbounded a five-minute take builds a filter graph larger than the kernel will accept as a
-/// single argument. The shape of a pan survives decimation; its byte count is what has to stop
-/// growing.
-const PATH_BUDGET: usize = 28;
-const PATH_BUDGET_TOTAL: usize = 240;
+/// Every retained waypoint costs roughly a hundred and twenty bytes in each of the three
+/// generated expressions. Left unbounded a five-minute take builds a filter graph larger than
+/// the kernel will accept as a single argument, which is what the budget is for.
+///
+/// Forty rather than the twenty-eight it was, because decimation is not free: the simulated
+/// path has its acceleration clamped, and the cubics fitted to a coarser sample of it do not.
+/// At twenty-eight the reconstruction put a 20px-per-frame change in speed into a path whose
+/// original never exceeded 12, and the_camera_never_jerks caught it. The shape of a pan
+/// survives decimation. Its second derivative is the part that does not.
+const PATH_BUDGET: usize = 40;
+const PATH_BUDGET_TOTAL: usize = 320;
 
 /// A filter graph longer than this is handed to ffmpeg as a file instead of an argument.
 ///
@@ -103,6 +136,46 @@ const GRAPH_ARG_LIMIT: usize = 32 * 1024;
 
 /// An absolute time and a crop centre: one point on a camera path.
 type Waypoint = (f64, f64, f64);
+
+/// Whether to motion interpolate the capture up to the output frame rate.
+///
+/// Measured on a laptop with no GPU, filming a small page at 1100x620:
+///
+/// | capture scale | frames per second the browser actually produced |
+/// |---|---|
+/// | 1x (screencast) | 17 |
+/// | 1.5x (screenshot poll) | 8 |
+/// | 2x (screenshot poll) | 6 |
+///
+/// So a take is choppy because the browser painted twelve pictures a second, not because
+/// anything downstream is wrong, and the only way to a smooth thirty is to invent the frames
+/// in between. Motion compensated interpolation does that well and costs about twelve times
+/// the length of the take, at capture resolution, because it has to run before the camera
+/// crop and the crop needs every pixel. Blending instead costs almost nothing and ghosts text,
+/// which on a screen recording is the whole frame.
+///
+/// Hence: off unless asked for. A flag that quietly turns a thirty second render into six
+/// minutes is worse than a choppy video, and the person who wants the smooth one knows they
+/// want it. A render host with a GPU changes this arithmetic, and the hosted service should
+/// turn it on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Smooth {
+    /// Off, and says so on stderr when the capture was slow enough for it to have helped.
+    Auto,
+    On,
+    Off,
+}
+
+impl Smooth {
+    pub fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "auto" => Ok(Smooth::Auto),
+            "on" | "1" | "yes" => Ok(Smooth::On),
+            "off" | "0" | "no" => Ok(Smooth::Off),
+            other => Err(format!("--smooth takes auto, on or off, got {other}")),
+        }
+    }
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ZoomEvent {
@@ -305,8 +378,17 @@ fn follow(
         let (wx, wy) = wanted_at(want, t);
         // Chase only the part of the error the deadzone does not swallow.
         let (tx, ty) = (x + beyond(wx - x, dead_x), y + beyond(wy - y, dead_y));
-        vx += (omega * omega * (tx - x) - 2.0 * omega * vx) * SIM_DT;
-        vy += (omega * omega * (ty - y) - 2.0 * omega * vy) * SIM_DT;
+        let mut ax = omega * omega * (tx - x) - 2.0 * omega * vx;
+        let mut ay = omega * omega * (ty - y) - 2.0 * omega * vy;
+        let accel = ax.hypot(ay);
+        let a_max = MAX_ACCEL * crop_w;
+        if accel > a_max {
+            let k = a_max / accel;
+            ax *= k;
+            ay *= k;
+        }
+        vx += ax * SIM_DT;
+        vy += ay * SIM_DT;
         let speed = vx.hypot(vy);
         if speed > v_max {
             let k = v_max / speed;
@@ -678,17 +760,65 @@ impl Drop for TempDir {
 ///
 /// `tail_pad` holds the final frame for longer than the take itself ran, so that an
 /// interaction in the last second still has room for its hold and its ease-out.
+/*
+ * Below this many captured frames per second, a take is choppy enough to say so.
+ *
+ * The capture rate is not a setting, it is whatever the machine managed. At --scale 2 the
+ * pump asks Chromium for a screenshot every 25ms and waits for it, and on a laptop rendering
+ * 2200x1240 in software that round trip takes about 80ms, so a take that looks like 30fps is
+ * really twelve unique frames a second repeated up to thirty. The camera is smooth, because
+ * the crop is computed per output frame; the PAGE is not, because a third of a second passes
+ * between one picture of it and the next. Measured on the shipped demo: 57% of frames through
+ * the pan were identical to the one before, with a frozen run of 1.63 seconds.
+ *
+ * Twenty-four because that is the rate at which duplicated frames stop being the thing you
+ * notice. Above it, interpolating costs three times the render for nothing.
+ */
+const SMOOTH_BELOW_FPS: f64 = 24.0;
+
+/// Motion interpolation, in a form ffmpeg will accept on one line.
+///
+/// `mpdecimate` first, and it is safe here in a way it would not be anywhere else: the frames
+/// reaching this filter are the original JPEGs, so a duplicate is byte-identical and its block
+/// difference is exactly zero. The thresholds are set so low that only an exact repeat is
+/// dropped, never a frame where one character appeared.
+const SMOOTH_FILTER: &str = "mpdecimate=hi=1:lo=1:frac=0.9,\
+     minterpolate=fps=30:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1";
+
 fn render_cfr(
     spool: &FrameSpool,
     raw_path: &str,
     ffmpeg: &str,
     tail_pad: f64,
+    smooth: Smooth,
 ) -> Result<f64, String> {
     let frames = spool.frames();
     if frames.is_empty() {
         return Err("no frames captured".into());
     }
     let t_last = frames.last().unwrap().t + 0.4 + tail_pad;
+
+    let span = (frames.last().unwrap().t - frames[0].t).max(0.001);
+    let captured_fps = (frames.len() - 1).max(1) as f64 / span;
+    let interpolate = matches!(smooth, Smooth::On);
+    if interpolate {
+        eprintln!(
+            "kaviri: captured {captured_fps:.0} fps, interpolating up to {FPS}. \
+             This is the slow part of the render."
+        );
+    } else if smooth == Smooth::Auto && captured_fps < SMOOTH_BELOW_FPS {
+        eprintln!(
+            "kaviri: the browser produced {captured_fps:.0} frames a second, so the page will \
+             look choppy however smooth the camera is.\n  \
+             --smooth on interpolates up to {FPS}, at roughly twelve times the length of the \
+             take."
+        );
+    }
+    let vf = if interpolate {
+        format!("crop=iw-mod(iw\\,2):ih-mod(ih\\,2),{SMOOTH_FILTER}")
+    } else {
+        "crop=iw-mod(iw\\,2):ih-mod(ih\\,2)".to_string()
+    };
     let mut child = Command::new(ffmpeg)
         .args([
             "-y",
@@ -701,7 +831,7 @@ fn render_cfr(
             "-i",
             "-",
             "-vf",
-            "crop=iw-mod(iw\\,2):ih-mod(ih\\,2)",
+            &vf,
             "-c:v",
             "libx264",
             "-preset",
@@ -1036,6 +1166,7 @@ pub fn render(
     out_size: (u32, u32),
     /* The backdrop the content is composited onto, if any. */
     background: Choice,
+    smooth: Smooth,
     keep_temp: bool,
 ) -> Result<(f64, usize), String> {
     let ffmpeg = find_ffmpeg()?;
@@ -1058,7 +1189,13 @@ pub fn render(
     );
 
     let raw_end = spool.frames().last().map(|f| f.t).unwrap_or(0.0) + 0.4;
-    let duration = render_cfr(spool, &raw_path, &ffmpeg, tail_pad_for(marks, raw_end))?;
+    let duration = render_cfr(
+        spool,
+        &raw_path,
+        &ffmpeg,
+        tail_pad_for(marks, raw_end),
+        smooth,
+    )?;
     let events = events_from_marks(marks, scale, fw as f64, fh as f64, duration);
     /*
      * After pass 1, not before: the auto picker measures the take itself, and
@@ -1522,7 +1659,7 @@ mod tests {
     #[test]
     fn the_preview_constants_match() {
         let js = include_str!("../site/play/camera.js");
-        let expect: [(&str, f64); 10] = [
+        let expect: [(&str, f64); 11] = [
             ("EASE", EASE),
             ("LEAD_IN", LEAD_IN),
             ("HOLD_AFTER", HOLD_AFTER),
@@ -1533,6 +1670,7 @@ mod tests {
             ("SPRING_TAU", SPRING_TAU),
             ("DEADZONE", DEADZONE),
             ("MAX_SPEED", MAX_SPEED),
+            ("MAX_ACCEL", MAX_ACCEL),
         ];
         for (name, want) in expect {
             let needle = format!("export const {name} = ");
@@ -1584,19 +1722,27 @@ mod tests {
         for which in ["cx", "cy", "z"] {
             let expr = build_expr(&evs, which);
             /*
-             * The benchmark for both caps is the ease itself, which is the smoothest move in
-             * the take by construction: a 0.7s smoothstep over 600px peaks at 6*600/0.7^2, or
-             * about 7,300px/s^2, and the caps sit just above that. The pan is not allowed to
-             * be rougher than the ease that hands over to it. For scale, the piecewise-linear
-             * pan this replaced changed speed by 366px between two frames at the handover,
-             * which is thirty times the cap below.
+             * The speed cap comes from MAX_SPEED rather than from a number typed here, so that
+             * retuning the camera cannot quietly loosen its own test. The half again on top is
+             * for the two eases: a smoothstep peaks at 1.5x its average and is not speed
+             * capped, because it is a designed move with a known start and end rather than a
+             * chase.
+             *
+             * The acceleration cap comes from MAX_ACCEL the same way, with a margin for the
+             * ease, which is not clamped either. For scale, the piecewise-linear pan this
+             * replaced changed speed by 366px between two frames at the handover, which is
+             * thirty times the cap below.
              */
+            let ev = &evs[0];
+            let crop_w = fw / ev.z;
             let (speed_cap, accel_cap) = if which == "z" {
                 (0.12, 0.05)
             } else {
-                (1500.0 * dt, 350.0 * dt)
+                (
+                    1.5 * MAX_SPEED * crop_w * dt,
+                    1.4 * MAX_ACCEL * crop_w * dt * dt,
+                )
             };
-            let ev = &evs[0];
             let mut t = ev.t;
             let (mut prev, mut prev_step) = (eval(&expr, t, fw, fh), 0.0f64);
             let (mut worst_step, mut worst_jerk, mut at) = (0.0f64, 0.0f64, 0.0f64);

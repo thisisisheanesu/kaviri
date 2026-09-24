@@ -15,9 +15,9 @@
 <header class="site-head wrap">
   <a class="wordmark" href="/">kaviri<span class="dot">.</span>dev</a>
   <nav>
+    <a href="/docs/">Docs</a>
     <a href="/#how">How it works</a>
-    <a href="/#ci">CI</a>
-    <a href="/llms-full.txt">For agents</a>
+    <a href="/docs/agents/">For agents</a>
     <a href="https://github.com/thisisisheanesu/kaviri">GitHub</a>
   </nav>
 </header>
@@ -52,15 +52,16 @@
 {"op":"stop_recording"}</textarea>
     <div class="actions">
       <button id="run" class="btn btn-primary" type="button">Run</button>
-      <button id="download" class="btn btn-secondary" type="button">Run and download</button>
+      <button id="download" class="btn btn-secondary" type="button">Run and record</button>
       <button id="getscript" class="btn btn-secondary" type="button">Get the .jsonl</button>
       <button id="reset" class="btn btn-ghost" type="button">Reset</button>
     </div>
     <p class="muted small">
-      <b>Run and download</b> records this tab while the script runs and hands you a WebM. Your
-      browser asks first and shows its own recording indicator throughout. It is the camera, not
-      the render: the binary films at twice the resolution, draws the cursor and the backdrop,
-      and writes H.264.
+      <b>Run and record</b> captures this tab while the script runs, then plays the result back
+      here so you can watch it before deciding whether you want the file. Your browser asks
+      first and shows its own recording indicator throughout. It is the camera, not the render:
+      the binary films at twice the resolution, draws the cursor and the backdrop, motion
+      interpolates a slow capture, and writes H.264.
     </p>
     <ul id="log" aria-live="polite"></ul>
   </div>
@@ -72,6 +73,16 @@
       </div>
       <span id="rec" hidden>REC</span>
     </div>
+    <figure class="result" id="result" hidden>
+      <video id="resultvideo" controls playsinline preload="metadata"></video>
+      <figcaption>
+        <span id="resultmeta"></span>
+        <span class="result-acts">
+          <a id="resultdl" class="btn btn-secondary" download="kaviri-preview.webm">Download</a>
+          <button id="resultclose" class="btn btn-ghost" type="button">Close</button>
+        </span>
+      </figcaption>
+    </figure>
     <p class="muted small">
       The camera is derived from the ops, never described by them. A <code>type</code> leans
       further left than a <code>click</code>, because a line of text grows away to the right as
@@ -114,7 +125,8 @@ kaviri record --script take.jsonl --out take.mp4</code></pre>
   <p>ChiShona for twice, a second time. The demo is not re-recorded. It is made again.</p>
   <div class="foot-links">
     <a href="/">Home</a>
-    <a href="/llms-full.txt">For agents</a>
+    <a href="/docs/">Docs</a>
+    <a href="/docs/agents/">For agents</a>
     <a href="https://github.com/thisisisheanesu/kaviri">GitHub</a>
     <a href="mailto:hello@kaviri.dev">hello@kaviri.dev</a>
   </div>

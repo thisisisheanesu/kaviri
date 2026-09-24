@@ -111,3 +111,37 @@
 
 .play .actions { flex-wrap: wrap; }
 .play .actions + .small { margin-top: var(--k-space-1); max-width: 46rem; }
+
+/* The recorded take, played back in place. Hidden until there is one. */
+.result {
+  margin: var(--k-space-2) 0 0;
+  border: 1px solid var(--line, var(--k-line));
+  border-radius: var(--k-radius);
+  overflow: hidden;
+  background: var(--surface, var(--k-surface));
+}
+
+.result[hidden] { display: none; }
+
+.result video {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--code-bg, var(--k-code-bg));
+}
+
+.result figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--k-space-1);
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px var(--k-space-2);
+  border-top: 1px solid var(--line, var(--k-line));
+  font-family: var(--k-mono);
+  font-size: 0.76rem;
+  color: var(--muted, var(--k-muted));
+}
+
+.result-acts { display: flex; gap: var(--k-space-1); align-items: center; }
+.result-acts .btn { padding: 6px 12px; font-size: 0.84rem; }

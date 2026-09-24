@@ -18,9 +18,10 @@ export const FIT_MARGIN = 1.15;
 export const LEFT_BIAS_TYPE = 0.18;
 export const LEFT_BIAS_CLICK = 0.12;
 export const KEEP_IN_FRAME = 0.06;
-export const SPRING_TAU = 0.38;
-export const DEADZONE = 0.07;
-export const MAX_SPEED = 1.1;
+export const SPRING_TAU = 0.16;
+export const DEADZONE = 0.10;
+export const MAX_SPEED = 1.4;
+export const MAX_ACCEL = 9.0;
 
 /**
  * Where the camera should sit for one interaction, and how tight.
@@ -97,8 +98,17 @@ export class Camera {
     const tx = this.cx + beyond(this.target.cx - this.cx, cropW * DEADZONE);
     const ty = this.cy + beyond(this.target.cy - this.cy, cropH * DEADZONE);
 
-    this.vx += (omega * omega * (tx - this.cx) - 2 * omega * this.vx) * dt;
-    this.vy += (omega * omega * (ty - this.cy) - 2 * omega * this.vy) * dt;
+    let ax = omega * omega * (tx - this.cx) - 2 * omega * this.vx;
+    let ay = omega * omega * (ty - this.cy) - 2 * omega * this.vy;
+    const aMax = MAX_ACCEL * cropW;
+    const accel = Math.hypot(ax, ay);
+    if (accel > aMax) {
+      const k = aMax / accel;
+      ax *= k;
+      ay *= k;
+    }
+    this.vx += ax * dt;
+    this.vy += ay * dt;
 
     const vMax = MAX_SPEED * cropW;
     const speed = Math.hypot(this.vx, this.vy);

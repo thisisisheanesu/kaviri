@@ -40,6 +40,8 @@ pub struct Session {
     pub cursor: CursorCfg,
     /// Backdrop for the finished video; resolved at render time.
     pub background: Choice,
+    /// Whether a slow capture is motion interpolated up to the output frame rate.
+    pub smooth: crate::zoom::Smooth,
     pub rendered: Option<(f64, usize)>,
 }
 
@@ -341,6 +343,7 @@ impl Session {
             keep_temp,
             cursor,
             background: Choice::Auto,
+            smooth: crate::zoom::Smooth::Auto,
             rendered: None,
         })
     }
@@ -792,6 +795,7 @@ impl Session {
                     self.css_h,
                     self.out_size,
                     self.background,
+                    self.smooth,
                     self.keep_temp,
                 );
                 // The spool is the take's whole footprint on disk, and on a long
