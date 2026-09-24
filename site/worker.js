@@ -12,6 +12,7 @@
 // page, but that must never be served. wrangler.toml carries the account ID.
 import { signup, retryUnconfirmed } from "./wsrc/waitlist.js";
 import * as admin from "./wsrc/admin.js";
+import * as stripe from "./wsrc/stripe.js";
 
 const PRIVATE_PATHS = new Set(["/worker.js", "/wrangler.toml", "/.assetsignore"]);
 
@@ -210,6 +211,14 @@ export default {
      */
     if (url.pathname === "/api/waitlist" && request.method === "POST") {
       return withSecurity(await signup(request, env, ctx));
+    }
+    /*
+     * Stripe delivers here because that is the URL configured on the endpoint. It only
+     * verifies and stores; kaviri-billing is what reads the stored events and decides what
+     * they mean. See wsrc/stripe.js for why a buffer rather than a 404.
+     */
+    if (url.pathname === "/stripe" && request.method === "POST") {
+      return withSecurity(await stripe.receive(request, env));
     }
     if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
       return withSecurity(await admin.handle(request, env, url));

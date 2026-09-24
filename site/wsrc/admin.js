@@ -9,6 +9,7 @@
  * than defaulting to something and being open.
  */
 
+import { pending } from "./stripe.js";
 import { retryUnconfirmed } from "./waitlist.js";
 
 const COOKIE = "kaviri_admin";
@@ -116,6 +117,13 @@ async function dashboard(env) {
     )
     .join("");
 
+  /*
+   * Stripe events that have arrived and not yet been taken by the billing service. This is
+   * the number that matters while billing is not deployed: it is the backlog that would
+   * otherwise have been silently dropped.
+   */
+  const owed = await pending(env, 200);
+
   return page(`<div class="adm-head">
   <h1>Waitlist</h1>
   <div class="adm-actions">
@@ -126,6 +134,12 @@ async function dashboard(env) {
 </div>
 <p class="muted">${total} on the list, ${confirmed} confirmed${failed ? `, <b class="bad">${failed} failed to send</b>` : ""}.
 Mail goes out through ${env.RESEND_API_KEY ? "Resend" : env.SMTP_HOST ? "SMTP" : "<b class='bad'>nothing: no sender is configured</b>"}.</p>
+<p class="muted">Stripe: ${
+    owed.length === 0
+      ? "no events waiting."
+      : `<b>${owed.length}</b> event${owed.length === 1 ? "" : "s"} received and waiting for the billing service to drain them` +
+        `${owed.some((e) => e.livemode) ? ', <b class="bad">including live ones</b>' : " (all test mode)"}.`
+  }</p>
 <table><thead><tr><th>#</th><th>Email</th><th>Note</th><th>CC</th><th>When</th><th>Confirmation</th></tr></thead>
 <tbody>${body || '<tr><td colspan="6" class="muted">Nobody yet.</td></tr>'}</tbody></table>`);
 }
