@@ -28,13 +28,41 @@
   input:focus{outline:2px solid var(--brand);outline-offset:1px;background:var(--panel)}
   button{font:600 14px var(--sans);padding:11px 18px;border:0;border-radius:9px;
     background:var(--brand);color:#fff;cursor:pointer;white-space:nowrap}
-  ul{list-style:none;margin:18px 0 0;padding:0}
+  /* The empty state and the first row occupy the SAME box.
+
+     This is the jump cut, and it took two goes to kill. Clicking Track inserts a row; while
+     the "Nothing tracked yet" line is still in the layout, the card grows by a full row, and
+     because the body is `place-items:center` the whole card then re-centres vertically. The
+     camera is zoomed in on the button at that exact moment, so the shift is magnified, and
+     the capture pump samples around ten frames a second, so it arrives as one frame of
+     discontinuity rather than as motion. ffmpeg's scene detector scored that single frame at
+     0.0815 against 0.0193 for the next largest change in the take.
+
+     The first attempt floored this container and faded the empty line instead of hiding it,
+     which was worse than doing nothing: a faded element still occupies its box, so the
+     container held the line AND the row and grew by the row's full height.
+
+     So the line is taken out of flow and the container is floored at one row's height.
+     Adding the first row now changes what is drawn and not the height of anything. */
+  .results{position:relative;min-height:50px;margin-top:18px}
+  ul{list-style:none;margin:0;padding:0}
   li{display:flex;align-items:center;gap:12px;padding:12px 2px;border-top:1px solid var(--line)}
+  /* A new row arrives over four or five captured frames instead of between two of them.
+     180ms is long enough to be sampled and short enough that nobody waits for it. */
+  li.new{animation:rowin 180ms cubic-bezier(.22,1,.36,1) both}
+  @keyframes rowin{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){li.new{animation:none}}
   li .id{font:12px var(--mono);color:var(--mute);width:78px}
   li .where{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   li .tag{font:600 11px var(--sans);padding:3px 9px;border-radius:999px;
     background:var(--ok-bg);color:var(--ok)}
-  .empty{color:var(--mute);font-size:14px;padding:14px 2px;border-top:1px solid var(--line)}
+  /* Absolute, so it is drawn in the results box without taking part in its height. That is
+     what lets the first row cross-fade with it in place rather than push it down. */
+  .empty{position:absolute;top:0;left:0;right:0;
+    color:var(--mute);font-size:14px;padding:14px 2px;border-top:1px solid var(--line);
+    transition:opacity 160ms linear}
+  .empty[data-gone]{opacity:0}
+  @media (prefers-reduced-motion:reduce){.empty{transition:none}}
 </style>
 </head>
 <body>
@@ -46,8 +74,10 @@
         <input id="q" placeholder="Tracking number or address" autocomplete="off">
         <button id="go">Track</button>
       </div>
-      <ul id="list"></ul>
-      <div class="empty" id="empty">Nothing tracked yet.</div>
+      <div class="results">
+        <ul id="list"></ul>
+        <div class="empty" id="empty">Nothing tracked yet.</div>
+      </div>
     </div>
   </div>
 <script>
@@ -58,9 +88,10 @@ const empty = document.getElementById("empty");
 const q = document.getElementById("q");
 
 function add(text){
-  empty.hidden = true;
+  empty.setAttribute("data-gone", "");
   const li = document.createElement("li");
   const id = "PX-" + Math.floor(100000 + Math.random() * 899999);
+  li.className = "new";
   li.innerHTML = '<span class="id"></span><span class="where"></span><span class="tag">In transit</span>';
   li.querySelector(".id").textContent = id;
   li.querySelector(".where").textContent = text;
@@ -71,7 +102,12 @@ document.getElementById("go").onclick = () => {
   const v = q.value.trim();
   if(!v) return;
   add(v);
-  q.value = "";
+  /*
+   * The query stays in the field. Clearing it is what a form does; it is also a whole line
+   * of text vanishing in the same frame as the new row arriving and the empty line going,
+   * and on a browser painting ten frames a second those three changes land together as one
+   * hard cut. A tracking app that keeps your query on screen is not less realistic.
+   */
   q.focus();
 };
 q.addEventListener("keydown", e => {
