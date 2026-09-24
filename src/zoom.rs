@@ -26,6 +26,12 @@ pub const FPS: u32 = 30;
 /// space on its right while the thing you wanted to read falls off the left. Sitting the crop
 /// a little left of the target keeps both. Typing leans further because a line of text grows
 /// away to the right as it is written.
+///
+/// The lean is only for takes that type. Everything it buys is text to the left of the target,
+/// and a take with no text entry (a canvas, a game, a comic, a dashboard being clicked around)
+/// has nothing there worth reading: the lean just pushed every shot off-centre for no reason, and
+/// hovering across a canvas made the camera sit left of the pointer the whole way. So a click or
+/// a hover centres unless the take also has a `type` mark.
 const LEFT_BIAS_TYPE: f64 = 0.18;
 const LEFT_BIAS_CLICK: f64 = 0.12;
 /// Never lean so far that the target itself leaves the frame.
@@ -204,9 +210,10 @@ pub fn events_from_marks(
         cy: f64,
         z: f64,
     }
+    let has_typing = marks.iter().any(|m| m.kind == "type");
     let targets: Vec<Target> = marks
         .iter()
-        .filter(|m| matches!(m.kind.as_str(), "click" | "type"))
+        .filter(|m| matches!(m.kind.as_str(), "click" | "hover" | "type"))
         .filter_map(|m| {
             let (x, y, w, h) = m.bbox?;
             let cy = (y + h / 2.0) * scale;
@@ -230,8 +237,10 @@ pub fn events_from_marks(
             let crop_w = frame_w / z;
             let want = if m.kind == "type" {
                 LEFT_BIAS_TYPE
-            } else {
+            } else if has_typing {
                 LEFT_BIAS_CLICK
+            } else {
+                0.0
             };
             /*
              * Cap the lean so the target's own right edge stays comfortably inside the crop.
@@ -949,11 +958,14 @@ fn render_cfr(
              This is the slow part of the render."
         );
     } else if smooth == Smooth::Auto && captured_fps < SMOOTH_BELOW_FPS {
+        // Frames are in page time, so under --slowmo this is already the multiplied rate
+        // and the suggestion is for the factor still missing.
+        let k = (FPS as f64 / captured_fps.max(1.0)).ceil().clamp(2.0, 16.0);
         eprintln!(
             "kaviri: the browser produced {captured_fps:.0} frames a second, so the page will \
              look choppy however smooth the camera is.\n  \
-             --smooth on interpolates up to {FPS}, at roughly twelve times the length of the \
-             take."
+             --slowmo {k:.0} records real frames up to about {FPS} at {k:.0} times the take's \
+             length; --smooth on interpolates instead."
         );
     }
     if interpolate {
@@ -1264,7 +1276,7 @@ fn plate_for(
 fn tail_pad_for(marks: &[Mark], raw_end: f64) -> f64 {
     let last = marks
         .iter()
-        .filter(|m| m.bbox.is_some() && matches!(m.kind.as_str(), "click" | "type"))
+        .filter(|m| m.bbox.is_some() && matches!(m.kind.as_str(), "click" | "hover" | "type"))
         .map(|m| m.t)
         .fold(f64::NEG_INFINITY, f64::max);
     if !last.is_finite() {
@@ -1394,6 +1406,7 @@ pub fn render(
         tmp.retain();
     }
     zoomed?;
+
     Ok((duration, events.len()))
 }
 
@@ -1617,9 +1630,12 @@ mod tests {
         let small = (600.0, 300.0, 40.0, 60.0);
 
         let typed = events_from_marks(&[mark("type", 3.0, small)], 1.0, fw, fh, dur);
-        let clicked = events_from_marks(&[mark("click", 3.0, small)], 1.0, fw, fh, dur);
+        // A click only leans in a take that types (see LEFT_BIAS_TYPE), so this one types
+        // later on, far enough away to be its own shot.
+        let later = mark("type", 12.0, (100.0, 650.0, 40.0, 30.0));
+        let clicked = events_from_marks(&[mark("click", 3.0, small), later], 1.0, fw, fh, dur);
         assert_eq!(typed.len(), 1);
-        assert_eq!(clicked.len(), 1);
+        assert!(!clicked.is_empty());
 
         let t = &typed[0];
         let c = &clicked[0];
@@ -2245,6 +2261,52 @@ mod tests {
             top < 60,
             "the top band is content, so the take was stretched: {:?}",
             &frame[..3]
+        );
+    }
+
+    #[test]
+    fn a_hover_is_framed_like_a_click() {
+        let (fw, fh, dur) = (1470.0, 830.0, 12.0);
+        let card = (500.0, 300.0, 300.0, 200.0);
+        let hovered = events_from_marks(&[mark("hover", 3.0, card)], 1.0, fw, fh, dur);
+        let clicked = events_from_marks(&[mark("click", 3.0, card)], 1.0, fw, fh, dur);
+        assert_eq!(hovered.len(), 1, "a hover earns a camera move");
+        assert_eq!(
+            (hovered[0].cx, hovered[0].cy, hovered[0].z),
+            (clicked[0].cx, clicked[0].cy, clicked[0].z)
+        );
+        assert!(
+            tail_pad_for(&[mark("hover", 11.5, card)], dur) > 0.0,
+            "a late hover is padded like a click"
+        );
+    }
+
+    #[test]
+    fn a_take_with_no_typing_centres_on_what_it_clicks() {
+        let (fw, fh, dur) = (1470.0, 830.0, 12.0);
+        let small = (600.0, 300.0, 40.0, 60.0);
+        let centre = small.0 + small.2 / 2.0;
+        let alone = events_from_marks(&[mark("click", 3.0, small)], 1.0, fw, fh, dur);
+        assert!(
+            (alone[0].cx - centre).abs() < 1e-6,
+            "no typing, no lean: {}",
+            alone[0].cx
+        );
+        let hovered = events_from_marks(&[mark("hover", 3.0, small)], 1.0, fw, fh, dur);
+        assert!((hovered[0].cx - centre).abs() < 1e-6);
+        let with_typing = events_from_marks(
+            &[
+                mark("click", 3.0, small),
+                mark("type", 8.0, (100.0, 600.0, 200.0, 30.0)),
+            ],
+            1.0,
+            fw,
+            fh,
+            dur,
+        );
+        assert!(
+            with_typing[0].cx < centre,
+            "a take that types still leans its clicks left"
         );
     }
 }

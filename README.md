@@ -90,6 +90,7 @@ One JSON object per line, in and out.
 {"op":"navigate","url":"https://example.com"}  // bare paths become file://
 {"op":"navigate","url":"https://slow.example","timeout_ms":60000}  // load budget, default 25s
 {"op":"click","selector":"#buy"}            // or {"op":"click","x":400,"y":300}
+{"op":"hover","selector":".card","at":[0.2,0.5],"ms":800}  // glide the mouse; pointer effects follow
 {"op":"type","selector":"#name","text":"Ada"}  // typewriter_ms optional, default 18
 {"op":"type","text":"Ada"}                  // no selector: types into the focused element
 {"op":"scroll","y":600,"smooth":true}       // y is an absolute document offset
@@ -173,6 +174,13 @@ Headless capture has no OS cursor, so kaviri draws one into the page as vector
 SVG, with a click ripple. It is part of the page, so the zoom transform carries
 it along and it cannot drift away from the click it belongs to. `--cursor none`
 turns it off.
+
+A canvas-heavy page (a game, a chart, a generative comic) paints five to ten
+frames a second in headless Chromium, and no camera makes that smooth.
+`--slowmo 8` runs the page's own clock eight times slower while it is filmed,
+stamps every frame in page time, and so plays back at normal speed with eight
+times the real frames. Script timings mean the same at any factor; the take
+costs that many times its length to record.
 
 ## The GitHub Action
 

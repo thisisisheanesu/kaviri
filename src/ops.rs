@@ -52,6 +52,8 @@ pub struct Session {
     /// Whether a slow capture is motion interpolated up to the output frame rate.
     pub smooth: crate::zoom::Smooth,
     pub rendered: Option<(f64, usize)>,
+    /// Where the page last saw the mouse, so a hover glides from there instead of teleporting.
+    pub pointer: Option<(f64, f64)>,
 }
 
 /// The pointer shapes kaviri can draw, in the macOS idiom.
@@ -295,6 +297,39 @@ const CURSOR_JS: &str = r##"
 })();
 "##;
 
+/// Slows the page's own clock by `__KAVIRI_SLOWMO__`, installed before any page script runs.
+///
+/// A browser under software rendering paints a canvas-heavy page six to twelve times a
+/// second, however fast the capture is. Running the page's time slower gives it k times as
+/// long to paint each moment, and the frames are stamped in page time, so the video comes out
+/// at normal speed with k times the real frames. Nothing is interpolated.
+///
+/// Everything a page reads time from is warped around one origin, so they stay consistent
+/// with each other: performance.now, the requestAnimationFrame timestamp, Date.now, and the
+/// timer delays. CSS animations and transitions are slowed separately through the CDP
+/// Animation domain. `new Date()` is left alone: a page drawing from it is rare, and
+/// replacing the Date constructor breaks more pages than it helps.
+const SLOWMO_JS: &str = r##"
+(() => {
+  const K = __KAVIRI_SLOWMO__;
+  if (!(K > 1) || window.__kaviri_slowmo) return;
+  window.__kaviri_slowmo = K;
+  const pn = performance.now.bind(performance);
+  const p0 = pn();
+  const warp = (t) => p0 + (t - p0) / K;
+  performance.now = () => warp(pn());
+  const dn = Date.now;
+  const d0 = dn();
+  Date.now = () => d0 + (dn() - d0) / K;
+  const raf = window.requestAnimationFrame.bind(window);
+  window.requestAnimationFrame = (cb) => raf((t) => cb(warp(t)));
+  const st = window.setTimeout.bind(window);
+  const si = window.setInterval.bind(window);
+  window.setTimeout = (f, ms, ...a) => st(f, (+ms || 0) * K, ...a);
+  window.setInterval = (f, ms, ...a) => si(f, (+ms || 0) * K, ...a);
+})();
+"##;
+
 fn js_string(s: &str) -> String {
     serde_json::to_string(s).unwrap()
 }
@@ -354,6 +389,7 @@ impl Session {
             background: Choice::Auto,
             smooth: crate::zoom::Smooth::Auto,
             rendered: None,
+            pointer: None,
         })
     }
 
@@ -363,6 +399,32 @@ impl Session {
             v.as_array()
                 .and_then(|a| a.first().and_then(|x| x.as_f64()))
         })
+    }
+
+    /// Run the page's clock `k` times slower than real time; see `SLOWMO_JS`. Called once,
+    /// before the first navigate, so the warp is in place before any page script runs.
+    pub fn set_slowmo(&mut self, k: f64) -> Result<(), String> {
+        self.cdp.slowmo = k;
+        if k > 1.0 {
+            self.cdp.send(
+                "Page.addScriptToEvaluateOnNewDocument",
+                json!({ "source": SLOWMO_JS.replace("__KAVIRI_SLOWMO__", &format!("{k:.4}")) }),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// CSS animations and transitions run on the document timeline, which the JS warp
+    /// cannot reach. Each new document starts at rate 1, so this follows every navigate.
+    fn slow_css(&mut self) -> Result<(), String> {
+        if self.cdp.slowmo > 1.0 {
+            self.cdp.send("Animation.enable", json!({}))?;
+            self.cdp.send(
+                "Animation.setPlaybackRate",
+                json!({ "playbackRate": 1.0 / self.cdp.slowmo }),
+            )?;
+        }
+        Ok(())
     }
 
     fn mark(&mut self, kind: &str, label: &str, bbox: Option<(f64, f64, f64, f64)>) -> Value {
@@ -529,6 +591,56 @@ impl Session {
                 json!({"type": t, "x": x, "y": y, "button": "left", "clickCount": clicks}),
             )?;
         }
+        self.pointer = Some((x, y));
+        Ok(())
+    }
+
+    /// Move the real mouse along a path, not just to its end.
+    ///
+    /// A single mouseMoved at the target fires `:hover` but hands a pointermove handler one
+    /// sample, so anything that tracks the pointer (a tilt, eyes that follow it, a parallax)
+    /// jumps once and sits still. Stepping the path every frame-ish gives those handlers the
+    /// motion a hand would. The drawn cursor is moved at every step too, and its CSS
+    /// transition turns the steps into one glide that lands with the mouse.
+    fn mouse_glide(&mut self, x: f64, y: f64, kind: &str, ms: u64) -> Result<(), String> {
+        const STEP_MS: u64 = 33;
+        let (x0, y0) = self.pointer.unwrap_or((x, y));
+        /*
+         * Paced by the clock, not by a step count. Under capture every pump can block on a
+         * screenshot, and a 2x screenshot takes longer than a step, so twenty steps of 33ms
+         * stretched a 700ms hover to several seconds. Reading the position off elapsed time
+         * keeps the move as long as it was asked to be, however few samples fit in it.
+         */
+        let started = std::time::Instant::now();
+        loop {
+            // In page time, like `ms`, so a glide under --slowmo lasts as long in the video.
+            let elapsed = (started.elapsed().as_secs_f64() * 1000.0 / self.cdp.slowmo) as u64;
+            let f = if ms == 0 {
+                1.0
+            } else {
+                (elapsed as f64 / ms as f64).min(1.0)
+            };
+            // Ease in and out, so the pointer leaves and arrives the way a hand does.
+            let e = f * f * (3.0 - 2.0 * f);
+            let (px, py) = (x0 + (x - x0) * e, y0 + (y - y0) * e);
+            self.cdp.send(
+                "Input.dispatchMouseEvent",
+                json!({"type": "mouseMoved", "x": px, "y": py, "button": "none"}),
+            )?;
+            if self.cursor.enabled {
+                let js = format!(
+                    "window.__kaviri && __kaviri.move({px:.1},{py:.1},{})",
+                    js_string(kind)
+                );
+                let _ = self.cdp.evaluate(&js);
+            }
+            if f >= 1.0 {
+                break;
+            }
+            self.cdp
+                .sleep_pump(STEP_MS.min(ms - elapsed.min(ms)).max(1))?;
+        }
+        self.pointer = Some((x, y));
         Ok(())
     }
 
@@ -592,6 +704,7 @@ impl Session {
                         ));
                     }
                 }
+                self.slow_css()?;
                 self.cdp.sleep_pump(350)?;
                 Ok(self.mark("navigate", &url, None))
             }
@@ -607,6 +720,36 @@ impl Session {
                 );
                 self.mouse_click(x, y)?;
                 self.cdp.sleep_pump(250)?;
+                Ok(m)
+            }
+            "hover" => {
+                let mut aim = self.click_target(op)?;
+                // `at` aims at a fraction of the element's box instead of its centre, so a
+                // script can sweep a pointer across one element with a few hovers.
+                if let Some(at) = op.get("at") {
+                    let a = at.as_array().filter(|a| a.len() == 2);
+                    let f = |i: usize| {
+                        a.and_then(|a| a[i].as_f64())
+                            .filter(|v| (0.0..=1.0).contains(v))
+                    };
+                    let (Some(fx), Some(fy)) = (f(0), f(1)) else {
+                        return Err(format!(
+                            "hover at must be [x, y] fractions of the box, each 0..1, got {at}"
+                        ));
+                    };
+                    let (bx, by, bw, bh) = aim.bbox.ok_or("hover at needs a selector")?;
+                    aim.point = (bx + bw * fx, by + bh * fy);
+                }
+                let (x, y) = aim.point;
+                let ms = duration_ms(op, "ms", 500)?;
+                let m = self.mark_in(
+                    "hover",
+                    op["selector"].as_str().unwrap_or("point"),
+                    aim.bbox,
+                    aim.context,
+                );
+                self.mouse_glide(x, y, &aim.cursor, ms)?;
+                self.cdp.sleep_pump(150)?;
                 Ok(m)
             }
             "type" => {

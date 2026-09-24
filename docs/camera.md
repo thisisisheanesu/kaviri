@@ -11,7 +11,7 @@ this document are the constant names in the source.
 ## What the camera moves for
 
 Nothing except interactions. `events_from_marks` filters the mark timeline down to marks whose
-`kind` is `click` or `type` **and** which carry a bounding box. Everything else, `navigate`,
+`kind` is `click`, `hover` or `type` **and** which carry a bounding box. Everything else, `navigate`,
 `scroll`, `wait`, `mark`, is on the timeline for the telemetry sidecar and does not move the
 camera.
 
@@ -67,7 +67,7 @@ The search button is after the query. The caret is after the words already typed
 crop on the control and the frame fills with empty space to its right while the thing you
 actually wanted the viewer to read falls off the left edge.
 
-So the crop sits a little left of the target:
+So, **in a take that types**, the crop sits a little left of the target:
 
 ```
 LEFT_BIAS_TYPE  = 0.18   // fraction of the cropped width
@@ -76,6 +76,14 @@ LEFT_BIAS_CLICK = 0.12
 
 Typing leans further because a line of text grows away to the right as it is written, so the
 frame has to be holding more of the already-written text than a click does.
+
+**No typing, no lean.** Everything the lean buys is text to the left of the target. A take
+with no `type` op (a canvas, a game, a comic, a dashboard being clicked around) has nothing
+there worth reading, and leaning there just pushed every shot off-centre; sweeping hovers
+across a canvas made the camera sit left of the pointer the whole way. So `events_from_marks`
+checks whether the take has any `type` mark: if it does, clicks lean by `LEFT_BIAS_CLICK`; if it
+does not, clicks and hovers centre on the target (the surface slide below still applies).
+Hovers never take the typing lean.
 
 The lean is capped so the target cannot leave the frame it is the subject of:
 

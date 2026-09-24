@@ -664,6 +664,9 @@ pub struct Cdp {
     /// retention a broken capture turns on by itself.
     keep_spool: bool,
     profile_dir: PathBuf,
+    /// How many times slower than real time the page's clock runs (`--slowmo`). The
+    /// recording clock and every wait are in PAGE time, so the video plays at normal speed.
+    pub slowmo: f64,
 }
 
 fn free_port() -> std::io::Result<u16> {
@@ -942,6 +945,7 @@ impl Cdp {
             rec_t0: None,
             recording: false,
             profile_dir,
+            slowmo: 1.0,
         };
 
         let target = cdp.send_raw("Target.createTarget", json!({"url": "about:blank"}), None)?;
@@ -1175,7 +1179,7 @@ impl Cdp {
             if self.recording {
                 if let (Some(data), Some(t0)) = (params["data"].as_str(), self.rec_t0) {
                     if let Ok(jpeg) = base64::engine::general_purpose::STANDARD.decode(data) {
-                        let t = t0.elapsed().as_secs_f64();
+                        let t = t0.elapsed().as_secs_f64() / self.slowmo;
                         if let Err(e) = self.frames.push(t, &jpeg) {
                             /*
                              * A spool that cannot be written to is the end of capture,
@@ -1227,7 +1231,7 @@ impl Cdp {
         } else if self.recording {
             if let (Some(data), Some(t0)) = (v["result"]["data"].as_str(), self.rec_t0) {
                 if let Ok(jpeg) = base64::engine::general_purpose::STANDARD.decode(data) {
-                    let t = t0.elapsed().as_secs_f64();
+                    let t = t0.elapsed().as_secs_f64() / self.slowmo;
                     if let Err(e) = self.frames.push(t, &jpeg) {
                         self.abandon_capture(&e);
                         return;
@@ -1281,8 +1285,12 @@ impl Cdp {
     /// The socket read is what does the waiting, with its timeout cut down to the
     /// budget that is left, so this returns when the caller asked rather than at
     /// whatever granularity the socket happens to be set to.
+    ///
+    /// `ms` is page time: under `--slowmo` the real wait is that many times longer, so a
+    /// script's pacing comes out in the video exactly as it was written.
     pub fn sleep_pump(&mut self, ms: u64) -> Result<(), String> {
-        pump_until(Duration::from_millis(ms), |slice| {
+        let real = Duration::from_secs_f64(ms as f64 * self.slowmo / 1000.0);
+        pump_until(real, |slice| {
             if shutting_down() {
                 return Err(String::new());
             }
@@ -1476,7 +1484,7 @@ impl Cdp {
                 Ok(r) => {
                     if let (Some(data), Some(t0)) = (r["data"].as_str(), self.rec_t0) {
                         if let Ok(jpeg) = base64::engine::general_purpose::STANDARD.decode(data) {
-                            let t = t0.elapsed().as_secs_f64();
+                            let t = t0.elapsed().as_secs_f64() / self.slowmo;
                             if let Err(e) = self.frames.push(t, &jpeg) {
                                 note(e);
                             }
@@ -1546,7 +1554,7 @@ impl Cdp {
     /// Seconds on the recording clock right now (0.0 if not recording).
     pub fn now_rec(&self) -> f64 {
         self.rec_t0
-            .map(|t| t.elapsed().as_secs_f64())
+            .map(|t| t.elapsed().as_secs_f64() / self.slowmo)
             .unwrap_or(0.0)
     }
 

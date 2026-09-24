@@ -22,6 +22,7 @@ if any op failed, so you can tell success from failure without watching the vide
 {"op":"wait","selector":"#app","timeout_ms":30000}
 {"op":"start_recording"}
 {"op":"wait","ms":800}
+{"op":"hover","selector":"#plans","ms":700}
 {"op":"click","selector":"#new-invoice"}
 {"op":"type","selector":"#amount","text":"1450.00"}
 {"op":"scroll","y":600,"smooth":true}
@@ -30,7 +31,9 @@ if any op failed, so you can tell success from failure without watching the vide
 {"op":"stop_recording"}
 ```
 
-`click` also takes `x` and `y` instead of a selector. `type` takes `typewriter_ms` to set the
+`click` also takes `x` and `y` instead of a selector, and so does `hover`, which moves the
+mouse along a path (so pointer-tracking effects follow it) and is framed by the camera like a
+click; `at: [fx, fy]` aims it at a fraction of the element instead of its centre. `type` takes `typewriter_ms` to set the
 per character delay; the default of 18 is deliberately fast, because a demo of someone typing
 slowly is a demo of someone typing slowly. `navigate` turns a bare path into a `file://` URL.
 `mark` puts a label in the telemetry and nothing on screen.
@@ -38,7 +41,7 @@ slowly is a demo of someone typing slowly. `navigate` turns a bare path into a `
 The full reference, including every field and what each one does to the camera, is
 `docs/script-protocol.md`. How the camera decides what to do is `docs/camera.md`.
 
-## The five things agents get wrong
+## The seven things agents get wrong
 
 **1. Recording before the page is ready.** `start_recording` after the `wait` that proves the
 app is up, not before. Otherwise the first two seconds of your video are a blank page, and the
@@ -61,6 +64,20 @@ poll it until it answers before the recorder runs. `docs/ci.md` has the step.
 **5. One video per step.** If you are driving a long session, use `kaviri serve`, which holds
 one browser open across many ops and produces one take. Spawning `record` per step gives you a
 folder of two-second clips.
+
+**6. Shipping a choppy take.** If stderr says `the browser produced N frames a second`, the
+video will stutter, and a canvas-heavy page (a game, a chart, a generative comic) usually does:
+headless Chromium paints it in software at 5 to 10 frames a second. Record again with
+`--slowmo <k>`, where k is roughly 30 divided by N (8 is a good start for a heavy canvas). The
+page's clock runs k times slower while kaviri films it and the frames are stamped in page time,
+so the video plays at normal speed with k times the real frames. Script timings stay exactly as
+written. It costs k times the take's length in wall time, so run long takes detached. Prefer it
+to `--smooth on`, which invents frames by interpolation and smears fast motion.
+
+**7. Expecting the camera to lean left.** It only does in a take that types. The lean exists
+so the text already written stays in shot, and it applies to every click in a take that has a
+`type` op. A take with no text entry centres every click and hover on its target. If your
+clicks look off-centre, check whether the script types somewhere.
 
 ## Serve mode, which is the one built for you
 

@@ -47,6 +47,12 @@ OPTIONS:
                       the camera is. --smooth on invents the frames in between,
                       which looks right and costs about twelve times the length
                       of the take.
+  --slowmo <k>        run the page's clock k times slower while recording (default
+                      1, up to 16), then play the take back at normal speed. The
+                      browser gets k times as long to paint each moment, so a
+                      canvas-heavy page that paints 7 frames a second comes out
+                      at 7k. Real frames, unlike --smooth, and the take costs k
+                      times its length to record. Script timings stay as written.
   --cursor <name>     pointer shape: auto, arrow, hand, text or none
                       (default auto: whatever the OS would show)
   --cursor-scale <f>  pointer size against a 1x system cursor (default 1.75)
@@ -64,6 +70,7 @@ OPS (one JSON object per line):
   {\"op\":\"start_recording\"[,\"path\":\"out.mp4\"]}
   {\"op\":\"navigate\",\"url\":\"https://…\"}       (bare paths become file://)
   {\"op\":\"click\",\"selector\":\"css\"}  or  {\"op\":\"click\",\"x\":.., \"y\":..}
+  {\"op\":\"hover\",\"selector\":\"css\"[,\"at\":[0.2,0.5]][,\"ms\":500]}  or  {\"op\":\"hover\",\"x\":.., \"y\":..}
   {\"op\":\"type\",\"selector\":\"css\",\"text\":\"…\",\"typewriter_ms\":18}
   {\"op\":\"scroll\",\"y\":600,\"smooth\":true}
   {\"op\":\"wait\",\"ms\":800}  or  {\"op\":\"wait\",\"selector\":\"css\"[,\"timeout_ms\":20000]}
@@ -180,6 +187,7 @@ struct Args {
     out_h: Option<u32>,
     background: backdrop::Choice,
     smooth: zoom::Smooth,
+    slowmo: f64,
     cursor: CursorCfg,
     chromium: Option<String>,
     keep_temp: bool,
@@ -290,6 +298,7 @@ fn parse_argv() -> Result<Parsed, String> {
         out_h: None,
         background: backdrop::Choice::Auto,
         smooth: zoom::Smooth::Auto,
+        slowmo: 1.0,
         cursor: CursorCfg::default(),
         chromium: None,
         keep_temp: false,
@@ -342,6 +351,7 @@ fn parse_argv() -> Result<Parsed, String> {
             }
             "--background" => background = val("--background")?,
             "--smooth" => smooth = val("--smooth")?,
+            "--slowmo" => a.slowmo = ratio("--slowmo", &val("--slowmo")?, 1.0, 16.0)?,
             "--backgrounds" => {
                 return Ok(Parsed::Help(format!("Backgrounds:\n{}", backdrop::help())));
             }
@@ -522,6 +532,7 @@ fn run_record(a: &Args) -> Result<(), String> {
     s.out_path = Some(a.out.clone());
     s.background = a.background;
     s.smooth = a.smooth;
+    s.set_slowmo(a.slowmo)?;
     s.cdp
         .set_spool_config(a.spool_dir.clone(), a.max_spool_bytes);
     s.cdp.set_keep_spool(a.keep_temp);
@@ -901,6 +912,7 @@ fn run_serve(a: &Args) -> Result<(), String> {
     sess.out_path = Some(a.out.clone());
     sess.background = a.background;
     sess.smooth = a.smooth;
+    sess.set_slowmo(a.slowmo)?;
     sess.cdp
         .set_spool_config(a.spool_dir.clone(), a.max_spool_bytes);
     sess.cdp.set_keep_spool(a.keep_temp);

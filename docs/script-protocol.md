@@ -95,6 +95,12 @@ anchors for you and the telemetry sidecar, not zoom triggers. See [camera.md](ca
 
 ## Durations
 
+Every duration in a script (`wait` ms, `hover` ms, `typewriter_ms`, the built-in settles) is in
+**page time**. Normally that is real time. Under `--slowmo k` the page's clock runs k times slower
+and kaviri waits k times longer in real terms, so a script means the same video at any k. Only
+the timeouts (`timeout_ms` on `navigate` and `wait`) stay in real time, because they guard
+against a page that never loads, not against pacing.
+
 `ms`, `timeout_ms` and `typewriter_ms` are all read by one function, `duration_ms`. The rules
 are the same for all three:
 
@@ -220,6 +226,30 @@ thing happens rather than chasing it.
 coordinate click still earns a zoom. The pointer shape comes from `elementFromPoint`.
 
 `label` is the selector, or the literal string `point` for a coordinate click.
+
+## `hover`
+
+```jsonc
+{"op":"hover","selector":".card"}
+{"op":"hover","selector":".card","at":[0.15,0.5],"ms":900}
+{"op":"hover","x":400,"y":300}
+```
+
+| field | type | default | notes |
+|---|---|---|---|
+| `selector` | string | none | resolved exactly as `click` resolves it, with the same refusals |
+| `x`, `y` | number | none | CSS pixels in the viewport, used when there is no selector |
+| `at` | [number, number] | the centre | where in the element's box to aim, as fractions from its top-left, each 0..1 |
+| `ms` | number | 500 | how long the pointer takes to get there |
+
+The mouse travels from wherever it last was, sending a `mouseMoved` roughly every 33ms along an
+eased path, and the drawn cursor moves with it. The path matters: one move at the target fires
+`:hover` styles, but a page that tracks the pointer (a tilt, a parallax, eyes that follow it)
+gets a single sample and jumps. A few hovers with different `at` values sweep the pointer across
+one element.
+
+A hover is a camera target like a click: the mark carries the element's box and the camera
+frames it, centred unless the take also types (see camera.md, the left bias). No button is pressed. The mark is emitted before the move, then 150ms of settle.
 
 ## `type`
 
