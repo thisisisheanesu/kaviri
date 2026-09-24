@@ -53,6 +53,11 @@ OPTIONS:
                       canvas-heavy page that paints 7 frames a second comes out
                       at 7k. Real frames, unlike --smooth, and the take costs k
                       times its length to record. Script timings stay as written.
+  --loop <ms>         cross-dissolve the last <ms> into the take's own opening, so
+                      a looping <video> has no cut at the wrap (default 0, off).
+                      Needs the opening to be a held still, which it is when
+                      start_recording follows the wait that proves the app is up.
+                      The take comes out <ms> shorter.
   --cursor <name>     pointer shape: auto, arrow, hand, text or none
                       (default auto: whatever the OS would show)
   --cursor-scale <f>  pointer size against a 1x system cursor (default 1.75)
@@ -188,6 +193,7 @@ struct Args {
     background: backdrop::Choice,
     smooth: zoom::Smooth,
     slowmo: f64,
+    loop_tail: f64,
     cursor: CursorCfg,
     chromium: Option<String>,
     keep_temp: bool,
@@ -299,6 +305,7 @@ fn parse_argv() -> Result<Parsed, String> {
         background: backdrop::Choice::Auto,
         smooth: zoom::Smooth::Auto,
         slowmo: 1.0,
+        loop_tail: 0.0,
         cursor: CursorCfg::default(),
         chromium: None,
         keep_temp: false,
@@ -352,6 +359,7 @@ fn parse_argv() -> Result<Parsed, String> {
             "--background" => background = val("--background")?,
             "--smooth" => smooth = val("--smooth")?,
             "--slowmo" => a.slowmo = ratio("--slowmo", &val("--slowmo")?, 1.0, 16.0)?,
+            "--loop" => a.loop_tail = ratio("--loop", &val("--loop")?, 0.0, 5000.0)? / 1000.0,
             "--backgrounds" => {
                 return Ok(Parsed::Help(format!("Backgrounds:\n{}", backdrop::help())));
             }
@@ -533,6 +541,7 @@ fn run_record(a: &Args) -> Result<(), String> {
     s.background = a.background;
     s.smooth = a.smooth;
     s.set_slowmo(a.slowmo)?;
+    s.loop_tail = a.loop_tail;
     s.cdp
         .set_spool_config(a.spool_dir.clone(), a.max_spool_bytes);
     s.cdp.set_keep_spool(a.keep_temp);
@@ -913,6 +922,7 @@ fn run_serve(a: &Args) -> Result<(), String> {
     sess.background = a.background;
     sess.smooth = a.smooth;
     sess.set_slowmo(a.slowmo)?;
+    sess.loop_tail = a.loop_tail;
     sess.cdp
         .set_spool_config(a.spool_dir.clone(), a.max_spool_bytes);
     sess.cdp.set_keep_spool(a.keep_temp);

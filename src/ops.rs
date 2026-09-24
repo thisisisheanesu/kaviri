@@ -51,6 +51,8 @@ pub struct Session {
     pub background: Choice,
     /// Whether a slow capture is motion interpolated up to the output frame rate.
     pub smooth: crate::zoom::Smooth,
+    /// Seconds of the tail dissolved into the opening so the take loops without a cut.
+    pub loop_tail: f64,
     pub rendered: Option<(f64, usize)>,
     /// Where the page last saw the mouse, so a hover glides from there instead of teleporting.
     pub pointer: Option<(f64, f64)>,
@@ -388,6 +390,7 @@ impl Session {
             cursor,
             background: Choice::Auto,
             smooth: crate::zoom::Smooth::Auto,
+            loop_tail: 0.0,
             rendered: None,
             pointer: None,
         })
@@ -999,6 +1002,7 @@ impl Session {
                     self.out_size,
                     self.background,
                     self.smooth,
+                    self.loop_tail,
                     self.keep_temp,
                 );
                 // The spool is the take's whole footprint on disk, and on a long

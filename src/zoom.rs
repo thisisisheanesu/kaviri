@@ -958,14 +958,15 @@ fn render_cfr(
              This is the slow part of the render."
         );
     } else if smooth == Smooth::Auto && captured_fps < SMOOTH_BELOW_FPS {
-        // Frames are in page time, so under --slowmo this is already the multiplied rate
-        // and the suggestion is for the factor still missing.
+        // Frames are in page time, so under --slowmo this is already the multiplied rate and k
+        // is the factor still missing. render does not know the factor in use, so the advice
+        // is phrased as a multiple of it: an 8x take at 18fps was told to use --slowmo 2.
         let k = (FPS as f64 / captured_fps.max(1.0)).ceil().clamp(2.0, 16.0);
         eprintln!(
             "kaviri: the browser produced {captured_fps:.0} frames a second, so the page will \
              look choppy however smooth the camera is.\n  \
-             --slowmo {k:.0} records real frames up to about {FPS} at {k:.0} times the take's \
-             length; --smooth on interpolates instead."
+             --slowmo multiplies that rate with real frames: about {k:.0} times the factor this \
+             take used (1 if none) reaches {FPS}. --smooth on interpolates instead."
         );
     }
     if interpolate {
@@ -1113,6 +1114,17 @@ fn render_zoom(
         let z = build_expr(events, "z");
         let cx = build_expr(events, "cx");
         let cy = build_expr(events, "cy");
+        /*
+         * The camera as ffmpeg will actually run it. Telemetry gives the events the camera was
+         * asked for; this is what came out of them, and the two are not the same thing once
+         * the ease in, the hold and the ease out have been composed. When a take moves in a
+         * way nobody asked for, this is the string to evaluate.
+         */
+        if crate::env::is_set("DEBUG") {
+            eprintln!("kaviri[debug]: z  = {z}");
+            eprintln!("kaviri[debug]: cx = {cx}");
+            eprintln!("kaviri[debug]: cy = {cy}");
+        }
         format!(
             "fps={FPS},zoompan=z='({z})':\
              x='clip(({cx})-iw/(2*({z})),0,iw-iw/({z}))':\
@@ -1320,6 +1332,8 @@ pub fn render(
     /* The backdrop the content is composited onto, if any. */
     background: Choice,
     smooth: Smooth,
+    /* Seconds of the tail to dissolve into the opening. Zero is off. See loop_seam. */
+    loop_tail: f64,
     keep_temp: bool,
 ) -> Result<(f64, usize), String> {
     let ffmpeg = find_ffmpeg()?;
@@ -1407,7 +1421,122 @@ pub fn render(
     }
     zoomed?;
 
+    let duration = match loop_seam(out_path, &ffmpeg, duration, loop_tail, &tmp) {
+        Ok(d) => d,
+        Err(e) => {
+            // The take is already written and watchable. A seam that could not be made is
+            // worth saying out loud and is not worth throwing the render away over.
+            eprintln!("kaviri: could not blend the loop seam, leaving the take as it is: {e}");
+            duration
+        }
+    };
     Ok((duration, events.len()))
+}
+
+/// Cross-dissolve the end of a finished take into its own opening.
+///
+/// A hero video, a README video and a landing page video are all `<video autoplay loop>`, and
+/// a take that starts on an empty form and ends on a filled one cuts between those two
+/// pictures every time it wraps. That cut is the most visible thing in the whole take, because
+/// unlike everything else in it, it happens again every few seconds. It is also invisible while
+/// you are making the take, because you watch it once, from the beginning.
+///
+/// The trick works because of something that is true of every well written take and is written
+/// down in AGENTS.md as a rule: `start_recording` comes after the wait that proves the app is
+/// up, so the opening is a held still. If the first `tail` seconds are that still, then
+/// dissolving the last `tail` seconds into the first `tail` seconds lands on a frame identical
+/// to frame zero, and the wrap has nothing to show.
+///
+/// Output is `tail` seconds shorter, which is the price and is worth saying.
+fn loop_seam(
+    path: &str,
+    ffmpeg: &str,
+    duration: f64,
+    tail: f64,
+    tmp: &TempDir,
+) -> Result<f64, String> {
+    if tail <= 0.0 {
+        return Ok(duration);
+    }
+    /*
+     * The body has to be longer than the dissolve or xfade has nothing to start from. Three
+     * times is not arbitrary: the opening still, the dissolve and something in between that is
+     * actually the demo. Below that, a seam is not the take's problem.
+     */
+    if duration < tail * 3.0 {
+        return Err(format!(
+            "a {tail:.1}s seam needs a take of at least {:.1}s and this one is {duration:.1}s",
+            tail * 3.0
+        ));
+    }
+
+    let body = duration - tail;
+    let offset = body - tail;
+    /*
+     * One frame shorter than the tail, so the last frame of the take is the opening frame and
+     * not 95% of it.
+     *
+     * xfade ramps its weight from 0 at `offset` to 1 at `offset + duration`, but the last
+     * frame it emits sits one frame BEFORE that end, at weight (tail - 1/fps)/tail. At 30fps
+     * and a 700ms seam that is 0.952, so five percent of the closing picture survived into
+     * the first frame of the next pass: measured as a faint ghost of the tracked row over an
+     * empty form, 368 pixels out of 682,000. Ending the ramp one frame early puts the last
+     * frame at weight 1 exactly.
+     */
+    let fade = (tail - 1.0 / FPS as f64).max(1.0 / FPS as f64);
+    let blended = tmp.path.join("looped.mp4");
+
+    /*
+     * The fps filter on each branch is load bearing, not tidiness. trim drops the stream's
+     * frame rate, and xfade refuses a variable one: "current rate of 1/0 is invalid". It
+     * costs nothing here because both branches are already exactly this rate.
+     */
+    let filter = format!(
+        "[0:v]split=2[a][b];\
+         [a]trim=0:{body:.4},setpts=PTS-STARTPTS,fps={FPS}[body];\
+         [b]trim=0:{tail:.4},setpts=PTS-STARTPTS,fps={FPS}[head];\
+         [body][head]xfade=transition=fade:duration={fade:.4}:offset={offset:.4},format=yuv420p[v]"
+    );
+
+    let out = Command::new(ffmpeg)
+        .args([
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            &arg_path(path),
+            "-filter_complex",
+            &filter,
+            "-map",
+            "[v]",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "18",
+            "-pix_fmt",
+            "yuv420p",
+            // The seam is the one place a viewer looks at the same two frames repeatedly, so
+            // the file is written for playback rather than for the next edit.
+            "-movflags",
+            "+faststart",
+            &arg_path(&blended.display().to_string()),
+        ])
+        .output()
+        .map_err(|e| format!("spawn ffmpeg: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "ffmpeg loop seam failed, exit {}:\n{}",
+            out.status,
+            stderr_tail(&out.stderr)
+        ));
+    }
+
+    std::fs::rename(&blended, path)
+        .or_else(|_| std::fs::copy(&blended, path).map(|_| ()))
+        .map_err(|e| format!("replace {path}: {e}"))?;
+    Ok(body)
 }
 
 #[cfg(test)]
