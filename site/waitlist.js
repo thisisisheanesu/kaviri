@@ -37,7 +37,6 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email,
-          note: form.note.value.trim(),
           website: form.website.value,
           source: "site",
         }),
@@ -53,7 +52,6 @@
         say("You are on the list. Check your email.", false);
       }
       form.email.disabled = true;
-      form.note.disabled = true;
       button.remove();
     } catch {
       say("That did not work. Try again, or mail hello@kaviri.dev.", true);

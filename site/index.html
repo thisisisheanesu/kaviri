@@ -33,7 +33,14 @@
 
 <header class="wrap site-head">
   <a class="wordmark" href="/">kaviri<span class="dot">.</span>dev</a>
-  <nav>
+  <!-- Only ever shown once nav.js has added .js to the html element. Without it the nav stays
+       open, which at phone width is a wrapped row of links rather than a button that does
+       nothing. -->
+  <button class="nav-toggle" type="button" id="nav-toggle"
+          aria-expanded="false" aria-controls="site-nav" aria-label="Menu">
+    <span class="bars" aria-hidden="true"></span>
+  </button>
+  <nav id="site-nav">
     <a href="/docs/">Docs</a>
     <a href="/play/">Playground</a>
     <a href="#ci">CI</a>
@@ -245,9 +252,9 @@ awk -v p="$psnr" 'BEGIN { exit (p + 0 &lt; 50.0) ? 0 : 1 }' \
     <form id="wl" class="waitlist" novalidate>
       <h3>The hosted service, when it is ready</h3>
       <p class="muted">
-        A queue, storage and a stable URL you can point a README at. It is not open, there is
-        nothing to pay for, and this is a list rather than a signup. One email when it exists,
-        nothing in between.
+        A queue, storage and a stable URL you can point a README at. It is not open and there is
+        nothing to pay for. You get a short run of five emails about using the free recorder, then
+        nothing until the hosted service is real. One click gets you off all of it.
       </p>
       <div class="wl-row">
         <label class="sr-only" for="wl-email">Email</label>
@@ -255,9 +262,6 @@ awk -v p="$psnr" 'BEGIN { exit (p + 0 &lt; 50.0) ? 0 : 1 }' \
                placeholder="you@company.com" required>
         <button class="btn btn-primary" type="submit">Join</button>
       </div>
-      <label class="sr-only" for="wl-note">What demo of yours is out of date?</label>
-      <input id="wl-note" name="note" type="text" maxlength="500"
-             placeholder="Optional: which demo of yours is out of date?">
       <!-- Not for people. A bot that fills this in is answered with a cheerful 200. -->
       <input class="hp" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
       <p class="wl-msg" id="wl-msg" role="status"></p>
@@ -279,6 +283,7 @@ awk -v p="$psnr" 'BEGIN { exit (p + 0 &lt; 50.0) ? 0 : 1 }' \
   </div>
 </footer>
 
+<script src="/nav.js"></script>
 <script src="/waitlist.js"></script>
 </body>
 </html>

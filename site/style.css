@@ -307,12 +307,80 @@ p code, li code {
   * { animation: none !important; transition: none !important; }
 }
 
-/* At phone width the four nav links do not fit beside the wordmark, and letting them overflow
-   would give the page a horizontal scroll. The section links are all reachable by scrolling, so
-   only the one that leaves the site stays. */
+/* The phone menu.
+
+   The five nav links do not fit beside the wordmark, and letting them overflow gives the page a
+   horizontal scroll. This used to be solved by hiding every link but the last, which was fine
+   for the anchors and wrong for /docs/ and /play/: those are separate pages and were simply
+   unreachable from a phone.
+
+   Everything below is scoped to html.js, which nav.js adds. Without that script the nav is a
+   wrapped row of links: uglier, and still complete. See nav.js. */
+
+.nav-toggle { display: none; }
+
 @media (max-width: 599px) {
-  .site-head nav a:not(:last-child) { display: none; }
-  .site-head nav a:last-child { color: var(--ink, var(--k-ink)); }
+  .site-head { flex-wrap: wrap; }
+
+  html.js .nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 36px;
+    padding: 0;
+    background: none;
+    border: 1px solid var(--line, var(--k-line));
+    border-radius: 8px;
+    color: var(--ink, var(--k-ink));
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  /* Three rules, drawn rather than fetched: an icon font or an SVG file is a request and a
+     flash of nothing for something that is 40 pixels of line. */
+  .nav-toggle .bars,
+  .nav-toggle .bars::before,
+  .nav-toggle .bars::after {
+    display: block;
+    width: 17px;
+    height: 1.5px;
+    border-radius: 1px;
+    background: currentColor;
+    transition: transform var(--duration-2, 160ms) var(--ease-out, ease),
+                background-color var(--duration-1, 90ms) linear;
+  }
+
+  .nav-toggle .bars { position: relative; }
+  .nav-toggle .bars::before,
+  .nav-toggle .bars::after { content: ""; position: absolute; left: 0; }
+  .nav-toggle .bars::before { top: -5px; }
+  .nav-toggle .bars::after { top: 5px; }
+
+  /* Open: the middle rule goes, the outer two become the cross. */
+  .site-head[data-nav="open"] .bars { background: transparent; }
+  .site-head[data-nav="open"] .bars::before { transform: translateY(5px) rotate(45deg); }
+  .site-head[data-nav="open"] .bars::after { transform: translateY(-5px) rotate(-45deg); }
+
+  html.js .site-head nav {
+    /* Full width, so the links land under the wordmark rather than beside the button. */
+    flex-basis: 100%;
+    flex-direction: column;
+    gap: 0;
+    margin-top: var(--k-space-2);
+    padding-top: var(--k-space-1);
+    border-top: 1px solid var(--line, var(--k-line));
+  }
+
+  html.js .site-head[data-nav="closed"] nav { display: none; }
+
+  .site-head nav a {
+    /* A 44px target, which is the smallest thing a thumb hits reliably. */
+    padding: 11px 0;
+    font-size: 1.02rem;
+    color: var(--ink, var(--k-ink));
+  }
 }
 
 /* Waitlist */
