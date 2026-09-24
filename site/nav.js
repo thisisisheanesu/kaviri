@@ -29,7 +29,13 @@
     button.setAttribute("aria-expanded", open ? "true" : "false");
   }
 
-  set(false);
+  /*
+   * The shut state is in the markup, not set from here. Setting it on load meant the menu
+   * was open for the one frame between the stylesheet applying and this file running, and
+   * now that the collapse is animated that frame became a 320ms animation of the menu
+   * closing itself in front of the reader.
+   */
+  button.setAttribute("aria-expanded", head.getAttribute("data-nav") === "open" ? "true" : "false");
 
   button.addEventListener("click", function () {
     set(button.getAttribute("aria-expanded") !== "true");

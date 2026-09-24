@@ -31,7 +31,7 @@
 </head>
 <body>
 
-<header class="wrap site-head">
+<header class="wrap site-head" data-nav="closed">
   <a class="wordmark" href="/">kaviri<span class="dot">.</span>dev</a>
   <!-- Only ever shown once nav.js has added .js to the html element. Without it the nav stays
        open, which at phone width is a wrapped row of links rather than a button that does
@@ -41,11 +41,16 @@
     <span class="bars" aria-hidden="true"></span>
   </button>
   <nav id="site-nav">
-    <a href="/docs/">Docs</a>
-    <a href="/play/">Playground</a>
-    <a href="#ci">CI</a>
-    <a href="#waitlist">Hosted</a>
-    <a href="https://github.com/thisisisheanesu/kaviri">GitHub</a>
+    <!-- The inner div is the thing that collapses. A grid row cannot animate to 0fr with
+         five children in it, and it is also what clips the links so a shut menu is not
+         tabbable. -->
+    <div class="nav-links">
+      <a href="/docs/">Docs</a>
+      <a href="/play/">Playground</a>
+      <a href="#ci">CI</a>
+      <a href="#waitlist">Hosted</a>
+      <a href="https://github.com/thisisisheanesu/kaviri">GitHub</a>
+    </div>
   </nav>
 </header>
 
