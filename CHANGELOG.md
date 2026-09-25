@@ -55,6 +55,14 @@ dated `[0.1.0]` heading, when the tag is cut.
   `minimal`), `--dock-position bottom|left|right` and `--dock-size`, and `--icon-set
   color|pastel|dark|mono|tinted|glass|outline` with `--icon-tint` restyles every built-in icon. The chrome is HTML rendered once per
   take by the recording browser, in a throwaway tab the filmed page never sees.
+- **Platforms in the script, and phones that look filmed on a phone.** A `frame` op declares
+  the platform in the `.jsonl` itself, with a field for every `--frame*` flag; `record` reads
+  it before launch so a phone starts at the phone's viewport, and `serve` applies it on
+  arrival. `--frame-style recording` (ios, android) looks like the phone's own screen
+  recording: edge to edge, no bezel, the red recording indicator. The handsets, emulators
+  included, are drawn as hardware with a metal band and side buttons, and phone takes show a
+  tap dot (`--cursor touch`) instead of a mouse pointer. The playground has a platform picker
+  that writes the `frame` line.
 - **A dock that looks like one.** The built-in icons are illustrations rather than line
   glyphs, the macOS dock is frosted glass over a blurred wallpaper with squircle tiles, a
   separator and the Trash, and the menu bar's ink follows the wallpaper. `--dock` accepts icon

@@ -145,3 +145,101 @@
 
 .result-acts { display: flex; gap: var(--k-space-1); align-items: center; }
 .result-acts .btn { padding: 6px 12px; font-size: 0.84rem; }
+
+/* ------------------------------------------------------------------ device frames
+
+   The platform picker's frames. These colours are not the brand's: they are other
+   systems' own (traffic lights, titanium, Windows blue), which is the one place raw values
+   belong outside tokens.css. They are gathered here as variables so there is still exactly
+   one place to change each. */
+
+.device {
+  --dv-mac-bar: #e8e9eb; --dv-mac-tab: #ffffff; --dv-omni: #eef0f3; --dv-chrome-ink: #1f1f1f;
+  --dv-chrome-dim: #5f6368; --dv-red: #ff5f57; --dv-amber: #febc2e; --dv-green: #28c840;
+  --dv-win-bar: #f3f3f3; --dv-gnome-bar: #ebebeb; --dv-glass: #050506;
+  --dv-titanium: linear-gradient(90deg, #d8d3ca, #8f8a82 7%, #bdb7ad 50%, #8a857d 93%, #d2ccc3);
+  --dv-obsidian: linear-gradient(90deg, #6b6e74, #2c2e32 7%, #4a4d52 50%, #2a2c30 93%, #666a70);
+  --dv-rec: #ff3b30;
+}
+
+.platform-pick { display: flex; gap: var(--k-space-1); align-items: center; font-size: 0.9rem; font-weight: 600; }
+.platform-pick select {
+  font: inherit; font-weight: 500; padding: 6px 10px; border-radius: 8px;
+  border: 1px solid var(--line, var(--k-line)); background: var(--surface, var(--k-surface));
+  color: var(--ink, var(--k-ink));
+}
+#platform-note { margin: 4px 0 var(--k-space-2); }
+
+.stagebg { border-radius: var(--k-radius); display: flex; justify-content: center; }
+.stagebg:not([data-platform="none"]) { padding: var(--k-space-3) var(--k-space-2); }
+.stagebg[data-platform="macos"] { background: linear-gradient(170deg, #28225c, #a85c96 55%, #f6a678); }
+.stagebg[data-platform="windows"] { background: radial-gradient(circle at 50% 55%, #c4e2ff, #6eb0ff 22%, #0a2260 70%); }
+.stagebg[data-platform="linux"] { background: linear-gradient(125deg, #2c001e, #77216f 45%, #ec6e32); }
+.stagebg[data-platform^="android"] { background: linear-gradient(140deg, #96cec4, #e2ece2 55%, #f6e2be); }
+.stagebg[data-platform^="ios"] { background: radial-gradient(circle at 20% 25%, #2860f0, transparent 55%), radial-gradient(circle at 85% 35%, #ec4696, transparent 50%), radial-gradient(circle at 55% 95%, #fa8c3c, transparent 55%), #08081a; }
+
+.device { width: 100%; position: relative; }
+.device[data-kind="ios"], .device[data-kind="android"] { width: auto; }
+.dv-row { display: flex; align-items: flex-start; gap: 20px; }
+.dv-body { flex: 1; min-width: 0; }
+.device[data-kind="desktop"] .dv-body {
+  border-radius: 11px; overflow: hidden; box-shadow: 0 0 0 1px rgba(0,0,0,.14), 0 18px 40px rgba(0,0,0,.28);
+}
+.device[data-kind="desktop"] .viewport { border: 0; border-radius: 0; }
+
+/* Desktop chrome */
+.dv-tabs, .dv-titlebar, .dv-toolbar { display: flex; align-items: center; font: 12px var(--k-sans); color: var(--dv-chrome-ink); }
+.dv-tabs { height: 38px; background: var(--dv-mac-bar); padding: 0 0 0 10px; align-items: flex-end; gap: 6px; }
+.dv-lights { display: inline-flex; gap: 8px; align-self: center; margin: 0 14px 0 4px; }
+.dv-lights i { width: 12px; height: 12px; border-radius: 50%; background: var(--dv-red); }
+.dv-lights i:nth-child(2) { background: var(--dv-amber); }
+.dv-lights i:nth-child(3) { background: var(--dv-green); }
+.dv-tab { height: 31px; min-width: 150px; max-width: 46%; background: var(--dv-mac-tab); border-radius: 9px 9px 0 0; display: flex; align-items: center; gap: 8px; padding: 0 10px; }
+.dv-tab em { margin-left: auto; font-style: normal; color: var(--dv-chrome-dim); }
+.dv-fav { width: 14px; height: 14px; border-radius: 4px; background: #4f46e5; }
+.dv-plus { align-self: center; color: var(--dv-chrome-dim); font-size: 16px; }
+.dv-toolbar { height: 36px; background: var(--dv-mac-tab); gap: 10px; padding: 0 10px; border-bottom: 1px solid #dadce0; }
+.dv-nav { color: var(--dv-chrome-dim); letter-spacing: 6px; }
+.dv-omni { flex: 1; height: 26px; border-radius: 13px; background: var(--dv-omni); display: flex; align-items: center; padding: 0 12px; font-size: 13px; }
+.dv-omni em { font-style: normal; color: var(--dv-chrome-dim); }
+.dv-winctl, .dv-gnomectl { margin-left: auto; align-self: stretch; display: flex; }
+.dv-winctl i { width: 44px; display: grid; place-items: center; font-style: normal; font-size: 12px; }
+.dv-gnomectl { align-items: center; gap: 10px; padding-right: 10px; }
+.dv-gnomectl i { width: 22px; height: 22px; border-radius: 50%; background: #dadada; display: grid; place-items: center; font-style: normal; font-size: 10px; }
+.stagebg[data-platform="windows"] .dv-tabs { background: #e9edf3; }
+.stagebg[data-platform="linux"] .dv-tabs { background: var(--dv-gnome-bar); }
+
+/* Phones */
+.device[data-kind="ios"] .dv-body, .device[data-kind="android"] .dv-body {
+  flex: none; background: #fff; position: relative;
+  border: 14px solid var(--dv-glass); border-radius: 68px;
+  box-shadow: 0 0 0 3.5px #a9a39a, 0 0 0 4px rgba(0,0,0,.35), 0 24px 48px rgba(0,0,0,.35);
+  overflow: hidden;
+}
+.device[data-kind="android"] .dv-body { border-width: 11px; border-radius: 50px; box-shadow: 0 0 0 3px #3a3c40, 0 0 0 3.5px rgba(0,0,0,.4), 0 24px 48px rgba(0,0,0,.35); }
+.device[data-kind="ios"] .viewport, .device[data-kind="android"] .viewport { border: 0; border-radius: 0; }
+.device[data-style="recording"] .dv-body { border: 0; border-radius: 0; box-shadow: 0 18px 40px rgba(0,0,0,.3); }
+
+.dv-status { position: relative; display: flex; align-items: center; justify-content: space-between; background: #f4f5f7; color: #000; }
+.dv-status-ios { height: 54px; padding: 4px 30px 0 44px; font: 600 17px var(--k-sans); }
+.dv-status-android { height: 36px; padding: 0 20px 0 22px; font: 500 14px var(--k-sans); }
+.dv-status svg { display: block; }
+.dv-icons { display: flex; gap: 6px; align-items: center; }
+.dv-island { position: absolute; left: 50%; top: 11px; width: 124px; height: 36px; margin-left: -62px; border-radius: 18px; background: #000; }
+.dv-hole { position: absolute; left: 50%; top: 8px; width: 20px; height: 20px; margin-left: -10px; border-radius: 50%; background: #050505; }
+.dv-recpill { background: var(--dv-rec); color: #fff; border-radius: 999px; padding: 1px 10px; }
+.dv-clock { display: inline-flex; align-items: center; }
+.dv-rec { display: inline-flex; margin-left: 8px; color: #ff453a; }
+.dv-homebar { height: 34px; background: #f4f5f7; display: grid; place-items: end center; padding-bottom: 8px; }
+.device[data-kind="android"] .dv-homebar { height: 24px; padding-bottom: 8px; }
+.dv-homebar i { width: 134px; height: 5px; border-radius: 3px; background: #000; opacity: .85; }
+.device[data-kind="android"] .dv-homebar i { width: 108px; height: 4px; }
+
+/* Emulator and simulator chrome */
+.dv-emu { display: flex; flex-direction: column; width: 52px; background: #f2f2f2; border-radius: 10px; box-shadow: 0 0 0 1px rgba(0,0,0,.12), 0 10px 24px rgba(0,0,0,.2); padding: 4px 0; }
+.dv-emu i { height: 42px; display: grid; place-items: center; font-style: normal; color: #3c3c3c; font-size: 18px; }
+.dv-emu i:first-child { height: 28px; font-size: 11px; }
+.dv-simbar { display: flex; align-items: center; gap: 12px; height: 50px; margin-bottom: 10px; padding: 0 14px; background: #ececec; border-radius: 14px; box-shadow: 0 0 0 1px rgba(0,0,0,.1); font: 12px var(--k-sans); color: #262626; }
+.dv-simbar span:nth-child(2) { display: flex; flex-direction: column; line-height: 1.2; flex: 1; }
+.dv-simbar small { color: #7a7a7e; font-size: 11px; }
+.dv-simicons { letter-spacing: 10px; font-size: 15px; }

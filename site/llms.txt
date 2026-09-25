@@ -18,8 +18,11 @@ kaviri is ChiShona for "twice, a second time", pronounced ka-VEE-ree.
 
 ## Ops
 
-One JSON object per line. `navigate`, `wait`, `start_recording`, `click`, `type`, `scroll`,
-`mark`, `stop_recording`. Every op answers with one JSON line, `{"ok":true,"result":{…}}` or
+One JSON object per line. `frame`, `navigate`, `wait`, `start_recording`, `click`, `hover`,
+`type`, `press`, `scroll`, `mark`, `stop_recording`. `{"op":"frame","platform":"ios"}` as the
+first line films the take on a device: `macos`, `windows`, `linux`, `ios`, `android`,
+`android-emulator`, `ios-simulator`, and `"style":"recording"` for a phone's own screen
+recording. Every op answers with one JSON line, `{"ok":true,"result":{…}}` or
 `{"ok":false,"error":"…"}`, and a failed op makes the process exit non-zero.
 
 ## The camera

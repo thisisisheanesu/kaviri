@@ -66,6 +66,22 @@ poll it until it answers before the recorder runs. `docs/ci.md` in the repositor
 one browser open across many ops and produces one take. Spawning `record` per step gives you a
 folder of two-second clips.
 
+## Framing it as a device
+
+Declare the platform as the script's first line:
+
+```jsonl
+{"op":"frame","platform":"ios"}
+{"op":"frame","platform":"android","style":"recording"}
+{"op":"frame","platform":"macos","desktop":"on","dock":"dev"}
+```
+
+Platforms: `macos`, `windows`, `linux`, `ios`, `android`, `android-emulator`,
+`ios-simulator`. A phone platform films at that phone's viewport and user agent, so the page
+serves its phone layout, and shows a tap dot instead of a mouse pointer. `"style":"recording"`
+(phones) looks like the phone's own screen recording. Every field mirrors a `--frame*` flag;
+the flags win. Put the op before `start_recording`.
+
 ## Serve mode, which is the one built for you
 
 ```

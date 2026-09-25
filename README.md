@@ -172,15 +172,21 @@ content's own lightness. Nothing is random: the same recording always picks the
 same backdrop. `--background none` renders full frame, and `--background
 photo.jpg` uses any image ffmpeg can read, scaled to cover.
 
-`--frame` films the take as if it were on a device: `macos`, `windows`,
+`--frame`, or a `{"op":"frame","platform":"ios"}` line at the top of the script, films the
+take as if it were on a device: `macos`, `windows`,
 `linux`, `android`, `ios`, `android-emulator` or `ios-simulator`. The desktop
 frames draw a browser window by default, with the page's own favicon, title and
 URL in the tab and address bar; `--frame-style app` draws a bare title bar
 instead, as an installed app. The phone frames draw the bezel, status bar and
 home indicator, and make the browser claim to be that phone, so the site serves
 its phone layout; with no size given they film at that phone's viewport.
-`--frame-style browser` adds the phone's address bar. The emulators draw the
-Android Emulator's side toolbar or the iOS Simulator's device title bar.
+`--frame-style browser` adds the phone's address bar, and `--frame-style recording` makes the
+take the phone's own screen recording: the screen edge to edge at the phone's resolution, no
+bezel, the red recording indicator in the status bar. The handsets are drawn as hardware, a
+titanium or obsidian band with the side buttons, and a phone take shows a tap dot rather than a
+mouse pointer. The emulators draw the same handsets with the Android Emulator's side toolbar or
+the iOS Simulator's device title bar. The playground at kaviri.dev/play has the same platforms
+in a picker, which writes the `frame` line for you.
 
 ```
 kaviri record --script demo.jsonl --out demo.mp4 --frame macos --desktop on

@@ -113,10 +113,22 @@ a choice, and it is the single most useful thing to assert on.
 
 ## Framing it as a device
 
-`--frame macos|windows|linux|android|ios|android-emulator|ios-simulator` films the take
-inside that system's window or handset, with the page's real title, favicon and URL in the
-chrome. A phone frame also switches the browser to that phone's viewport and user agent, so
-write the script against the phone layout. `--desktop on` adds the menu bar and dock or the
+Declare the platform in the script, as its first line, so the file carries it:
+
+```jsonl
+{"op":"frame","platform":"ios"}
+{"op":"frame","platform":"ios","style":"recording"}
+{"op":"frame","platform":"macos","desktop":"on"}
+```
+
+`platform` is `macos`, `windows`, `linux`, `ios`, `android`, `android-emulator` or
+`ios-simulator`; every `--frame*` flag has a field of the same meaning, listed in
+`docs/script-protocol.md`. The flags still work and win over the op. The take is filmed inside
+that system's window or handset, with the page's real title, favicon and URL in the chrome.
+A phone platform also switches the browser to that phone's viewport and user agent, so write
+the script against the phone layout, and it draws a tap dot instead of a mouse pointer.
+`"style":"recording"` on `ios` or `android` makes the take look like the phone's own screen
+recording: the screen edge to edge, no bezel, the red recording indicator in the status bar. `--desktop on` adds the menu bar and dock or the
 taskbar; `--dock on` draws the dock without the menu bar, `--dock-position` puts it on a side, and
 `--icon-set` restyles the icons; `kaviri frames` lists the frames, icons, dock groups and
 icon sets. The chrome is read off the page when `stop_recording` runs, so stop on the page you

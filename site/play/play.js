@@ -14,6 +14,7 @@
 
 import { Camera } from "./camera.js";
 import { canRecord, startCapture, offerScript } from "./record.js";
+import { PLATFORMS, platformOf, opFor, applyFrame, fit } from "./frames.js";
 
 const APPS = {
   "app": "Parcel, a tracking form",
@@ -34,6 +35,12 @@ const OPS = {
   scroll: { need: [], allow: ["y", "smooth"] },
   press: { need: ["key"], allow: ["key", "repeat", "interval_ms", "hold_ms", "selector"] },
   mark: { need: ["label"], allow: ["label"] },
+  frame: {
+    need: [],
+    allow: ["platform", "frame", "style", "theme", "icon", "title", "url", "desktop", "dock",
+            "dock_position", "dock_size", "icon_set", "icon_tint", "device_name", "clock",
+            "battery", "background"],
+  },
 };
 
 /** Validate the whole script before running any of it, the way the binary does. */
@@ -85,6 +92,13 @@ export function parseScript(text) {
    * makes them worth catching here rather than at the end of a take.
    */
   const rec = ops.findIndex((p) => p.o.op === "start_recording");
+  const fr = ops.findIndex((p) => p.o.op === "frame");
+  if (fr > -1 && rec > -1 && fr > rec) {
+    errors.push(`line ${ops[fr].n}: frame must come before start_recording`);
+  }
+  if (fr > -1 && !PLATFORMS.some((p) => p.id === platformOf(ops[fr].o))) {
+    errors.push(`line ${ops[fr].n}: the playground has no ${platformOf(ops[fr].o)} frame`);
+  }
   const stop = ops.findIndex((p) => p.o.op === "stop_recording");
   if (rec === -1) errors.push("nothing is recorded: the script has no start_recording");
   if (stop === -1) errors.push("the take never ends: the script has no stop_recording");
@@ -206,6 +220,10 @@ async function runOp({ n, o }, cam, state) {
       return;
     case "mark":
       log("mark", o.label);
+      return;
+    case "frame":
+      // Applied before the run starts, as the binary applies it before launch.
+      log("frame", platformOf(o));
       return;
     case "press": {
       const parts = o.key === "+" ? ["+"] : o.key.endsWith("++") ? [...o.key.slice(0, -2).split("+"), "+"] : o.key.split("+");
@@ -353,6 +371,12 @@ async function run(withCapture) {
   els.download.disabled = true;
   els.run.textContent = "Running";
 
+  /*
+   * The frame op is read ahead, the way the binary reads it before the browser starts: a
+   * phone is a different viewport, and the camera has to be built for the one it films.
+   */
+  const frameOp = ops.find((p) => p.o.op === "frame");
+  setPlatform(frameOp ? platformOf(frameOp.o) : "none", false);
   const frame = { w: els.frame.clientWidth, h: els.frame.clientHeight };
   const cam = new Camera(frame);
   const stopCam = startCamera(cam);
@@ -394,9 +418,36 @@ async function run(withCapture) {
   }
 }
 
+function frameEls() {
+  return {
+    device: els.device, top: els.dvtop, bottom: els.dvbottom, side: els.dvside,
+    over: els.dvover, viewport: els.viewport,
+  };
+}
+
+/** Show a platform, and optionally write it into the script as its frame line. */
+function setPlatform(id, writeScript) {
+  els.platform.value = id;
+  els.stagebg.dataset.platform = id.split(":")[0];
+  applyFrame(frameEls(), id);
+  if (!writeScript) return;
+  const lines = els.script.value.split("\n").filter((l) => {
+    try {
+      return JSON.parse(l).op !== "frame";
+    } catch {
+      return true;
+    }
+  });
+  const op = opFor(id);
+  if (op) lines.unshift(JSON.stringify(op));
+  els.script.value = lines.join("\n");
+}
+
 function boot() {
   for (const id of ["script", "run", "download", "getscript", "frame", "stage", "log", "rec",
-                    "reset", "result", "resultvideo", "resultdl", "resultmeta", "resultclose"]) {
+                    "reset", "result", "resultvideo", "resultdl", "resultmeta", "resultclose",
+                    "platform", "stagebg", "device", "dvtop", "dvbottom", "dvside", "dvover",
+                    "viewport"]) {
     els[id] = document.getElementById(id);
   }
   els.run.addEventListener("click", () => run(false));
@@ -410,8 +461,29 @@ function boot() {
   els.reset.addEventListener("click", () => {
     els.script.value = els.script.dataset.default;
     els.log.innerHTML = "";
+    setPlatform("none", false);
   });
   els.script.dataset.default = els.script.value;
+  for (const p of PLATFORMS) {
+    const o = document.createElement("option");
+    o.value = p.id;
+    o.textContent = p.label;
+    els.platform.appendChild(o);
+  }
+  els.platform.addEventListener("change", () => {
+    if (!running) setPlatform(els.platform.value, true);
+  });
+  // A script typed or pasted with a frame line moves the picker with it.
+  els.script.addEventListener("change", () => {
+    const { ops } = parseScript(els.script.value);
+    const f = ops.find((p) => p.o.op === "frame");
+    const id = f ? platformOf(f.o) : "none";
+    if (PLATFORMS.some((p) => p.id === id)) setPlatform(id, false);
+  });
+  window.addEventListener("resize", () => fit(frameEls()));
+  // ?platform=ios in the address opens the playground on that frame.
+  const want = new URLSearchParams(location.search).get("platform");
+  setPlatform(PLATFORMS.some((p) => p.id === want) ? want : "none", Boolean(want));
 }
 
 document.addEventListener("DOMContentLoaded", boot);

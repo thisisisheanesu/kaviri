@@ -116,6 +116,60 @@ timeout got twenty seconds and looked like a flaky page.
 
 ---
 
+## `frame`
+
+```jsonc
+{"op":"frame","platform":"ios"}
+{"op":"frame","platform":"ios","style":"recording","clock":"10:08","battery":42}
+{"op":"frame","platform":"macos","desktop":"on","dock":"dev,maps","icon_set":"glass"}
+{"op":"frame","platform":"android-emulator","desktop":"windows"}
+{"op":"frame","platform":"none"}
+```
+
+Declares the device the take is filmed on. It is the script's own copy of the `--frame`
+flags, so a `.jsonl` file carries its platform with it and runs the same wherever it runs.
+Put it first, and always before `start_recording`: a take cannot change device halfway
+through.
+
+| field | mirrors | values |
+|---|---|---|
+| `platform` (or `frame`) | `--frame` | `macos`, `windows`, `linux`, `ios`, `android`, `android-emulator`, `ios-simulator`, `none` |
+| `style` | `--frame-style` | `browser`, `app`, `recording` (phones only: the phone's own screen recording) |
+| `theme` | `--frame-theme` | `auto`, `light`, `dark` |
+| `title`, `url` | `--frame-title`, `--frame-url` | text for the title bar, tab and address bar |
+| `icon` | `--frame-icon` | `auto` (the favicon), `none`, a built-in icon, or an image file |
+| `desktop` | `--desktop` | `on`, `off`, `macos`, `windows`, `linux`, or `true` / `false` |
+| `dock` | `--dock` | `on`, `off`, or icons, groups and image files, comma separated |
+| `dock_position` | `--dock-position` | `bottom`, `left`, `right` |
+| `dock_size` | `--dock-size` | 24 to 128 |
+| `icon_set`, `icon_tint` | `--icon-set`, `--icon-tint` | `color`, `pastel`, `dark`, `mono`, `tinted`, `glass`, `outline`; a hex colour |
+| `device_name` | `--device-name` | the handset an emulator's title names |
+| `clock`, `battery` | `--clock`, `--battery` | status bar time; 0 to 100 |
+| `background` | `--background` | a backdrop name, `auto`, `none`, or an image file |
+
+An unknown field is an error rather than ignored, because a misspelt platform is a take on
+the wrong device.
+
+**In `record` mode** the op is read before the browser starts, so a phone platform launches
+at that phone's viewport, scale and video size (393x852 at 3x for `ios`, 412x915 for
+`android`, and the screen's own shape for `style: recording`), with the phone's user agent.
+Flags on the command line win: a `--frame` overrides the op (kaviri says so on stderr), and
+`--width`, `--height`, `--preset`, `--out-*` and `--background` keep the size and backdrop
+they chose.
+
+**In `serve` mode** the op applies when it arrives, and a phone platform resizes the
+viewport then, keeping the capture scale the browser launched with (`--scale`), which
+Chromium fixes at startup. Send it before `navigate` so the page lays itself out once, for
+the phone.
+
+Returns `{"event":"frame","platform":"ios","viewport":[393,852],"video":[1080,1920]}`, or with
+`"note":"settled before launch"` when the platform was already fixed by the command line or
+read ahead in record mode.
+
+Phone frames draw the tap indicator (`--cursor touch`) rather than a mouse pointer, since a
+phone has none: a soft dot that shows for the tap and lifts. Pass `--cursor` to choose
+otherwise.
+
 ## `start_recording`
 
 ```jsonc

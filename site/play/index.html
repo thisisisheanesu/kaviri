@@ -67,11 +67,28 @@
   </div>
 
   <div class="play-right">
-    <div class="viewport">
-      <div id="stage">
-        <iframe id="frame" src="app" title="the app being filmed"></iframe>
+    <label class="platform-pick">Platform
+      <select id="platform" aria-describedby="platform-note"></select>
+    </label>
+    <p id="platform-note" class="muted small">Picking one writes a <code>frame</code> line into the
+      script, which is how the binary is told the same thing.</p>
+    <div class="stagebg" id="stagebg">
+      <div id="device" class="device" data-platform="none" data-kind="none">
+        <div id="dvover"></div>
+        <div class="dv-row">
+          <div class="dv-body">
+            <div id="dvtop"></div>
+            <div class="viewport" id="viewport">
+              <div id="stage">
+                <iframe id="frame" src="app" title="the app being filmed"></iframe>
+              </div>
+              <span id="rec" hidden>REC</span>
+            </div>
+            <div id="dvbottom"></div>
+          </div>
+          <div id="dvside"></div>
+        </div>
       </div>
-      <span id="rec" hidden>REC</span>
     </div>
     <figure class="result" id="result" hidden>
       <video id="resultvideo" controls playsinline preload="metadata"></video>
@@ -104,6 +121,8 @@
         <li>Point a <code>click</code> at <code>#nope</code>. You get the line number and the
           selector, which is what a CI log needs to be useful.</li>
         <li>Remove <code>start_recording</code> entirely.</li>
+        <li>Pick <b>iPhone screen recording</b> and run it again: the same script, filmed as the
+          phone's own recording, with the app in its phone layout.</li>
       </ul>
     </div>
     <div>
