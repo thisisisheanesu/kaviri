@@ -93,6 +93,7 @@ One JSON object per line, in and out.
 {"op":"hover","selector":".card","at":[0.2,0.5],"ms":800}  // glide the mouse; pointer effects follow
 {"op":"type","selector":"#name","text":"Ada"}  // typewriter_ms optional, default 18
 {"op":"type","text":"Ada"}                  // no selector: types into the focused element
+{"op":"press","key":"Meta+K"}              // a real key or chord; repeat, interval_ms, hold_ms
 {"op":"scroll","y":600,"smooth":true}       // y is an absolute document offset
 {"op":"wait","ms":800}                      // a fixed pause
 {"op":"wait","selector":".loaded"}          // or wait for an element, default budget 20s

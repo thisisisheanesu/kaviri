@@ -23,6 +23,7 @@ if any op failed, so you can tell success from failure without watching the vide
 {"op":"start_recording"}
 {"op":"wait","ms":800}
 {"op":"hover","selector":"#plans","ms":700}
+{"op":"press","key":"Meta+K"}
 {"op":"click","selector":"#new-invoice"}
 {"op":"type","selector":"#amount","text":"1450.00"}
 {"op":"scroll","y":600,"smooth":true}
@@ -35,7 +36,9 @@ if any op failed, so you can tell success from failure without watching the vide
 mouse along a path (so pointer-tracking effects follow it) and is framed by the camera like a
 click; `at: [fx, fy]` aims it at a fraction of the element instead of its centre. `type` takes `typewriter_ms` to set the
 per character delay; the default of 18 is deliberately fast, because a demo of someone typing
-slowly is a demo of someone typing slowly. `navigate` turns a bare path into a `file://` URL.
+slowly is a demo of someone typing slowly. `press` sends a real key or chord (`"Enter"`, `"ArrowDown"`, `"?"`, `"Meta+Shift+P"`) to
+whatever has focus, with `repeat`, `interval_ms` and `hold_ms`, for apps driven from the keyboard.
+`navigate` turns a bare path into a `file://` URL.
 `mark` puts a label in the telemetry and nothing on screen.
 
 The full reference, including every field and what each one does to the camera, is

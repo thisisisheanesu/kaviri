@@ -314,6 +314,46 @@ mirroring the text up to the caret into a hidden element with the same typograph
 where it ends. If nothing is focused it returns null and no pan is laid down; the typing still
 happens.
 
+## `press`
+
+```jsonc
+{"op":"press","key":"Enter"}
+{"op":"press","key":"ArrowDown","repeat":4,"interval_ms":150}
+{"op":"press","key":"Meta+Shift+P"}
+{"op":"press","key":"?"}
+{"op":"press","key":"Shift","hold_ms":1200}
+{"op":"press","key":"Escape","selector":"#search"}
+```
+
+| field | type | default | notes |
+|---|---|---|---|
+| `key` | string | none | one key, or a chord of modifiers and a key joined by `+` |
+| `repeat` | integer | 1 | how many times to press it, 1..200 |
+| `interval_ms` | number | 120 | the pause between repeats |
+| `hold_ms` | number | 0 | how long the key stays down before it comes up |
+| `selector` | string | none | focus this element first (no click, no pointer move) |
+
+A key is a single character (`a`, `K`, `7`, `/`, `?`) or a name: `Enter`, `Tab`, `Escape`,
+`Backspace`, `Delete`, `Space`, `ArrowUp` / `ArrowDown` / `ArrowLeft` / `ArrowRight` (or `Up`,
+`Down`, ...), `Home`, `End`, `PageUp`, `PageDown`, `Insert`, `F1` to `F24`, or a modifier on its
+own. Modifiers are `Shift`, `Control` (`Ctrl`), `Alt` (`Option`) and `Meta` (`Cmd`), in any
+case. A literal plus is the last part: `"+"` or `"Control++"`.
+
+Each press is what a keyboard sends: a keydown for every modifier in order, the key down, the
+key up, and the modifiers up in reverse, all through `Input.dispatchKeyEvent`, so page
+listeners see real `keydown` / `keyup` events with `key`, `code`, `shiftKey`, `metaKey` and
+the rest set. The layout is US: a capital letter or a shifted symbol (`?`, `!`, `+`) holds
+Shift for you, so a handler bound to `?` sees `shiftKey` true, as it would from a person.
+A printable key with no Control or Meta also inserts its character into a focused field; a
+chord with either one is a shortcut and inserts nothing.
+
+`press` is not a replacement for `type`. It exists for apps driven from the keyboard (command
+palettes, Vim bindings, games, list navigation), where the key is the interaction. For text,
+`type` is faster and follows the caret with the camera.
+
+A press has no box, so it does not move the camera by itself. Put a `hover` or `click` on the
+thing the keys act on when the take needs to be looking at it. `label` is the key as written.
+
 ## `scroll`
 
 ```jsonc

@@ -355,6 +355,157 @@ fn duration_ms(op: &Value, field: &str, default: u64) -> Result<u64, String> {
     }
 }
 
+/// One key as `Input.dispatchKeyEvent` wants it: the DOM `key` and `code`, the Windows virtual
+/// key code that Chromium still routes some handlers by, and the text a printable key inserts.
+#[derive(Debug, Clone, PartialEq)]
+struct KeyDef {
+    key: String,
+    code: String,
+    vk: i64,
+    text: Option<String>,
+}
+
+/// CDP's modifier bits, the order a chord is written in, and the key each one is.
+const MODIFIERS: [(&str, i64, &str, i64); 4] = [
+    ("Alt", 1, "AltLeft", 18),
+    ("Control", 2, "ControlLeft", 17),
+    ("Meta", 4, "MetaLeft", 91),
+    ("Shift", 8, "ShiftLeft", 16),
+];
+
+/// Punctuation on a US layout: unshifted, shifted, code, virtual key.
+const PUNCT: [(char, char, &str, i64); 11] = [
+    ('-', '_', "Minus", 189),
+    ('=', '+', "Equal", 187),
+    ('[', '{', "BracketLeft", 219),
+    (']', '}', "BracketRight", 221),
+    ('\\', '|', "Backslash", 220),
+    (';', ':', "Semicolon", 186),
+    ('\'', '"', "Quote", 222),
+    (',', '<', "Comma", 188),
+    ('.', '>', "Period", 190),
+    ('/', '?', "Slash", 191),
+    ('`', '~', "Backquote", 192),
+];
+const SHIFTED_DIGITS: &str = ")!@#$%^&*(";
+
+fn modifier_name(s: &str) -> Option<&'static str> {
+    Some(match s.to_ascii_lowercase().as_str() {
+        "alt" | "option" | "opt" => "Alt",
+        "control" | "ctrl" => "Control",
+        "meta" | "cmd" | "command" | "super" => "Meta",
+        "shift" => "Shift",
+        _ => return None,
+    })
+}
+
+/// A single key by name or by the character it types. Returns the definition and whether
+/// typing it needs Shift held (a capital letter, `?`, `!`), so `"?"` behaves like the real key.
+fn key_def(name: &str) -> Result<(KeyDef, bool), String> {
+    let named = |key: &str, code: &str, vk: i64, text: Option<&str>| KeyDef {
+        key: key.into(),
+        code: code.into(),
+        vk,
+        text: text.map(|t| t.into()),
+    };
+    let lower = name.to_ascii_lowercase();
+    let def = match lower.as_str() {
+        "enter" | "return" => named("Enter", "Enter", 13, Some("\r")),
+        "tab" => named("Tab", "Tab", 9, None),
+        "escape" | "esc" => named("Escape", "Escape", 27, None),
+        "backspace" => named("Backspace", "Backspace", 8, None),
+        "delete" | "del" => named("Delete", "Delete", 46, None),
+        "space" => named(" ", "Space", 32, Some(" ")),
+        "arrowup" | "up" => named("ArrowUp", "ArrowUp", 38, None),
+        "arrowdown" | "down" => named("ArrowDown", "ArrowDown", 40, None),
+        "arrowleft" | "left" => named("ArrowLeft", "ArrowLeft", 37, None),
+        "arrowright" | "right" => named("ArrowRight", "ArrowRight", 39, None),
+        "home" => named("Home", "Home", 36, None),
+        "end" => named("End", "End", 35, None),
+        "pageup" => named("PageUp", "PageUp", 33, None),
+        "pagedown" => named("PageDown", "PageDown", 34, None),
+        "insert" => named("Insert", "Insert", 45, None),
+        _ => {
+            if let Some(n) = lower.strip_prefix('f').and_then(|n| n.parse::<i64>().ok()) {
+                if (1..=24).contains(&n) {
+                    let k = format!("F{n}");
+                    return Ok((named(&k, &k, 111 + n, None), false));
+                }
+            }
+            if let Some(m) = modifier_name(name) {
+                let (_, _, code, vk) = MODIFIERS.iter().find(|m2| m2.0 == m).unwrap();
+                return Ok((named(m, code, *vk, None), false));
+            }
+            let mut chars = name.chars();
+            let (Some(c), None) = (chars.next(), chars.next()) else {
+                return Err(format!(
+                    "press: unknown key {name:?}; use a single character or a name such as \
+                     Enter, Tab, Escape, ArrowDown, PageDown, Space, F5"
+                ));
+            };
+            let t = c.to_string();
+            if c.is_ascii_alphabetic() {
+                let up = c.to_ascii_uppercase();
+                let def = named(&t, &format!("Key{up}"), up as i64, Some(&t));
+                return Ok((def, c.is_ascii_uppercase()));
+            }
+            if c.is_ascii_digit() {
+                return Ok((named(&t, &format!("Digit{c}"), c as i64, Some(&t)), false));
+            }
+            if let Some(i) = SHIFTED_DIGITS.find(c) {
+                let def = named(&t, &format!("Digit{i}"), 48 + i as i64, Some(&t));
+                return Ok((def, true));
+            }
+            if c == ' ' {
+                return Ok((named(" ", "Space", 32, Some(" ")), false));
+            }
+            if let Some(&(a, b, code, vk)) = PUNCT.iter().find(|p| p.0 == c || p.1 == c) {
+                return Ok((named(&t, code, vk, Some(&t)), c == b && c != a));
+            }
+            return Err(format!(
+                "press: {name:?} is not on a US keyboard; use type for text that is not"
+            ));
+        }
+    };
+    Ok((def, false))
+}
+
+/// `"Meta+Shift+K"` into the modifiers to hold, in order, and the key to press under them.
+/// A literal plus is written as the last part: `"+"`, `"Shift++"`.
+fn parse_chord(chord: &str) -> Result<(Vec<&'static str>, KeyDef), String> {
+    if chord.is_empty() {
+        return Err("press needs key, such as \"Enter\" or \"Meta+L\"".into());
+    }
+    let (head, last) = if chord == "+" {
+        ("", "+")
+    } else if let Some(h) = chord.strip_suffix("++") {
+        (h, "+")
+    } else {
+        match chord.rsplit_once('+') {
+            Some((h, l)) => (h, l),
+            None => ("", chord),
+        }
+    };
+    let mut mods: Vec<&'static str> = Vec::new();
+    if !head.is_empty() {
+        for part in head.split('+') {
+            let m = modifier_name(part.trim()).ok_or_else(|| {
+                format!(
+                    "press: {part:?} in {chord:?} is not a modifier (Shift, Control, Alt, Meta)"
+                )
+            })?;
+            if !mods.contains(&m) {
+                mods.push(m);
+            }
+        }
+    }
+    let (def, needs_shift) = key_def(last.trim())?;
+    if needs_shift && !mods.contains(&"Shift") {
+        mods.push("Shift");
+    }
+    Ok((mods, def))
+}
+
 impl Session {
     pub fn launch(
         chromium: Option<&str>,
@@ -849,6 +1000,93 @@ impl Session {
                 }
                 Ok(m)
             }
+            "press" => {
+                let chord = op["key"]
+                    .as_str()
+                    .ok_or("press needs key, such as \"Enter\", \"ArrowDown\" or \"Meta+L\"")?
+                    .to_string();
+                let (mods, def) = parse_chord(&chord)?;
+                let repeat = match op.get("repeat") {
+                    None | Some(Value::Null) => 1,
+                    Some(v) => match v.as_u64() {
+                        Some(n) if (1..=200).contains(&n) => n,
+                        _ => {
+                            return Err(format!(
+                                "press repeat must be a whole number 1..200, got {v}"
+                            ))
+                        }
+                    },
+                };
+                let interval = duration_ms(op, "interval_ms", 120)?;
+                let hold = duration_ms(op, "hold_ms", 0)?;
+                if let Some(sel) = op["selector"].as_str() {
+                    // Focus, not click: a click would move the pointer and earn a zoom, and a
+                    // key press into a field should not look like a click on it.
+                    let js = format!(
+                        "(() => {{ const el = document.querySelector({}); if (!el) return false; \
+                          el.focus(); return true; }})()",
+                        js_string(sel)
+                    );
+                    if self.cdp.evaluate(&js)?.as_bool() != Some(true) {
+                        return Err(format!("selector not found: {sel}"));
+                    }
+                }
+                let bit = |m: &str| {
+                    MODIFIERS
+                        .iter()
+                        .find(|x| x.0 == m)
+                        .map(|x| x.1)
+                        .unwrap_or(0)
+                };
+                let all: i64 = mods.iter().map(|m| bit(m)).sum();
+                // A chord with Control or Meta is a shortcut, and a shortcut types nothing.
+                let text = def.text.clone().filter(|_| all & (2 | 4) == 0);
+                let m = self.mark("press", &chord, None);
+                for i in 0..repeat {
+                    let mut held = 0;
+                    for name in &mods {
+                        let (_, b, code, vk) = MODIFIERS.iter().find(|x| x.0 == *name).unwrap();
+                        held |= b;
+                        self.cdp.send(
+                            "Input.dispatchKeyEvent",
+                            json!({"type": "rawKeyDown", "key": name, "code": code,
+                                   "windowsVirtualKeyCode": vk, "modifiers": held}),
+                        )?;
+                    }
+                    let mut down = json!({
+                        "type": if text.is_some() { "keyDown" } else { "rawKeyDown" },
+                        "key": def.key, "code": def.code,
+                        "windowsVirtualKeyCode": def.vk, "modifiers": all,
+                    });
+                    if let Some(t) = &text {
+                        down["text"] = json!(t);
+                        down["unmodifiedText"] = json!(t);
+                    }
+                    self.cdp.send("Input.dispatchKeyEvent", down)?;
+                    if hold > 0 {
+                        self.cdp.sleep_pump(hold)?;
+                    }
+                    self.cdp.send(
+                        "Input.dispatchKeyEvent",
+                        json!({"type": "keyUp", "key": def.key, "code": def.code,
+                               "windowsVirtualKeyCode": def.vk, "modifiers": all}),
+                    )?;
+                    for name in mods.iter().rev() {
+                        let (_, b, code, vk) = MODIFIERS.iter().find(|x| x.0 == *name).unwrap();
+                        held &= !b;
+                        self.cdp.send(
+                            "Input.dispatchKeyEvent",
+                            json!({"type": "keyUp", "key": name, "code": code,
+                                   "windowsVirtualKeyCode": vk, "modifiers": held}),
+                        )?;
+                    }
+                    if i + 1 < repeat {
+                        self.cdp.sleep_pump(interval)?;
+                    }
+                }
+                self.cdp.sleep_pump(60)?;
+                Ok(m)
+            }
             "scroll" => {
                 // No silent default here. `{"op":"scroll","top":600}` and a y that
                 // arrived as the string "600" both used to scroll the page to the top
@@ -1050,5 +1288,45 @@ mod tests {
         // everything produces, and it used to be silently ignored.
         assert!(duration_ms(&op, "ms", 0).is_err());
         assert!(duration_ms(&op, "bad", 0).is_err());
+    }
+
+    #[test]
+    fn a_chord_parses_into_held_modifiers_and_one_key() {
+        let (mods, k) = parse_chord("Meta+Shift+k").unwrap();
+        assert_eq!(mods, vec!["Meta", "Shift"]);
+        assert_eq!((k.key.as_str(), k.code.as_str(), k.vk), ("k", "KeyK", 75));
+        let (mods, k) = parse_chord("ArrowDown").unwrap();
+        assert!(mods.is_empty());
+        assert_eq!((k.code.as_str(), k.vk, k.text), ("ArrowDown", 40, None));
+        let (mods, k) = parse_chord("cmd+l").unwrap();
+        assert_eq!(mods, vec!["Meta"]);
+        assert_eq!(k.code, "KeyL");
+    }
+
+    /// `?` is Shift+Slash on the keyboard it pretends to be, and a page that listens for
+    /// `e.shiftKey` has to see the Shift, or a help overlay bound to `?` never opens.
+    #[test]
+    fn a_shifted_character_holds_shift_and_a_literal_plus_parses() {
+        let (mods, k) = parse_chord("?").unwrap();
+        assert_eq!(mods, vec!["Shift"]);
+        assert_eq!((k.code.as_str(), k.text.as_deref()), ("Slash", Some("?")));
+        let (mods, k) = parse_chord("F").unwrap();
+        assert_eq!(mods, vec!["Shift"]);
+        assert_eq!(k.code, "KeyF");
+        let (mods, k) = parse_chord("+").unwrap();
+        assert_eq!(mods, vec!["Shift"]);
+        assert_eq!(k.code, "Equal");
+        let (_, k) = parse_chord("Control++").unwrap();
+        assert_eq!(k.key, "+");
+        let (_, k) = parse_chord("Space").unwrap();
+        assert_eq!((k.key.as_str(), k.vk), (" ", 32));
+    }
+
+    #[test]
+    fn an_unknown_key_or_modifier_is_named_in_the_error() {
+        assert!(parse_chord("Hyper+k").unwrap_err().contains("Hyper"));
+        assert!(parse_chord("Enterr").unwrap_err().contains("Enterr"));
+        assert!(parse_chord("").is_err());
+        assert!(parse_chord("é").is_err());
     }
 }

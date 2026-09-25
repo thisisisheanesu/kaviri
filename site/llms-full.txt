@@ -22,6 +22,8 @@ if any op failed, so you can tell success from failure without watching the vide
 {"op":"wait","selector":"#app","timeout_ms":30000}
 {"op":"start_recording"}
 {"op":"wait","ms":800}
+{"op":"hover","selector":"#plans","ms":700}
+{"op":"press","key":"Meta+K"}
 {"op":"click","selector":"#new-invoice"}
 {"op":"type","selector":"#amount","text":"1450.00"}
 {"op":"scroll","y":600,"smooth":true}
@@ -30,7 +32,9 @@ if any op failed, so you can tell success from failure without watching the vide
 {"op":"stop_recording"}
 ```
 
-`click` also takes `x` and `y` instead of a selector. `type` takes `typewriter_ms` to set the
+`click` also takes `x` and `y` instead of a selector, and so does `hover`, which glides the
+real mouse there and is framed like a click. `press` sends a real key or chord (`"Enter"`,
+`"ArrowDown"`, `"?"`, `"Meta+Shift+P"`) to whatever has focus. `type` takes `typewriter_ms` to set the
 per character delay; the default of 18 is deliberately fast, because a demo of someone typing
 slowly is a demo of someone typing slowly. `navigate` turns a bare path into a `file://` URL.
 `mark` puts a label in the telemetry and nothing on screen.

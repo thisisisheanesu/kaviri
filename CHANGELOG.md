@@ -43,6 +43,10 @@ dated `[0.1.0]` heading, when the tag is cut.
 
 ### Added
 
+- A `press` op that sends a real key or chord (`"Enter"`, `"ArrowDown"`,
+  `"Meta+Shift+P"`, `"?"`) through `Input.dispatchKeyEvent`, with `repeat`,
+  `interval_ms`, `hold_ms` and an optional `selector` to focus first. Until now
+  a keyboard-driven app could not be filmed without hooks in the app itself.
 - `kaviri doctor`, which prints the Chromium and ffmpeg kaviri resolved, and
   where it found them, without launching a take.
 - `kaviri --version` / `-V`, and the version in the startup log line, so a

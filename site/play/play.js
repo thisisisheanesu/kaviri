@@ -32,6 +32,7 @@ const OPS = {
   click: { need: [], allow: ["selector", "x", "y"] },
   type: { need: ["text"], allow: ["selector", "text", "typewriter_ms"] },
   scroll: { need: [], allow: ["y", "smooth"] },
+  press: { need: ["key"], allow: ["key", "repeat", "interval_ms", "hold_ms", "selector"] },
   mark: { need: ["label"], allow: ["label"] },
 };
 
@@ -206,6 +207,31 @@ async function runOp({ n, o }, cam, state) {
     case "mark":
       log("mark", o.label);
       return;
+    case "press": {
+      const parts = o.key === "+" ? ["+"] : o.key.endsWith("++") ? [...o.key.slice(0, -2).split("+"), "+"] : o.key.split("+");
+      const key = parts.pop();
+      const mods = parts.map((m) => m.toLowerCase());
+      const has = (...names) => mods.some((m) => names.includes(m));
+      const target = (o.selector !== undefined ? resolve(o.selector, n).el : doc().activeElement) || doc().body;
+      if (o.selector !== undefined) target.focus();
+      const init = {
+        key: key.length === 1 ? key : key.replace(/^(up|down|left|right)$/i, (d) => "Arrow" + d[0].toUpperCase() + d.slice(1).toLowerCase()),
+        bubbles: true,
+        cancelable: true,
+        shiftKey: has("shift") || /^[A-Z?!@#$%^&*()_+{}|:"<>~]$/.test(key),
+        ctrlKey: has("control", "ctrl"),
+        altKey: has("alt", "option", "opt"),
+        metaKey: has("meta", "cmd", "command", "super"),
+      };
+      for (let i = 0; i < (o.repeat ?? 1); i++) {
+        target.dispatchEvent(new KeyboardEvent("keydown", init));
+        await sleep(o.hold_ms ?? 0);
+        target.dispatchEvent(new KeyboardEvent("keyup", init));
+        if (i + 1 < (o.repeat ?? 1)) await sleep(o.interval_ms ?? 120);
+      }
+      log("press", o.key + (o.repeat > 1 ? ` x${o.repeat}` : ""));
+      return;
+    }
     case "scroll": {
       doc().scrollingElement.scrollTo({ top: o.y, behavior: o.smooth ? "smooth" : "auto" });
       await sleep(o.smooth ? 500 : 60);
