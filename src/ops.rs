@@ -591,6 +591,11 @@ impl Session {
                     ..Default::default()
                 }
             });
+        let wallpaper = crate::backdrop::background(spec.os.wallpaper())
+            .unwrap_or(&crate::backdrop::BACKGROUNDS[0]);
+        let mut page = page;
+        page.wall_dark =
+            crate::backdrop::top_lightness(&self.background, wallpaper, 0.04).map(|l| l < 0.55);
         let g = crate::device::geometry(&spec, out_w, out_h, self.css_w, self.css_h);
         let html = crate::device::html(&spec, &page, &g);
         if crate::env::is_set("DEBUG") {
@@ -600,8 +605,7 @@ impl Session {
             Ok(png) => Some(crate::zoom::Framing {
                 layout: g.layout(),
                 chrome_png: png,
-                wallpaper: crate::backdrop::background(spec.os.wallpaper())
-                    .unwrap_or(&crate::backdrop::BACKGROUNDS[0]),
+                wallpaper,
                 name: spec.os.name(),
             }),
             Err(e) => {

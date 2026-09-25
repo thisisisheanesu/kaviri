@@ -490,6 +490,10 @@ pub struct PageInfo {
     pub top_dark: bool,
     pub bottom_dark: bool,
     pub dark: bool,
+    /// Whether the wallpaper under the menu bar is dark, which is what sets
+    /// the bar's ink on macOS: white over a dark picture, black over a light
+    /// one. Unknown until the backdrop is chosen; `None` follows the theme.
+    pub wall_dark: Option<bool>,
 }
 
 /// Title, URL, favicon and the colours at the top and bottom edges.
@@ -543,7 +547,9 @@ pub const PAGE_JS: &str = r#"(async () => {
     } catch (e) {}
   }
   return {
-    title: document.title || '', url: location.href, icon: data || icon || '',
+    // A declared icon that could not be fetched is still worth a try from
+    // the chrome page; a guessed /favicon.ico that 404s is not.
+    title: document.title || '', url: location.href, icon: data || (links.length ? icon : ''),
     top_bg: top, bottom_bg: bottom,
     top_dark: lum(topRgb) < 0.5, bottom_dark: lum(bottom) < 0.5,
     dark: lum(bgAt(innerHeight / 2)) < 0.5,
@@ -564,6 +570,7 @@ impl PageInfo {
             top_dark: b("top_dark"),
             bottom_dark: b("bottom_dark"),
             dark: b("dark"),
+            wall_dark: None,
         }
     }
 }
@@ -671,6 +678,10 @@ pub struct Geometry {
     pub left_bar: i64,
     #[cfg_attr(not(test), allow(dead_code))]
     pub right_bar: i64,
+    /// The menu bar or top bar, and the dock or taskbar, where there are
+    /// any: frosted glass over the wallpaper.
+    pub top_rect: Option<Rect>,
+    pub dock_rect: Option<(Rect, f64)>,
 }
 
 impl Geometry {
@@ -679,10 +690,26 @@ impl Geometry {
         if let Some((r, rad)) = self.extra {
             outline.push(rf(r, rad));
         }
+        let pane = |r: Rect, radius: f64, blur: f64| crate::backdrop::Frost {
+            x: r.x as f64,
+            y: r.y as f64,
+            w: r.w as f64,
+            h: r.h as f64,
+            radius,
+            blur,
+        };
+        let mut frost = Vec::new();
+        if let Some(r) = self.top_rect {
+            frost.push(pane(r, 0.0, 26.0 * self.s));
+        }
+        if let Some((r, radius)) = self.dock_rect {
+            frost.push(pane(r, radius, 20.0 * self.s));
+        }
         Layout {
             content: (self.content.w as u32, self.content.h as u32),
             origin: (self.content.x as u32, self.content.y as u32),
             outline,
+            frost,
         }
     }
 }
@@ -773,11 +800,60 @@ fn top_bar_pt(d: Os) -> f64 {
     }
 }
 
+/// The dock's proportions, in points, all from the tile size.
+///
+/// Measured off the macOS dock: a tile's canvas carries its own margin, so
+/// tiles sit edge to edge with no gap and still read as spaced; the shelf is
+/// a fifth deeper than a tile, its corners about a third of a tile.
+struct DockDims {
+    pad: f64,
+    depth: f64,
+    sep: f64,
+    radius: f64,
+    margin: f64,
+}
+
+fn dock_dims(size: f64) -> DockDims {
+    DockDims {
+        pad: size * 0.1,
+        depth: size * 1.2,
+        sep: size * 0.3,
+        radius: size * 0.36,
+        margin: size * 0.08,
+    }
+}
+
+/// Whether the dock carries the app in front as well as its pinned icons.
+fn dock_has_app(spec: &Spec) -> bool {
+    spec.os.is_phone() || (spec.style == Style::App && !matches!(spec.icon, Icon::None))
+}
+
+/// The dock's length along its edge, in points.
+fn dock_len_pt(spec: &Spec, shell: Os) -> f64 {
+    let d = dock_dims(spec.dock_size);
+    let pinned = spec
+        .dock
+        .as_ref()
+        .map(Vec::len)
+        .unwrap_or_else(|| default_dock(shell).len());
+    let app = if dock_has_app(spec) { 1 } else { 0 };
+    // macOS ends every dock with a separator and the Trash.
+    let (trash, sep) = if shell == Os::Macos {
+        (1, d.sep)
+    } else {
+        (0, 0.0)
+    };
+    (pinned + app + trash) as f64 * spec.dock_size + 2.0 * d.pad + sep
+}
+
 /// How much of the screen edge the dock or taskbar takes, in points.
 fn dock_depth_pt(shell: Os, size: f64) -> f64 {
     match shell {
         Os::Windows => 48.0,
-        _ => size + 16.0 + 8.0,
+        _ => {
+            let d = dock_dims(size);
+            d.depth + d.margin * 2.0
+        }
     }
 }
 
@@ -897,6 +973,53 @@ pub fn geometry(spec: &Spec, out_w: u32, out_h: u32, css_w: u32, css_h: u32) -> 
         bottom_bar,
         left_bar,
         right_bar,
+        top_rect: (top_bar > 0).then_some(Rect {
+            x: 0,
+            y: 0,
+            w: out_w as i64,
+            h: top_bar,
+        }),
+        dock_rect: spec.dock_shell().map(|shell| {
+            let (ow, oh) = (out_w as i64, out_h as i64);
+            if shell == Os::Windows {
+                return (
+                    Rect {
+                        x: 0,
+                        y: oh - bottom_bar,
+                        w: ow,
+                        h: bottom_bar,
+                    },
+                    0.0,
+                );
+            }
+            let d = dock_dims(spec.dock_size);
+            let len = (dock_len_pt(spec, shell) * s).round() as i64;
+            let depth = (d.depth * s).round() as i64;
+            let margin = (d.margin * s).round() as i64;
+            // Up a side, centred on the space under the menu bar.
+            let mid = top_bar + (oh - top_bar - len) / 2;
+            let r = match spec.dock_pos {
+                DockPos::Bottom => Rect {
+                    x: (ow - len) / 2,
+                    y: oh - depth - margin,
+                    w: len,
+                    h: depth,
+                },
+                DockPos::Left => Rect {
+                    x: margin,
+                    y: mid,
+                    w: depth,
+                    h: len,
+                },
+                DockPos::Right => Rect {
+                    x: ow - depth - margin,
+                    y: mid,
+                    w: depth,
+                    h: len,
+                },
+            };
+            (r, d.radius * s)
+        }),
     }
 }
 
@@ -1060,7 +1183,23 @@ fn shade(h: &str, t: f64) -> String {
 }
 
 /// A built-in icon as a rounded app tile, finished in the chosen set.
-fn tile_svg(name: &str, uid: &str, set: IconSet, tint: &str) -> String {
+/// A superellipse (n = 5), the continuous-corner shape macOS draws its icons
+/// in. A rounded rect's corner starts abruptly; this one eases in.
+fn squircle(cx: f64, cy: f64, a: f64) -> String {
+    let n = 5.0;
+    let mut d = String::new();
+    for i in 0..96 {
+        let t = i as f64 / 96.0 * std::f64::consts::TAU;
+        let (c, s) = (t.cos(), t.sin());
+        let x = cx + a * c.signum() * c.abs().powf(2.0 / n);
+        let y = cy + a * s.signum() * s.abs().powf(2.0 / n);
+        d.push_str(&format!("{}{x:.2} {y:.2}", if i == 0 { "M" } else { "L" }));
+    }
+    d.push('Z');
+    d
+}
+
+fn tile_svg(name: &str, uid: &str, set: IconSet, tint: &str, mac: bool) -> String {
     let (n, a, b, glyph) = builtin_icon(name).copied().unwrap_or(ICONS[0]);
     let (top, bottom, ink, rim, extra) = match set {
         IconSet::Color => (
@@ -1113,6 +1252,19 @@ fn tile_svg(name: &str, uid: &str, set: IconSet, tint: &str) -> String {
             "",
         ),
     };
+    if mac {
+        /*
+         * The macOS icon grid: the body is 824 of a 1024 canvas, so about
+         * 81%, sits a touch above centre, and casts a short soft shadow.
+         * A sheen fades out down the top half, and the glyph is drawn a
+         * little heavier than on a flat tile so it holds at dock size.
+         */
+        let body = squircle(32.0, 31.0, 26.0);
+        return format!(
+            r##"<svg viewBox="0 0 64 64" width="100%" height="100%" style="overflow:visible"><defs><linearGradient id="g{uid}{n}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{top}"/><stop offset="1" stop-color="{bottom}"/></linearGradient><linearGradient id="h{uid}{n}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".28"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/></linearGradient><filter id="f{uid}{n}" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="1.1" stdDeviation="1.1" flood-color="#000" flood-opacity=".32"/></filter></defs><path d="{body}" fill="url(#g{uid}{n})" filter="url(#f{uid}{n})"/>{extra}<path d="{body}" fill="url(#h{uid}{n})"/><path d="{body}" fill="none" stroke="{rim}" stroke-width=".6"/><g transform="translate(15.4 14.4) scale(1.3833)" fill="none" stroke="{ink}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">{glyph}</g></svg>"##
+        )
+        .replace("fill=\"white\"", &format!("fill=\"{ink}\""));
+    }
     format!(
         r##"<svg viewBox="0 0 64 64" width="100%" height="100%"><defs><linearGradient id="g{uid}{n}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{top}"/><stop offset="1" stop-color="{bottom}"/></linearGradient></defs><rect x="2" y="2" width="60" height="60" rx="14" fill="url(#g{uid}{n})"/>{extra}<rect x="2.5" y="2.5" width="59" height="59" rx="13.5" fill="none" stroke="{rim}"/><g transform="translate(12 12) scale(1.6667)" fill="none" stroke="{ink}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{glyph}</g></svg>"##
     )
@@ -1167,7 +1319,7 @@ fn small_icon(icon: &AppIcon, px: f64, accent: &str) -> String {
             glyph_svg(n, accent)
         ),
         AppIcon::Image(src) => format!(
-            r#"<img class="ico" src="{}" style="width:{px}px;height:{px}px;object-fit:contain">"#,
+            r#"<img class="ico" src="{}" onerror="this.style.visibility='hidden'" style="width:{px}px;height:{px}px;object-fit:contain">"#,
             esc(src)
         ),
         AppIcon::Letter(c) => format!(
@@ -1183,6 +1335,8 @@ fn small_icon(icon: &AppIcon, px: f64, accent: &str) -> String {
 struct Look<'a> {
     set: IconSet,
     tint: &'a str,
+    /// macOS tiles: a squircle inset in its canvas, with a drop shadow.
+    mac: bool,
 }
 
 /// Large icon for a dock or taskbar, `px` points square.
@@ -1191,10 +1345,20 @@ fn big_icon(icon: &AppIcon, px: f64, uid: &str, look: Look) -> String {
         AppIcon::None => String::new(),
         AppIcon::Builtin(n) => format!(
             r#"<span style="width:{px}px;height:{px}px;display:block">{}</span>"#,
-            tile_svg(n, uid, look.set, look.tint)
+            tile_svg(n, uid, look.set, look.tint, look.mac)
+        ),
+        AppIcon::Image(src) if look.mac => format!(
+            r#"<span style="width:{px}px;height:{px}px;display:flex;align-items:center;justify-content:center"><span style="width:81%;height:81%;display:flex;align-items:center;justify-content:center;background:{};border-radius:23%;box-shadow:0 .5px 1.5px rgba(0,0,0,.28),inset 0 0 0 .5px rgba(0,0,0,.08)"><img src="{}" onerror="this.style.visibility='hidden'" style="width:66%;height:66%;object-fit:contain"></span></span>"#,
+            match look.set {
+                IconSet::Dark => "#1f1f22".to_string(),
+                IconSet::Glass => "rgba(255,255,255,.3)".to_string(),
+                IconSet::Tinted => shade(look.tint, -0.5),
+                _ => "linear-gradient(#ffffff,#eceef1)".to_string(),
+            },
+            esc(src)
         ),
         AppIcon::Image(src) => format!(
-            r#"<span style="width:{px}px;height:{px}px;display:flex;align-items:center;justify-content:center;background:{};border-radius:{}px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)"><img src="{}" style="width:70%;height:70%;object-fit:contain"></span>"#,
+            r#"<span style="width:{px}px;height:{px}px;display:flex;align-items:center;justify-content:center;background:{};border-radius:{}px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)"><img src="{}" onerror="this.style.visibility='hidden'" style="width:70%;height:70%;object-fit:contain"></span>"#,
             match look.set {
                 IconSet::Dark => "#1f1f22".to_string(),
                 IconSet::Glass => "rgba(255,255,255,.3)".to_string(),
@@ -1204,8 +1368,13 @@ fn big_icon(icon: &AppIcon, px: f64, uid: &str, look: Look) -> String {
             px * 0.225,
             esc(src)
         ),
+        AppIcon::Letter(c) if look.mac => format!(
+            r#"<span style="width:{px}px;height:{px}px;display:flex;align-items:center;justify-content:center"><span style="width:81%;height:81%;display:flex;align-items:center;justify-content:center;background:linear-gradient(#6b7bff,#3a3fd0);color:#fff;border-radius:23%;box-shadow:0 .5px 1.5px rgba(0,0,0,.3),inset 0 0 0 .5px rgba(255,255,255,.2);font:600 {}px {FONT}">{}</span></span>"#,
+            px * 0.42,
+            esc(&c.to_string())
+        ),
         AppIcon::Letter(c) => format!(
-            r#"<span style="width:{px}px;height:{px}px;display:flex;align-items:center;justify-content:center;background:linear-gradient(#5b6cff,#3a3fd0);color:#fff;border-radius:{}px;font-weight:700;font-size:{}px">{}</span>"#,
+            r#"<span style="width:{px}px;height:{px}px;display:flex;align-items:center;justify-content:center;background:linear-gradient(#5b6cff,#3a3fd0);color:#fff;border-radius:{}px;font-weight:700;font-size:{}px;font-family:{FONT}">{}</span>"#,
             px * 0.225,
             px * 0.5,
             esc(&c.to_string())
@@ -1703,9 +1872,9 @@ fn default_dock(desktop: Os) -> Vec<&'static str> {
 
 fn mac_menubar(app: &str, clock: &str, dark: bool) -> String {
     let (bg, fg) = if dark {
-        ("rgba(30,30,32,.55)", "#ffffff")
+        ("rgba(24,24,26,.38)", "#ffffff")
     } else {
-        ("rgba(246,246,248,.62)", "#111111")
+        ("rgba(255,255,255,.32)", "#000000")
     };
     let menus = ["File", "Edit", "View", "History", "Window", "Help"]
         .iter()
@@ -1729,8 +1898,13 @@ fn mac_menubar(app: &str, clock: &str, dark: bool) -> String {
     )
 }
 
-/// The dock (macOS, GNOME) as a centred shelf of tiles, along the bottom
-/// or up one side. Returns the markup and its (width, height) in points.
+/// The macOS Trash: a frosted wire bin standing on the dock, no tile.
+const TRASH: &str = r##"<svg viewBox="0 0 64 64" width="100%" height="100%" style="overflow:visible"><defs><linearGradient id="trg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset=".5" stop-color="#fff" stop-opacity=".22"/><stop offset="1" stop-color="#fff" stop-opacity=".45"/></linearGradient><filter id="trf" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="1.1" stdDeviation="1.1" flood-color="#000" flood-opacity=".3"/></filter></defs><g filter="url(#trf)"><path d="M17.5 16.5h29l-3 37.5a3 3 0 0 1-3 2.8H23.5a3 3 0 0 1-3-2.8z" fill="url(#trg)" stroke="rgba(255,255,255,.85)" stroke-width="1"/><path d="M17.5 16.5h29l-3 37.5a3 3 0 0 1-3 2.8H23.5a3 3 0 0 1-3-2.8z" fill="none" stroke="rgba(0,0,0,.18)" stroke-width=".5"/><path d="M25 22l1 30M32 22v30M39 22l-1 30" stroke="rgba(255,255,255,.7)" stroke-width="1.1" stroke-linecap="round"/><ellipse cx="32" cy="16.5" rx="15.5" ry="3" fill="rgba(255,255,255,.55)" stroke="rgba(255,255,255,.9)" stroke-width=".8"/><ellipse cx="32" cy="16.5" rx="12" ry="1.6" fill="rgba(0,0,0,.12)"/></g></svg>"##;
+
+/// The dock (macOS, GNOME) as a shelf of tiles, along the bottom or up one
+/// side. `mac` gives it the macOS details: squircle tiles, a separator and
+/// the Trash at the far end, and the running light in the shelf's own ink.
+#[allow(clippy::too_many_arguments)]
 fn dock(
     icons: &[&'static str],
     app: Option<&AppIcon>,
@@ -1739,68 +1913,88 @@ fn dock(
     size: f64,
     pos: DockPos,
     look: Look,
-) -> (String, (f64, f64)) {
-    let gap = (size * 0.15).round();
-    let depth = size + 16.0;
+) -> String {
+    let d = dock_dims(size);
     let vertical = pos != DockPos::Bottom;
-    // The running light sits on the screen edge side of the tile.
+    // The running light sits between the tile and the screen edge.
+    let off = (d.depth - size) / 2.0 * 0.3;
     let dot_at = match pos {
-        DockPos::Bottom => "left:50%;bottom:-7px;margin-left:-2px",
-        DockPos::Left => "top:50%;left:-7px;margin-top:-2px",
-        DockPos::Right => "top:50%;right:-7px;margin-top:-2px",
+        DockPos::Bottom => format!("left:50%;bottom:{off}px;margin-left:-2px"),
+        DockPos::Left => format!("top:50%;left:{off}px;margin-top:-2px"),
+        DockPos::Right => format!("top:50%;right:{off}px;margin-top:-2px"),
+    };
+    let ink = if dark || !look.mac {
+        "rgba(255,255,255,.8)"
+    } else {
+        "rgba(0,0,0,.62)"
     };
     let dot = format!(
-        r#"<span style="position:absolute;{dot_at};width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.9)"></span>"#
+        r#"<span style="position:absolute;{dot_at};width:4px;height:4px;border-radius:50%;background:{ink}"></span>"#
     );
-    let mut tiles = String::new();
-    let mut n = 0.0;
-    for (i, name) in icons.iter().enumerate() {
-        let on = active_builtin == Some(*name);
-        tiles.push_str(&format!(
-            r#"<span style="position:relative;display:block;flex:none">{}{}</span>"#,
-            big_icon(&AppIcon::Builtin(name), size, &format!("d{i}"), look),
+    let cell = |inner: String, on: bool| {
+        format!(
+            r#"<span style="position:relative;display:flex;align-items:center;justify-content:center;flex:none;{}">{inner}{}</span>"#,
+            if vertical {
+                format!("width:{}px;height:{size}px", d.depth)
+            } else {
+                format!("width:{size}px;height:{}px", d.depth)
+            },
             if on { dot.as_str() } else { "" }
+        )
+    };
+    let mut tiles = String::new();
+    for (i, name) in icons.iter().enumerate() {
+        tiles.push_str(&cell(
+            big_icon(&AppIcon::Builtin(name), size, &format!("d{i}"), look),
+            active_builtin == Some(*name),
         ));
-        n += 1.0;
     }
-    let mut sep = 0.0;
     if let Some(a) = app {
         if !matches!(a, AppIcon::None) {
-            let line = if vertical {
-                format!("height:1px;width:{}px", size * 0.85)
-            } else {
-                format!("width:1px;height:{}px", size * 0.85)
-            };
-            tiles.push_str(&format!(
-                r#"<span style="{line};background:rgba(255,255,255,.35);flex:none;margin:0 2px"></span>"#
-            ));
-            tiles.push_str(&format!(
-                r#"<span style="position:relative;display:block;flex:none">{}{dot}</span>"#,
-                big_icon(a, size, "app", look)
-            ));
-            n += 1.0;
-            sep = 1.0 + 4.0 + gap;
+            tiles.push_str(&cell(big_icon(a, size, "app", look), true));
         }
     }
-    let bg = if dark {
-        "rgba(40,40,44,.55)"
-    } else {
-        "rgba(255,255,255,.28)"
-    };
-    let length = n * size + (n - 1.0).max(0.0) * gap + 24.0 + sep;
-    let (w, h) = if vertical {
-        (depth, length)
-    } else {
-        (length, depth)
+    if look.mac {
+        let line = if vertical {
+            format!(
+                "height:1px;width:{}px;margin:{}px 0",
+                size * 0.8,
+                (d.sep - 1.0) / 2.0
+            )
+        } else {
+            format!(
+                "width:1px;height:{}px;margin:0 {}px",
+                size * 0.8,
+                (d.sep - 1.0) / 2.0
+            )
+        };
+        let sep_ink = if dark {
+            "rgba(255,255,255,.28)"
+        } else {
+            "rgba(0,0,0,.2)"
+        };
+        tiles.push_str(&format!(
+            r#"<span style="{line};background:{sep_ink};flex:none"></span>"#
+        ));
+        tiles.push_str(&cell(
+            format!(r#"<span style="width:{size}px;height:{size}px;display:block">{TRASH}</span>"#),
+            false,
+        ));
+    }
+    let (bg, rim) = match (look.mac, dark) {
+        (true, false) => ("rgba(255,255,255,.26)", "rgba(255,255,255,.42)"),
+        (true, true) => ("rgba(28,28,30,.42)", "rgba(255,255,255,.16)"),
+        (false, _) => ("rgba(30,30,32,.62)", "rgba(255,255,255,.12)"),
     };
     let dir = if vertical { "column" } else { "row" };
-    let padding = if vertical { "12px 0" } else { "0 12px" };
-    (
-        format!(
-            r#"<div style="width:100%;height:100%;background:{bg};border-radius:{r}px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.35),0 8px 24px rgba(0,0,0,.18);display:flex;flex-direction:{dir};align-items:center;gap:{gap}px;padding:{padding};box-sizing:border-box">{tiles}</div>"#,
-            r = (size * 0.38).round()
-        ),
-        (w, h),
+    let padding = if vertical {
+        format!("{}px 0", d.pad)
+    } else {
+        format!("0 {}px", d.pad)
+    };
+    format!(
+        r#"<div style="width:100%;height:100%;background:{bg};border-radius:{r}px;box-shadow:inset 0 0 0 .5px {rim},0 0 0 .5px rgba(0,0,0,.14),0 6px 18px rgba(0,0,0,.14);display:flex;flex-direction:{dir};align-items:center;padding:{padding};box-sizing:border-box">{tiles}</div>"#,
+        r = d.radius
     )
 }
 
@@ -1813,9 +2007,9 @@ fn windows_taskbar(
     look: Look,
 ) -> String {
     let (bg, fg) = if dark {
-        ("rgba(32,32,32,.86)", "#ffffff")
+        ("rgba(32,32,32,.74)", "#ffffff")
     } else {
-        ("rgba(238,241,246,.86)", "#111111")
+        ("rgba(243,245,249,.76)", "#111111")
     };
     let start = r##"<svg width="24" height="24" viewBox="0 0 24 24" style="display:block"><defs><linearGradient id="ws" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2ec5ff"/><stop offset="1" stop-color="#0063d6"/></linearGradient></defs><rect x="1" y="1" width="10.5" height="10.5" rx="1" fill="url(#ws)"/><rect x="12.5" y="1" width="10.5" height="10.5" rx="1" fill="url(#ws)"/><rect x="1" y="12.5" width="10.5" height="10.5" rx="1" fill="url(#ws)"/><rect x="12.5" y="12.5" width="10.5" height="10.5" rx="1" fill="url(#ws)"/></svg>"##;
     let slot = |inner: String, on: bool| {
@@ -2039,6 +2233,7 @@ pub fn html(spec: &Spec, page: &PageInfo, g: &Geometry) -> String {
     let look = Look {
         set: spec.icon_set,
         tint: &spec.icon_tint,
+        mac: spec.dock_shell() == Some(Os::Macos),
     };
     let s = g.s;
     let (ow, oh) = (g.out.0 as i64, g.out.1 as i64);
@@ -2081,7 +2276,7 @@ pub fn html(spec: &Spec, page: &PageInfo, g: &Geometry) -> String {
                 },
                 s,
                 "",
-                &mac_menubar(&app_name, &clock, dark),
+                &mac_menubar(&app_name, &clock, page.wall_dark.unwrap_or(dark)),
             ));
         }
         Some(Os::Linux) => {
@@ -2127,7 +2322,7 @@ pub fn html(spec: &Spec, page: &PageInfo, g: &Geometry) -> String {
                 ),
             ));
         } else {
-            let (html, (wp, hp)) = dock(
+            let html = dock(
                 &icons,
                 app_tile,
                 active,
@@ -2136,30 +2331,7 @@ pub fn html(spec: &Spec, page: &PageInfo, g: &Geometry) -> String {
                 spec.dock_pos,
                 look,
             );
-            let (w, h) = ((wp * s).round() as i64, (hp * s).round() as i64);
-            let margin = (4.0 * s).round() as i64;
-            // Up a side, centred on the space under the menu bar.
-            let mid_y = g.top_bar + (oh - g.top_bar - h) / 2;
-            let r = match spec.dock_pos {
-                DockPos::Bottom => Rect {
-                    x: (ow - w) / 2,
-                    y: oh - h - margin,
-                    w,
-                    h,
-                },
-                DockPos::Left => Rect {
-                    x: margin,
-                    y: mid_y,
-                    w,
-                    h,
-                },
-                DockPos::Right => Rect {
-                    x: ow - w - margin,
-                    y: mid_y,
-                    w,
-                    h,
-                },
-            };
+            let (r, _) = g.dock_rect.expect("a dock shell always has a dock rect");
             parts.push(part(r, s, "overflow:visible", &html));
         }
     }
@@ -2359,11 +2531,13 @@ mod tests {
         assert!(parse_desktop("ios", None).is_err());
         for n in icon_names() {
             for (set_name, set, _) in ICON_SETS {
-                let t = tile_svg(n, "t", *set, "#7c5cff");
-                assert!(
-                    t.contains("<svg") && t.ends_with("</svg>"),
-                    "{n} in {set_name}"
-                );
+                for mac in [false, true] {
+                    let t = tile_svg(n, "t", *set, "#7c5cff", mac);
+                    assert!(
+                        t.contains("<svg") && t.ends_with("</svg>"),
+                        "{n} in {set_name}"
+                    );
+                }
                 assert_eq!(parse_icon_set(set_name).unwrap(), *set);
             }
         }

@@ -633,6 +633,20 @@ pub struct Layout {
     pub content: (u32, u32),
     pub origin: (u32, u32),
     pub outline: Vec<(f64, f64, f64, f64, f64)>,
+    /// Regions of wallpaper seen through frosted glass (a dock, a menu bar):
+    /// blurred and a little more saturated, as a compositor would.
+    pub frost: Vec<Frost>,
+}
+
+/// A rounded rect of frosted glass, with its blur radius in pixels.
+#[derive(Clone, Copy, Debug)]
+pub struct Frost {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    pub radius: f64,
+    pub blur: f64,
 }
 
 impl Layout {
@@ -645,6 +659,7 @@ impl Layout {
             content,
             origin,
             outline: vec![(origin.0 as f64, origin.1 as f64, cw, ch, radius)],
+            frost: Vec::new(),
         }
     }
 
@@ -774,6 +789,65 @@ fn blur(buf: &mut [f32], w: usize, h: usize, r: usize) {
     }
 }
 
+/// Blur the plate under a pane of glass. Only the pane's own pixels change,
+/// but the blur reads a margin round it, so the edge is not a hard seam of
+/// sharp wallpaper against soft.
+fn frost(px: &mut [u8], w: usize, h: usize, f: &Frost) {
+    let r = f.blur.round().max(1.0) as usize;
+    let x0 = (f.x.floor() as isize - r as isize * 2).max(0) as usize;
+    let y0 = (f.y.floor() as isize - r as isize * 2).max(0) as usize;
+    let x1 = ((f.x + f.w).ceil() as usize + r * 2).min(w);
+    let y1 = ((f.y + f.h).ceil() as usize + r * 2).min(h);
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
+    let (cw, ch) = (x1 - x0, y1 - y0);
+    let mut chans = vec![vec![0f32; cw * ch]; 3];
+    for y in 0..ch {
+        for x in 0..cw {
+            let i = ((y0 + y) * w + x0 + x) * 4;
+            for (k, c) in chans.iter_mut().enumerate() {
+                c[y * cw + x] = px[i + k] as f32;
+            }
+        }
+    }
+    for c in chans.iter_mut() {
+        blur(c, cw, ch, r);
+    }
+    let (cx, cy) = (f.x + f.w / 2.0, f.y + f.h / 2.0);
+    for y in 0..ch {
+        for x in 0..cw {
+            let (gx, gy) = (x0 + x, y0 + y);
+            let d = sd_round_rect(
+                gx as f64 + 0.5,
+                gy as f64 + 0.5,
+                cx,
+                cy,
+                f.w / 2.0,
+                f.h / 2.0,
+                f.radius,
+            );
+            let cover = (0.5 - d).clamp(0.0, 1.0) as f32;
+            if cover <= 0.0 {
+                continue;
+            }
+            let i = (gy * w + gx) * 4;
+            let (r, g, b) = (
+                chans[0][y * cw + x],
+                chans[1][y * cw + x],
+                chans[2][y * cw + x],
+            );
+            // Glass reads livelier than what is behind it.
+            let l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            let sat = |c: f32| (l + (c - l) * 1.35).clamp(0.0, 255.0);
+            for (k, v) in [sat(r), sat(g), sat(b)].into_iter().enumerate() {
+                let old = px[i + k] as f32;
+                px[i + k] = (old + (v - old) * cover).round() as u8;
+            }
+        }
+    }
+}
+
 fn hash32(mut x: u32) -> u32 {
     x ^= x >> 16;
     x = x.wrapping_mul(0x7feb_352d);
@@ -788,6 +862,43 @@ pub enum Source<'a> {
     Fill(&'static Background),
     /// rgb24 pixels, already exactly the frame's size.
     Pixels(&'a [u8]),
+}
+
+/// Mean lightness of the top `frac` of a backdrop, 0..1: what a translucent
+/// menu bar lies over. A fill is sampled directly; an image is read through
+/// ffmpeg at a tiny size.
+pub fn top_lightness(choice: &Choice, fallback: &'static Background, frac: f64) -> Option<f64> {
+    let luma = |c: [f64; 3]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    let bg = match choice {
+        Choice::Named(b) => *b,
+        Choice::Off => &BLACK,
+        Choice::Auto => fallback,
+        Choice::Image(p) => {
+            let ffmpeg = crate::zoom::find_ffmpeg().ok()?;
+            let (w, h) = (32u32, 18u32);
+            let px = load_image(p, &ffmpeg, w, h).ok()?;
+            let rows = ((h as f64 * frac).ceil() as usize).max(1);
+            let strip = &px[..rows * w as usize * 3];
+            let n = (strip.len() / 3) as f64;
+            return Some(
+                strip
+                    .chunks_exact(3)
+                    .map(|c| luma(rgb01([c[0], c[1], c[2]])))
+                    .sum::<f64>()
+                    / n,
+            );
+        }
+    };
+    let n = 24;
+    let sum: f64 = (0..n)
+        .map(|i| {
+            luma(
+                bg.fill
+                    .sample((i as f64 + 0.5) / n as f64, frac / 2.0, 16.0 / 9.0),
+            )
+        })
+        .sum();
+    Some(sum / n as f64)
 }
 
 /// Scale a picture to cover the frame and read it back as rgb24, through the
@@ -894,6 +1005,10 @@ pub fn build_with(
             }
             px[i * 4 + 3] = (alpha * 255.0).round().clamp(0.0, 255.0) as u8;
         }
+    }
+
+    for f in &layout.frost {
+        frost(&mut px, w, h, f);
     }
 
     let path = dir.join(format!("backdrop-{name}.png"));
