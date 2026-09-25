@@ -50,7 +50,10 @@ dated `[0.1.0]` heading, when the tag is cut.
   viewport and user agent unless a size is given. `--desktop on|macos|windows|linux` adds the
   menu bar and dock or the taskbar. `--frame-theme`, `--frame-title`, `--frame-url`,
   `--frame-icon`, `--dock`, `--device-name`, `--clock` and `--battery` adjust the chrome, and
-  `kaviri frames` lists the frames and the built-in icons. The chrome is HTML rendered once per
+  `kaviri frames` lists the frames and the built-in icons. The dock stands on its own:
+  `--dock on|off|<icons and groups>` (groups `dev`, `creative`, `office`, `social`, `media`,
+  `minimal`), `--dock-position bottom|left|right` and `--dock-size`, and `--icon-set
+  color|pastel|dark|mono|tinted|glass|outline` with `--icon-tint` restyles every built-in icon. The chrome is HTML rendered once per
   take by the recording browser, in a throwaway tab the filmed page never sees.
 - **Wallpapers and image backgrounds.** Five new backdrops, one per system (`hills`, `bloom`,
   `aubergine`, `material`, `aurora`), which `--background auto` uses under a frame and never

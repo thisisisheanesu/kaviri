@@ -117,8 +117,9 @@ a choice, and it is the single most useful thing to assert on.
 inside that system's window or handset, with the page's real title, favicon and URL in the
 chrome. A phone frame also switches the browser to that phone's viewport and user agent, so
 write the script against the phone layout. `--desktop on` adds the menu bar and dock or the
-taskbar; `kaviri frames` lists the frames and the built-in icons for `--frame-icon` and
-`--dock`. The chrome is read off the page when `stop_recording` runs, so stop on the page you
+taskbar; `--dock on` draws the dock without the menu bar, `--dock-position` puts it on a side, and
+`--icon-set` restyles the icons; `kaviri frames` lists the frames, icons, dock groups and
+icon sets. The chrome is read off the page when `stop_recording` runs, so stop on the page you
 want the address bar to show.
 
 ## What it will not do

@@ -55,7 +55,16 @@ OPTIONS:
                       an image file; shown in the tab, title bar and dock
   --desktop <d>       draw the desktop round the window: on, off, macos,
                       windows or linux (menu bar and dock, or the taskbar)
-  --dock <a,b,..>     built-in icons for the dock or taskbar
+  --dock <spec>       the dock or taskbar: on, off, or icons and groups
+                      (dev, creative, office, social, media, minimal), mixed
+                      freely: --dock dev,maps. On a desktop frame it draws the
+                      dock even without --desktop; --desktop on --dock off
+                      keeps the menu bar and drops the dock
+  --dock-position <p> bottom, left or right (macOS and Linux; default bottom)
+  --dock-size <pt>    dock tile size in points, 24 to 128 (default 52)
+  --icon-set <set>    how built-in icons are finished: color, pastel, dark,
+                      mono, tinted, glass or outline (default color)
+  --icon-tint <hex>   the colour the tinted set uses (default #7c5cff)
   --device-name <n>   the handset an emulator's title names
   --clock <text>      the time on a status bar, menu bar or taskbar
   --battery <0-100>   the battery level a status bar shows (default 100)
@@ -325,6 +334,10 @@ fn parse_argv() -> Result<Parsed, String> {
     let mut frame_url: Option<String> = None;
     let mut desktop = "off".to_string();
     let mut dock: Option<String> = None;
+    let mut dock_pos: Option<String> = None;
+    let mut dock_size: f64 = 52.0;
+    let mut icon_set = "color".to_string();
+    let mut icon_tint = "#7c5cff".to_string();
     let mut device_name: Option<String> = None;
     let mut clock: Option<String> = None;
     let mut battery: u8 = 100;
@@ -418,6 +431,10 @@ fn parse_argv() -> Result<Parsed, String> {
             "--frame-url" => frame_url = Some(val("--frame-url")?),
             "--desktop" => desktop = val("--desktop")?,
             "--dock" => dock = Some(val("--dock")?),
+            "--dock-position" => dock_pos = Some(val("--dock-position")?),
+            "--dock-size" => dock_size = ratio("--dock-size", &val("--dock-size")?, 24.0, 128.0)?,
+            "--icon-set" => icon_set = val("--icon-set")?,
+            "--icon-tint" => icon_tint = val("--icon-tint")?,
             "--device-name" => device_name = Some(val("--device-name")?),
             "--clock" => clock = Some(val("--clock")?.replace("\\n", "\n")),
             "--battery" => {
@@ -474,7 +491,33 @@ fn parse_argv() -> Result<Parsed, String> {
             spec.url = frame_url;
             spec.desktop = device::parse_desktop(&desktop, Some(os))?;
             if let Some(d) = dock {
-                spec.dock = Some(device::parse_dock(&d)?);
+                let (show, icons) = device::parse_dock(&d)?;
+                spec.show_dock = Some(show);
+                spec.dock = icons;
+            }
+            if let Some(p) = dock_pos {
+                spec.dock_pos = device::parse_dock_pos(&p)?;
+            }
+            spec.dock_size = dock_size;
+            spec.icon_set = device::parse_icon_set(&icon_set)?;
+            spec.icon_tint = device::parse_tint(&icon_tint)?;
+            /*
+             * Said rather than ignored: a dock asked for where none can be drawn
+             * is a take that comes out without it.
+             */
+            if spec.show_dock == Some(true) && spec.dock_shell().is_none() {
+                return Err(
+                    "--dock on a phone frame needs --desktop: a handset has no dock of its own \
+                     here, so the dock belongs to the desktop the emulator runs on"
+                        .into(),
+                );
+            }
+            if spec.dock_shell() == Some(device::Os::Windows)
+                && spec.dock_pos != device::DockPos::Bottom
+            {
+                return Err(
+                    "the Windows taskbar only sits at the bottom; drop --dock-position".into(),
+                );
             }
             spec.device_name = device_name;
             spec.clock = clock;
@@ -495,8 +538,10 @@ fn parse_argv() -> Result<Parsed, String> {
         None => {
             // The frame options mean nothing without a frame, and silently
             // ignoring one is how a take comes out without the thing asked for.
-            if desktop != "off" || frame_style.is_some() || dock.is_some() {
-                return Err("--desktop, --frame-style and --dock need a --frame".into());
+            if desktop != "off" || frame_style.is_some() || dock.is_some() || dock_pos.is_some() {
+                return Err(
+                    "--desktop, --frame-style and the --dock options need a --frame".into(),
+                );
             }
         }
     }

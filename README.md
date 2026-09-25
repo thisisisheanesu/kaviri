@@ -192,8 +192,17 @@ kaviri record --script demo.jsonl --out demo.mp4 --frame windows --frame-style a
 `--desktop on` puts the window on its desktop: the macOS menu bar and dock, the
 Windows taskbar, or the GNOME top bar and dash; an emulator gets the desktop it
 runs on (`--desktop windows` to choose). `--frame-icon` is `auto` (the favicon),
-`none`, one of the built-in icons `kaviri frames` lists, or an image file, and
-`--dock` names the icons beside it. `--frame-theme`, `--frame-title`,
+`none`, one of the built-in icons `kaviri frames` lists, or an image file.
+
+The dock is its own option. `--dock on` draws the macOS dock (or the GNOME dash,
+or the Windows taskbar) on a desktop frame even without the menu bar, and
+`--desktop on --dock off` keeps the menu bar and drops it. `--dock` also takes
+icons and named groups, mixed freely: `--dock dev,maps` (the groups are `dev`,
+`creative`, `office`, `social`, `media` and `minimal`). `--dock-position left`
+or `right` stands it up a side, as macOS allows, and `--dock-size` sets the tile
+size in points. `--icon-set` finishes every built-in icon one way: `color` (the
+default), `pastel`, `dark`, `mono`, `tinted` (in `--icon-tint`), `glass` or
+`outline`. `--frame-theme`, `--frame-title`,
 `--frame-url`, `--device-name` and `--clock` override what the chrome would
 otherwise read off the page. Under a frame, `--background auto` is that
 system's own wallpaper. The chrome is HTML, drawn once per take by the same

@@ -190,13 +190,152 @@ pub struct Spec {
     /// The desktop drawn around the window: its menu bar, dock or taskbar.
     pub desktop: Option<Os>,
     pub dock: Option<Vec<&'static str>>,
+    /// Whether the dock (or taskbar) is drawn: `None` follows `desktop`,
+    /// `Some(true)` draws it on a desktop frame even without the menu bar.
+    pub show_dock: Option<bool>,
+    pub dock_pos: DockPos,
+    /// Tile size in points; macOS ships 16 to 128 and defaults near 48.
+    pub dock_size: f64,
+    pub icon_set: IconSet,
+    /// The colour the `tinted` set is drawn in.
+    pub icon_tint: String,
     /// The title the emulators show for the handset.
     pub device_name: Option<String>,
     pub clock: Option<String>,
     pub battery: u8,
 }
 
+/// Which edge the dock sits on. The Windows taskbar only knows the bottom.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DockPos {
+    Bottom,
+    Left,
+    Right,
+}
+
+pub fn parse_dock_pos(s: &str) -> Result<DockPos, String> {
+    match s {
+        "bottom" => Ok(DockPos::Bottom),
+        "left" => Ok(DockPos::Left),
+        "right" => Ok(DockPos::Right),
+        o => Err(format!(
+            "--dock-position must be bottom, left or right, got {o}"
+        )),
+    }
+}
+
+/// How the built-in icons are drawn: one glyph set, several finishes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum IconSet {
+    /// Gradient tiles, white glyphs: the default.
+    Color,
+    /// The same hues washed out, glyphs in the deep colour.
+    Pastel,
+    /// Near-black tiles with the glyph in its colour, as dark-mode icons are.
+    Dark,
+    /// Light grey tiles, graphite glyphs, no colour at all.
+    Mono,
+    /// Every tile in one colour, `--icon-tint`.
+    Tinted,
+    /// Frosted translucent tiles over the wallpaper, white glyphs.
+    Glass,
+    /// White tiles with the glyph drawn in its colour.
+    Outline,
+}
+
+pub const ICON_SETS: &[(&str, IconSet, &str)] = &[
+    (
+        "color",
+        IconSet::Color,
+        "gradient tiles, white glyphs (default)",
+    ),
+    (
+        "pastel",
+        IconSet::Pastel,
+        "soft washed-out tiles, deep-colour glyphs",
+    ),
+    (
+        "dark",
+        IconSet::Dark,
+        "near-black tiles, glyphs in their colour",
+    ),
+    ("mono", IconSet::Mono, "light grey tiles, graphite glyphs"),
+    (
+        "tinted",
+        IconSet::Tinted,
+        "every tile in one colour (--icon-tint)",
+    ),
+    (
+        "glass",
+        IconSet::Glass,
+        "frosted translucent tiles over the wallpaper",
+    ),
+    (
+        "outline",
+        IconSet::Outline,
+        "white tiles, coloured line glyphs",
+    ),
+];
+
+pub fn parse_icon_set(s: &str) -> Result<IconSet, String> {
+    ICON_SETS
+        .iter()
+        .find(|x| x.0 == s)
+        .map(|x| x.1)
+        .ok_or_else(|| {
+            format!(
+                "--icon-set must be one of {}, got {s}",
+                ICON_SETS.iter().map(|x| x.0).collect::<Vec<_>>().join(", ")
+            )
+        })
+}
+
+/// A colour for `--icon-tint`: #rgb or #rrggbb, nothing that could escape
+/// into the chrome's markup.
+pub fn parse_tint(s: &str) -> Result<String, String> {
+    let hex = s.strip_prefix('#').unwrap_or(s);
+    if (hex.len() == 3 || hex.len() == 6) && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        Ok(format!("#{hex}"))
+    } else {
+        Err(format!(
+            "--icon-tint must be a hex colour like #7c5cff, got {s}"
+        ))
+    }
+}
+
+/// Named groups `--dock` accepts alongside single icons.
+pub const DOCK_GROUPS: &[(&str, &[&str])] = &[
+    (
+        "dev",
+        &["files", "browser", "terminal", "code", "chat", "settings"],
+    ),
+    (
+        "creative",
+        &["files", "photos", "camera", "video", "music", "notes"],
+    ),
+    (
+        "office",
+        &["files", "mail", "calendar", "notes", "chat", "browser"],
+    ),
+    (
+        "social",
+        &["chat", "camera", "photos", "video", "music", "mail"],
+    ),
+    ("media", &["music", "video", "photos", "camera"]),
+    ("minimal", &["files", "browser", "settings"]),
+];
+
 impl Spec {
+    /// The desktop whose dock is drawn, if any.
+    pub fn dock_shell(&self) -> Option<Os> {
+        match (self.show_dock, self.desktop) {
+            (Some(false), _) => None,
+            (_, Some(d)) => Some(d),
+            (Some(true), None) if !self.os.is_phone() => Some(self.os),
+            _ => None,
+        }
+    }
+
     pub fn new(os: Os) -> Spec {
         Spec {
             os,
@@ -211,6 +350,11 @@ impl Spec {
             icon: Icon::Auto,
             desktop: None,
             dock: None,
+            show_dock: None,
+            dock_pos: DockPos::Bottom,
+            dock_size: 52.0,
+            icon_set: IconSet::Color,
+            icon_tint: "#7c5cff".into(),
             device_name: None,
             clock: None,
             battery: 100,
@@ -258,20 +402,41 @@ pub fn parse_icon(s: &str) -> Result<Icon, String> {
     }
 }
 
-pub fn parse_dock(s: &str) -> Result<Vec<&'static str>, String> {
-    if s == "none" || s.is_empty() {
-        return Ok(Vec::new());
+/// `--dock`: on, off, or a list of icons and groups. Returns whether the dock
+/// is shown and the icons, `None` meaning the system's own default set.
+pub fn parse_dock(s: &str) -> Result<(bool, Option<Vec<&'static str>>), String> {
+    match s {
+        "off" | "none" => return Ok((false, None)),
+        "on" | "default" | "" => return Ok((true, None)),
+        _ => {}
     }
-    s.split(',')
-        .map(|n| {
-            builtin_icon(n.trim()).map(|b| b.0).ok_or_else(|| {
+    let mut out: Vec<&'static str> = Vec::new();
+    for n in s.split(',').map(str::trim).filter(|n| !n.is_empty()) {
+        if let Some((_, group)) = DOCK_GROUPS.iter().find(|g| g.0 == n) {
+            for i in group.iter() {
+                let i = builtin_icon(i).map(|b| b.0).unwrap_or("files");
+                if !out.contains(&i) {
+                    out.push(i);
+                }
+            }
+        } else {
+            let i = builtin_icon(n).map(|b| b.0).ok_or_else(|| {
                 format!(
-                    "--dock: unknown icon {n}\n\nIcons: {}",
-                    icon_names().join(", ")
+                    "--dock: unknown icon or group {n}\n\nIcons: {}\nGroups: {}",
+                    icon_names().join(", "),
+                    DOCK_GROUPS
+                        .iter()
+                        .map(|g| g.0)
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )
-            })
-        })
-        .collect()
+            })?;
+            if !out.contains(&i) {
+                out.push(i);
+            }
+        }
+    }
+    Ok((true, Some(out)))
 }
 
 /// `--desktop`: off, on (the frame's own system) or a system by name.
@@ -297,6 +462,14 @@ pub fn help() -> String {
     s.push_str("\n  none              no frame (default)");
     s.push_str("\n\nIcons (--frame-icon, --dock):\n  ");
     s.push_str(&icon_names().join(", "));
+    s.push_str("\n\nDock groups (--dock, mixable with icons, e.g. dev,maps):\n");
+    for (n, g) in DOCK_GROUPS {
+        s.push_str(&format!("  {:<9} {}\n", n, g.join(", ")));
+    }
+    s.push_str("\nIcon sets (--icon-set):\n");
+    for (n, _, about) in ICON_SETS {
+        s.push_str(&format!("  {n:<9} {about}\n"));
+    }
     s.push_str(
         "\n  --frame-icon also takes auto (the page's favicon), none, or a .png/.svg/.jpg file",
     );
@@ -492,6 +665,12 @@ pub struct Geometry {
     pub s: f64,
     pub top_bar: i64,
     pub bottom_bar: i64,
+    /// A dock up one side. Only the tests read these: the dock is placed
+    /// from the spec, and they prove the window was kept clear of it.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub left_bar: i64,
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub right_bar: i64,
 }
 
 impl Geometry {
@@ -585,12 +764,20 @@ fn insets(spec: &Spec) -> Insets {
     }
 }
 
-/// Desktop bars, in points: (top, bottom).
-fn desktop_bars(d: Os) -> (f64, f64) {
+/// The menu bar or top bar, in points.
+fn top_bar_pt(d: Os) -> f64 {
     match d {
-        Os::Windows => (0.0, 48.0),
-        Os::Linux => (32.0, 76.0),
-        _ => (25.0, 76.0),
+        Os::Windows => 0.0,
+        Os::Linux => 32.0,
+        _ => 25.0,
+    }
+}
+
+/// How much of the screen edge the dock or taskbar takes, in points.
+fn dock_depth_pt(shell: Os, size: f64) -> f64 {
+    match shell {
+        Os::Windows => 48.0,
+        _ => size + 16.0 + 8.0,
     }
 }
 
@@ -623,18 +810,25 @@ pub fn geometry(spec: &Spec, out_w: u32, out_h: u32, css_w: u32, css_h: u32) -> 
     };
 
     let s = ow.max(oh) / 1470.0;
-    let (top_bar, bottom_bar) = match spec.desktop {
-        Some(d) => {
-            let (t, b) = desktop_bars(d);
-            ((t * s).round() as i64, (b * s).round() as i64)
+    let top_bar = spec
+        .desktop
+        .map(|d| (top_bar_pt(d) * s).round() as i64)
+        .unwrap_or(0);
+    let (mut bottom_bar, mut left_bar, mut right_bar) = (0, 0, 0);
+    if let Some(shell) = spec.dock_shell() {
+        let depth = (dock_depth_pt(shell, spec.dock_size) * s).round() as i64;
+        match (shell, spec.dock_pos) {
+            (Os::Windows, _) | (_, DockPos::Bottom) => bottom_bar = depth,
+            (_, DockPos::Left) => left_bar = depth,
+            (_, DockPos::Right) => right_bar = depth,
         }
-        None => (0, 0),
-    };
+    }
     let short = ow.min(oh);
-    let pad = (short * if spec.desktop.is_some() { 0.05 } else { 0.055 }).max(12.0);
-    let avail_x = pad;
+    let framed_desk = spec.desktop.is_some() || spec.dock_shell().is_some();
+    let pad = (short * if framed_desk { 0.05 } else { 0.055 }).max(12.0);
+    let avail_x = left_bar as f64 + pad;
     let avail_y = top_bar as f64 + pad;
-    let avail_w = (ow - 2.0 * pad).max(16.0);
+    let avail_w = (ow - left_bar as f64 - right_bar as f64 - 2.0 * pad).max(16.0);
     let avail_h = (oh - top_bar as f64 - bottom_bar as f64 - 2.0 * pad).max(16.0);
 
     // Total extent in CSS px of the page.
@@ -701,6 +895,8 @@ pub fn geometry(spec: &Spec, out_w: u32, out_h: u32, css_w: u32, css_h: u32) -> 
         s,
         top_bar,
         bottom_bar,
+        left_bar,
+        right_bar,
     }
 }
 
@@ -834,12 +1030,93 @@ pub fn icon_names() -> Vec<&'static str> {
     ICONS.iter().map(|i| i.0).collect()
 }
 
-/// A built-in icon as a rounded, gradient app tile.
-fn tile_svg(name: &str, uid: &str) -> String {
-    let (n, a, b, glyph) = builtin_icon(name).copied().unwrap_or(ICONS[0]);
+fn hex_rgb(h: &str) -> (f64, f64, f64) {
+    let h = h.trim_start_matches('#');
+    let h = if h.len() == 3 {
+        h.chars().flat_map(|c| [c, c]).collect::<String>()
+    } else {
+        h.to_string()
+    };
+    let v =
+        |i: usize| u8::from_str_radix(h.get(i..i + 2).unwrap_or("80"), 16).unwrap_or(128) as f64;
+    (v(0), v(2), v(4))
+}
+
+/// Mix a colour towards white (t > 0) or black (t < 0).
+fn shade(h: &str, t: f64) -> String {
+    let (r, g, b) = hex_rgb(h);
+    let (tr, tg, tb) = if t >= 0.0 {
+        (255.0, 255.0, 255.0)
+    } else {
+        (0.0, 0.0, 0.0)
+    };
+    let t = t.abs();
     format!(
-        r##"<svg viewBox="0 0 64 64" width="100%" height="100%"><defs><linearGradient id="g{uid}{n}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{a}"/><stop offset="1" stop-color="{b}"/></linearGradient></defs><rect x="2" y="2" width="60" height="60" rx="14" fill="url(#g{uid}{n})"/><rect x="2.5" y="2.5" width="59" height="59" rx="13.5" fill="none" stroke="rgba(255,255,255,.25)"/><g transform="translate(12 12) scale(1.6667)" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{glyph}</g></svg>"##
+        "#{:02x}{:02x}{:02x}",
+        (r + (tr - r) * t).round() as u8,
+        (g + (tg - g) * t).round() as u8,
+        (b + (tb - b) * t).round() as u8
     )
+}
+
+/// A built-in icon as a rounded app tile, finished in the chosen set.
+fn tile_svg(name: &str, uid: &str, set: IconSet, tint: &str) -> String {
+    let (n, a, b, glyph) = builtin_icon(name).copied().unwrap_or(ICONS[0]);
+    let (top, bottom, ink, rim, extra) = match set {
+        IconSet::Color => (
+            a.to_string(),
+            b.to_string(),
+            "#fff".to_string(),
+            "rgba(255,255,255,.25)",
+            "",
+        ),
+        IconSet::Pastel => (
+            shade(a, 0.62),
+            shade(b, 0.5),
+            shade(b, -0.1),
+            "rgba(255,255,255,.5)",
+            "",
+        ),
+        IconSet::Dark => (
+            "#2e2e31".into(),
+            "#161618".into(),
+            shade(a, 0.1),
+            "rgba(255,255,255,.12)",
+            "",
+        ),
+        IconSet::Mono => (
+            "#f2f2f4".into(),
+            "#cfd0d5".into(),
+            "#3a3a3c".into(),
+            "rgba(0,0,0,.08)",
+            "",
+        ),
+        IconSet::Tinted => (
+            shade(tint, -0.35),
+            shade(tint, -0.7),
+            shade(tint, 0.55),
+            "rgba(255,255,255,.16)",
+            "",
+        ),
+        IconSet::Glass => (
+            "rgba(255,255,255,.34)".into(),
+            "rgba(255,255,255,.12)".into(),
+            "#fff".into(),
+            "rgba(255,255,255,.6)",
+            r#"<path d="M8 20c6-8 22-12 48-8" stroke="rgba(255,255,255,.35)" stroke-width="2" fill="none" stroke-linecap="round"/>"#,
+        ),
+        IconSet::Outline => (
+            "#ffffff".into(),
+            "#f1f2f5".into(),
+            b.to_string(),
+            "rgba(0,0,0,.1)",
+            "",
+        ),
+    };
+    format!(
+        r##"<svg viewBox="0 0 64 64" width="100%" height="100%"><defs><linearGradient id="g{uid}{n}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{top}"/><stop offset="1" stop-color="{bottom}"/></linearGradient></defs><rect x="2" y="2" width="60" height="60" rx="14" fill="url(#g{uid}{n})"/>{extra}<rect x="2.5" y="2.5" width="59" height="59" rx="13.5" fill="none" stroke="{rim}"/><g transform="translate(12 12) scale(1.6667)" fill="none" stroke="{ink}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">{glyph}</g></svg>"##
+    )
+    .replace("fill=\"white\"", &format!("fill=\"{ink}\""))
 }
 
 /// A built-in glyph on its own, for a tab or a title bar.
@@ -901,16 +1178,29 @@ fn small_icon(icon: &AppIcon, px: f64, accent: &str) -> String {
     }
 }
 
+/// How a dock draws its tiles.
+#[derive(Clone, Copy)]
+struct Look<'a> {
+    set: IconSet,
+    tint: &'a str,
+}
+
 /// Large icon for a dock or taskbar, `px` points square.
-fn big_icon(icon: &AppIcon, px: f64, uid: &str) -> String {
+fn big_icon(icon: &AppIcon, px: f64, uid: &str, look: Look) -> String {
     match icon {
         AppIcon::None => String::new(),
         AppIcon::Builtin(n) => format!(
             r#"<span style="width:{px}px;height:{px}px;display:block">{}</span>"#,
-            tile_svg(n, uid)
+            tile_svg(n, uid, look.set, look.tint)
         ),
         AppIcon::Image(src) => format!(
-            r#"<span style="width:{px}px;height:{px}px;display:flex;align-items:center;justify-content:center;background:#fff;border-radius:{}px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)"><img src="{}" style="width:70%;height:70%;object-fit:contain"></span>"#,
+            r#"<span style="width:{px}px;height:{px}px;display:flex;align-items:center;justify-content:center;background:{};border-radius:{}px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)"><img src="{}" style="width:70%;height:70%;object-fit:contain"></span>"#,
+            match look.set {
+                IconSet::Dark => "#1f1f22".to_string(),
+                IconSet::Glass => "rgba(255,255,255,.3)".to_string(),
+                IconSet::Tinted => shade(look.tint, -0.5),
+                _ => "#fff".to_string(),
+            },
             px * 0.225,
             esc(src)
         ),
@@ -1439,35 +1729,57 @@ fn mac_menubar(app: &str, clock: &str, dark: bool) -> String {
     )
 }
 
-/// The dock (macOS, GNOME) as a centred shelf of tiles.
+/// The dock (macOS, GNOME) as a centred shelf of tiles, along the bottom
+/// or up one side. Returns the markup and its (width, height) in points.
 fn dock(
     icons: &[&'static str],
     app: Option<&AppIcon>,
     active_builtin: Option<&str>,
     dark: bool,
-) -> (String, f64) {
-    let size = 52.0;
-    let gap = 8.0;
+    size: f64,
+    pos: DockPos,
+    look: Look,
+) -> (String, (f64, f64)) {
+    let gap = (size * 0.15).round();
+    let depth = size + 16.0;
+    let vertical = pos != DockPos::Bottom;
+    // The running light sits on the screen edge side of the tile.
+    let dot_at = match pos {
+        DockPos::Bottom => "left:50%;bottom:-7px;margin-left:-2px",
+        DockPos::Left => "top:50%;left:-7px;margin-top:-2px",
+        DockPos::Right => "top:50%;right:-7px;margin-top:-2px",
+    };
+    let dot = format!(
+        r#"<span style="position:absolute;{dot_at};width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.9)"></span>"#
+    );
     let mut tiles = String::new();
     let mut n = 0.0;
-    let dot = r#"<span style="position:absolute;left:50%;bottom:-7px;width:4px;height:4px;margin-left:-2px;border-radius:50%;background:rgba(255,255,255,.9)"></span>"#;
     for (i, name) in icons.iter().enumerate() {
         let on = active_builtin == Some(*name);
         tiles.push_str(&format!(
             r#"<span style="position:relative;display:block;flex:none">{}{}</span>"#,
-            big_icon(&AppIcon::Builtin(name), size, &format!("d{i}")),
-            if on { dot } else { "" }
+            big_icon(&AppIcon::Builtin(name), size, &format!("d{i}"), look),
+            if on { dot.as_str() } else { "" }
         ));
         n += 1.0;
     }
+    let mut sep = 0.0;
     if let Some(a) = app {
         if !matches!(a, AppIcon::None) {
-            tiles.push_str(r#"<span style="width:1px;height:44px;background:rgba(255,255,255,.35);flex:none;margin:0 2px"></span>"#);
+            let line = if vertical {
+                format!("height:1px;width:{}px", size * 0.85)
+            } else {
+                format!("width:1px;height:{}px", size * 0.85)
+            };
+            tiles.push_str(&format!(
+                r#"<span style="{line};background:rgba(255,255,255,.35);flex:none;margin:0 2px"></span>"#
+            ));
             tiles.push_str(&format!(
                 r#"<span style="position:relative;display:block;flex:none">{}{dot}</span>"#,
-                big_icon(a, size, "app")
+                big_icon(a, size, "app", look)
             ));
             n += 1.0;
+            sep = 1.0 + 4.0 + gap;
         }
     }
     let bg = if dark {
@@ -1475,12 +1787,20 @@ fn dock(
     } else {
         "rgba(255,255,255,.28)"
     };
-    let width = n * size + (n - 1.0).max(0.0) * gap + 24.0 + if app.is_some() { 13.0 } else { 0.0 };
+    let length = n * size + (n - 1.0).max(0.0) * gap + 24.0 + sep;
+    let (w, h) = if vertical {
+        (depth, length)
+    } else {
+        (length, depth)
+    };
+    let dir = if vertical { "column" } else { "row" };
+    let padding = if vertical { "12px 0" } else { "0 12px" };
     (
         format!(
-            r#"<div style="height:68px;background:{bg};border-radius:20px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.35),0 8px 24px rgba(0,0,0,.18);display:flex;align-items:center;gap:{gap}px;padding:0 12px;box-sizing:border-box;width:100%">{tiles}</div>"#
+            r#"<div style="width:100%;height:100%;background:{bg};border-radius:{r}px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.35),0 8px 24px rgba(0,0,0,.18);display:flex;flex-direction:{dir};align-items:center;gap:{gap}px;padding:{padding};box-sizing:border-box">{tiles}</div>"#,
+            r = (size * 0.38).round()
         ),
-        width,
+        (w, h),
     )
 }
 
@@ -1490,6 +1810,7 @@ fn windows_taskbar(
     active_builtin: Option<&str>,
     clock: &str,
     dark: bool,
+    look: Look,
 ) -> String {
     let (bg, fg) = if dark {
         ("rgba(32,32,32,.86)", "#ffffff")
@@ -1525,12 +1846,12 @@ fn windows_taskbar(
     ));
     for (i, n) in icons.iter().enumerate() {
         row.push_str(&slot(
-            big_icon(&AppIcon::Builtin(n), 26.0, &format!("t{i}")),
+            big_icon(&AppIcon::Builtin(n), 26.0, &format!("t{i}"), look),
             active_builtin == Some(*n),
         ));
     }
     if !matches!(app, AppIcon::None) {
-        row.push_str(&slot(big_icon(app, 26.0, "tapp"), true));
+        row.push_str(&slot(big_icon(app, 26.0, "tapp", look), true));
     }
     let mut lines = clock.splitn(2, '\n');
     let (t, d) = (lines.next().unwrap_or(""), lines.next().unwrap_or(""));
@@ -1715,103 +2036,131 @@ pub fn html(spec: &Spec, page: &PageInfo, g: &Geometry) -> String {
         ));
     }
 
-    if let Some(d) = spec.desktop {
-        let s = g.s;
-        let (ow, oh) = (g.out.0 as i64, g.out.1 as i64);
-        let icons = spec.dock.clone().unwrap_or_else(|| default_dock(d));
-        /*
-         * The app in front: the browser, the page as an installed app, or,
-         * round a handset, the emulator itself. A phone on a desktop only
-         * makes sense as an emulator's window.
-         */
-        let emulator = AppIcon::Builtin("device");
-        let (active, app_tile, app_name) = if spec.os.is_phone() {
-            let name = if spec.os.is_ios() {
-                "Simulator"
-            } else {
-                "Emulator"
-            };
-            (None, Some(&emulator), name.to_string())
-        } else if browser {
-            (Some("browser"), None, "Browser".to_string())
+    let look = Look {
+        set: spec.icon_set,
+        tint: &spec.icon_tint,
+    };
+    let s = g.s;
+    let (ow, oh) = (g.out.0 as i64, g.out.1 as i64);
+    /*
+     * The app in front: the browser, the page as an installed app, or,
+     * round a handset, the emulator itself. A phone on a desktop only
+     * makes sense as an emulator's window.
+     */
+    let emulator = AppIcon::Builtin("device");
+    let (active, app_tile, app_name) = if spec.os.is_phone() {
+        let name = if spec.os.is_ios() {
+            "Simulator"
         } else {
-            let name = if title.is_empty() {
-                "App".into()
-            } else {
-                title.clone()
-            };
-            (None, Some(&icon), name)
+            "Emulator"
         };
-        match d {
-            Os::Windows => {
-                let clock = spec
-                    .clock
-                    .clone()
-                    .unwrap_or_else(|| "9:41 AM\n09/06/2026".into());
-                parts.push(part(
-                    Rect {
-                        x: 0,
-                        y: oh - g.bottom_bar,
-                        w: ow,
-                        h: g.bottom_bar,
-                    },
-                    s,
-                    "",
-                    &windows_taskbar(
-                        &icons,
-                        app_tile.unwrap_or(&AppIcon::None),
-                        active,
-                        &clock,
-                        dark,
-                    ),
-                ));
-            }
-            _ => {
-                if d == Os::Macos {
-                    let clock = spec
-                        .clock
-                        .clone()
-                        .unwrap_or_else(|| "Tue 9 Jun  9:41".into());
-                    parts.push(part(
-                        Rect {
-                            x: 0,
-                            y: 0,
-                            w: ow,
-                            h: g.top_bar,
-                        },
-                        s,
-                        "",
-                        &mac_menubar(&app_name, &clock, dark),
-                    ));
-                } else {
-                    let clock = spec.clock.clone().unwrap_or_else(|| "Jun 9  09:41".into());
-                    parts.push(part(
-                        Rect {
-                            x: 0,
-                            y: 0,
-                            w: ow,
-                            h: g.top_bar,
-                        },
-                        s,
-                        "",
-                        &gnome_topbar(&clock),
-                    ));
-                }
-                let (html, width_pt) = dock(&icons, app_tile, active, d == Os::Linux || dark);
-                let w = (width_pt * s).round() as i64;
-                let h = (68.0 * s).round() as i64;
-                parts.push(part(
-                    Rect {
-                        x: (ow - w) / 2,
-                        y: oh - h - (4.0 * s).round() as i64,
-                        w,
-                        h,
-                    },
-                    s,
-                    "overflow:visible",
-                    &html,
-                ));
-            }
+        (None, Some(&emulator), name.to_string())
+    } else if browser {
+        (Some("browser"), None, "Browser".to_string())
+    } else {
+        let name = if title.is_empty() {
+            "App".into()
+        } else {
+            title.clone()
+        };
+        (None, Some(&icon), name)
+    };
+
+    match spec.desktop {
+        Some(Os::Macos) => {
+            let clock = spec
+                .clock
+                .clone()
+                .unwrap_or_else(|| "Tue 9 Jun  9:41".into());
+            parts.push(part(
+                Rect {
+                    x: 0,
+                    y: 0,
+                    w: ow,
+                    h: g.top_bar,
+                },
+                s,
+                "",
+                &mac_menubar(&app_name, &clock, dark),
+            ));
+        }
+        Some(Os::Linux) => {
+            let clock = spec.clock.clone().unwrap_or_else(|| "Jun 9  09:41".into());
+            parts.push(part(
+                Rect {
+                    x: 0,
+                    y: 0,
+                    w: ow,
+                    h: g.top_bar,
+                },
+                s,
+                "",
+                &gnome_topbar(&clock),
+            ));
+        }
+        _ => {}
+    }
+
+    if let Some(shell) = spec.dock_shell() {
+        let icons = spec.dock.clone().unwrap_or_else(|| default_dock(shell));
+        if shell == Os::Windows {
+            let clock = spec
+                .clock
+                .clone()
+                .unwrap_or_else(|| "9:41 AM\n09/06/2026".into());
+            parts.push(part(
+                Rect {
+                    x: 0,
+                    y: oh - g.bottom_bar,
+                    w: ow,
+                    h: g.bottom_bar,
+                },
+                s,
+                "",
+                &windows_taskbar(
+                    &icons,
+                    app_tile.unwrap_or(&AppIcon::None),
+                    active,
+                    &clock,
+                    dark,
+                    look,
+                ),
+            ));
+        } else {
+            let (html, (wp, hp)) = dock(
+                &icons,
+                app_tile,
+                active,
+                shell == Os::Linux || dark,
+                spec.dock_size,
+                spec.dock_pos,
+                look,
+            );
+            let (w, h) = ((wp * s).round() as i64, (hp * s).round() as i64);
+            let margin = (4.0 * s).round() as i64;
+            // Up a side, centred on the space under the menu bar.
+            let mid_y = g.top_bar + (oh - g.top_bar - h) / 2;
+            let r = match spec.dock_pos {
+                DockPos::Bottom => Rect {
+                    x: (ow - w) / 2,
+                    y: oh - h - margin,
+                    w,
+                    h,
+                },
+                DockPos::Left => Rect {
+                    x: margin,
+                    y: mid_y,
+                    w,
+                    h,
+                },
+                DockPos::Right => Rect {
+                    x: ow - w - margin,
+                    y: mid_y,
+                    w,
+                    h,
+                },
+            };
+            parts.push(part(r, s, "overflow:visible", &html));
         }
     }
 
@@ -1877,6 +2226,43 @@ mod tests {
     }
 
     #[test]
+    fn a_dock_on_any_edge_keeps_clear_of_the_window() {
+        for pos in [DockPos::Bottom, DockPos::Left, DockPos::Right] {
+            for desktop in [None, Some(Os::Macos)] {
+                let mut spec = Spec::new(Os::Macos);
+                spec.show_dock = Some(true);
+                spec.dock_pos = pos;
+                spec.desktop = desktop;
+                spec.dock_size = 72.0;
+                let g = geometry(&spec, 1920, 1080, 1470, 830);
+                let b = g.body;
+                assert!(
+                    b.x >= g.left_bar && b.right() <= 1920 - g.right_bar,
+                    "{pos:?}"
+                );
+                assert!(
+                    b.y >= g.top_bar && b.bottom() <= 1080 - g.bottom_bar,
+                    "{pos:?}"
+                );
+                let depth = [g.left_bar, g.right_bar, g.bottom_bar];
+                assert_eq!(depth.iter().filter(|d| **d > 0).count(), 1, "{pos:?}");
+                assert_eq!(
+                    g.top_bar > 0,
+                    desktop.is_some(),
+                    "menu bar only with --desktop"
+                );
+            }
+        }
+        let mut off = Spec::new(Os::Macos);
+        off.desktop = Some(Os::Macos);
+        off.show_dock = Some(false);
+        assert_eq!(off.dock_shell(), None);
+        let mut phone = Spec::new(Os::Ios);
+        phone.show_dock = Some(true);
+        assert_eq!(phone.dock_shell(), None, "a handset alone has no dock");
+    }
+
+    #[test]
     fn a_phone_frame_puts_bezel_and_bars_round_the_content() {
         let spec = Spec::new(Os::Ios);
         let g = geometry(&spec, 1080, 1920, 393, 852);
@@ -1939,8 +2325,29 @@ mod tests {
             Ok(Icon::Builtin("terminal"))
         ));
         assert!(parse_icon("no-such-icon").is_err());
-        assert_eq!(parse_dock("mail, chat").unwrap(), vec!["mail", "chat"]);
+        assert_eq!(
+            parse_dock("mail, chat").unwrap(),
+            (true, Some(vec!["mail", "chat"]))
+        );
         assert!(parse_dock("mail,nope").is_err());
+        assert_eq!(parse_dock("off").unwrap(), (false, None));
+        assert_eq!(parse_dock("on").unwrap(), (true, None));
+        // A group expands in place, and a repeat is kept once.
+        let (_, dev) = parse_dock("dev,maps,code").unwrap();
+        let dev = dev.unwrap();
+        assert_eq!(dev.first(), Some(&"files"));
+        assert_eq!(dev.last(), Some(&"maps"));
+        assert_eq!(dev.iter().filter(|i| **i == "code").count(), 1);
+        for (n, g) in DOCK_GROUPS {
+            for i in g.iter() {
+                assert!(
+                    builtin_icon(i).is_some(),
+                    "group {n} names unknown icon {i}"
+                );
+            }
+        }
+        assert!(parse_tint("#abc").is_ok() && parse_tint("7c5cff").is_ok());
+        assert!(parse_tint("red\"><script>").is_err());
         assert_eq!(
             parse_desktop("on", Some(Os::IosSimulator)).unwrap(),
             Some(Os::Macos)
@@ -1951,7 +2358,14 @@ mod tests {
         );
         assert!(parse_desktop("ios", None).is_err());
         for n in icon_names() {
-            assert!(tile_svg(n, "t").contains("<svg"));
+            for (set_name, set, _) in ICON_SETS {
+                let t = tile_svg(n, "t", *set, "#7c5cff");
+                assert!(
+                    t.contains("<svg") && t.ends_with("</svg>"),
+                    "{n} in {set_name}"
+                );
+                assert_eq!(parse_icon_set(set_name).unwrap(), *set);
+            }
         }
     }
 }
