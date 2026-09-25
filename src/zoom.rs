@@ -203,6 +203,25 @@ pub fn events_from_marks(
     frame_h: f64,
     duration: f64,
 ) -> Vec<ZoomEvent> {
+    events_with(marks, scale, frame_w, frame_h, duration, false)
+}
+
+/// The smallest zoom worth taking to keep a whole surface in shot. Below this the surface is
+/// most of the screen already, and zooming out further to fit it is no zoom at all.
+const SURFACE_MIN_ZOOM: f64 = 1.15;
+
+/// `surface_first`: zoom out as far as it takes to keep the surface a control sits on wholly
+/// in shot, rather than cropping it. Used when the camera films the whole screen of a frame,
+/// where the card is the thing on screen and cutting its edge (and the button on that edge)
+/// off reads as the camera losing its place.
+pub fn events_with(
+    marks: &[Mark],
+    scale: f64,
+    frame_w: f64,
+    frame_h: f64,
+    duration: f64,
+    surface_first: bool,
+) -> Vec<ZoomEvent> {
     // Interaction targets: marks that carry a bounding box.
     struct Target {
         t: f64,
@@ -233,7 +252,30 @@ pub fn events_from_marks(
              */
             let fit_w = frame_w / (w * scale * FIT_MARGIN);
             let fit_h = frame_h / (h * scale * FIT_MARGIN);
-            let z = ladder.min(fit_w).min(fit_h).max(1.0);
+            let mut z = ladder.min(fit_w).min(fit_h).max(1.0);
+            /*
+             * Anchored on the surface. When the card a control sits on fits the shot, the
+             * camera aims at the card's centre, with margin enough that trailing by a full
+             * deadzone never pushes an edge out. Every interaction on that card then wants
+             * the same place, so typing into it and clicking its button hold the camera
+             * still: it moves when the action moves to another card, and not otherwise.
+             */
+            if surface_first {
+                if let Some((sx, sy, sw, sh)) = m.context {
+                    let margin = FIT_MARGIN + 2.0 * DEADZONE;
+                    let fit_s =
+                        (frame_w / (sw * scale * margin)).min(frame_h / (sh * scale * margin));
+                    if fit_s >= SURFACE_MIN_ZOOM {
+                        z = z.min(fit_s);
+                        return Some(Target {
+                            t: m.t,
+                            cx: ((sx + sw / 2.0) * scale).clamp(0.0, frame_w),
+                            cy: ((sy + sh / 2.0) * scale).clamp(0.0, frame_h),
+                            z,
+                        });
+                    }
+                }
+            }
             let crop_w = frame_w / z;
             let want = if m.kind == "type" {
                 LEFT_BIAS_TYPE
@@ -1091,6 +1133,11 @@ fn render_zoom(
     ffmpeg: &str,
     aspect: f64,
     tmp: &TempDir,
+    /*
+     * Whole-screen mode: out_w x out_h is the composite, the camera runs over
+     * it after the frame is laid on, and this is the video's own size.
+     */
+    screen: Option<(u32, u32)>,
 ) -> Result<(), String> {
     /*
      * With a backdrop the content is no longer the frame: it is scaled to the
@@ -1133,8 +1180,37 @@ fn render_zoom(
         )
     };
 
-    let (complex, graph) = match plate {
-        Some(p) => {
+    let (complex, graph) = match (plate, screen) {
+        (Some(p), Some((vw, vh))) => {
+            let (x, y) = p.origin;
+            let cam = if events.is_empty() {
+                format!("scale={vw}:{vh}:flags=lanczos")
+            } else {
+                let z = build_expr(events, "z");
+                let cx = build_expr(events, "cx");
+                let cy = build_expr(events, "cy");
+                format!(
+                    "zoompan=z='({z})':\
+                     x='clip(({cx})-iw/(2*({z})),0,iw-iw/({z}))':\
+                     y='clip(({cy})-ih/(2*({z})),0,ih-ih/({z}))':\
+                     d=1:fps={FPS}:s={vw}x{vh}"
+                )
+            };
+            let chrome = if p.chrome.is_some() {
+                "[p][2:v]overlay=0:0:format=auto[f];"
+            } else {
+                "[p]null[f];"
+            };
+            (
+                true,
+                format!(
+                    "[0:v]fps={FPS},scale={cw}:{ch}:flags=lanczos,format=rgba,pad={out_w}:{out_h}:{x}:{y}[c];\
+                     [c][1:v]overlay=0:0:format=auto[p];{chrome}\
+                     [f]format=yuv420p,{cam},format=yuv420p[v]"
+                ),
+            )
+        }
+        (Some(p), None) => {
             let (x, y) = p.origin;
             (
                 true,
@@ -1153,7 +1229,7 @@ fn render_zoom(
                 },
             )
         }
-        None => {
+        (None, _) => {
             let (x, y) = (
                 (out_w.saturating_sub(cw) / 2) & !1,
                 (out_h.saturating_sub(ch) / 2) & !1,
@@ -1251,8 +1327,13 @@ fn render_zoom(
 /// A device frame, ready to composite: where everything sits, the chrome
 /// drawn over it, and the wallpaper `auto` means under this frame.
 pub struct Framing {
+    /// In composite pixels: the output size times `ss`.
     pub layout: Layout,
     pub chrome_png: Vec<u8>,
+    /// How much larger than the video the composite is built. The camera
+    /// zooms the whole composite, so it is drawn big enough that a 1.85x
+    /// zoom still reads native pixels rather than an upscale.
+    pub ss: u32,
     pub wallpaper: &'static backdrop::Background,
     pub name: &'static str,
 }
@@ -1431,22 +1512,52 @@ pub fn render(
         tail_pad_for(marks, raw_end),
         smooth,
     )?;
-    let events = events_from_marks(marks, scale, fw as f64, fh as f64, duration);
     /*
      * After pass 1, not before: the auto picker measures the take itself, and
      * the CFR intermediate is the only place the captured pixels exist in a
      * form ffmpeg can read cheaply.
      */
+    let (comp_w, comp_h) = match framing {
+        Some(f) => (out_w * f.ss, out_h * f.ss),
+        None => (out_w, out_h),
+    };
     let plate = plate_for(
         background,
         framing,
         &tmp.path,
         &raw_path,
         &ffmpeg,
-        out_w,
-        out_h,
+        comp_w,
+        comp_h,
         fw as f64 / fh as f64,
     );
+    /*
+     * Under a frame the camera films the whole screen: window or handset,
+     * chrome, dock and wallpaper, as one picture. So the interactions are
+     * moved into that picture before the camera is derived from them. The
+     * camera itself is unchanged, the same spring, deadzone and speed cap,
+     * which is what keeps it anchored on the button and steady getting there.
+     */
+    let screen = framing.is_some() && plate.as_ref().is_some_and(|p| p.chrome.is_some());
+    let events = match (&plate, screen) {
+        (Some(p), true) => {
+            let s2 = p.content.0 as f64 / css_w as f64;
+            let (ox, oy) = (p.origin.0 as f64 / s2, p.origin.1 as f64 / s2);
+            let shift = |b: (f64, f64, f64, f64)| (b.0 + ox, b.1 + oy, b.2, b.3);
+            let moved: Vec<Mark> = marks
+                .iter()
+                .map(|m| Mark {
+                    t: m.t,
+                    kind: m.kind.clone(),
+                    label: m.label.clone(),
+                    bbox: m.bbox.map(shift),
+                    context: m.context.map(shift),
+                })
+                .collect();
+            events_with(&moved, s2, comp_w as f64, comp_h as f64, duration, true)
+        }
+        _ => events_from_marks(marks, scale, fw as f64, fh as f64, duration),
+    };
 
     if let Some(sidecar) = telemetry_path(out_path, keep_temp) {
         let telemetry = serde_json::json!({
@@ -1479,12 +1590,13 @@ pub fn render(
         &raw_path,
         out_path,
         &events,
-        out_w,
-        out_h,
+        comp_w,
+        comp_h,
         plate.as_ref(),
         &ffmpeg,
         fw as f64 / fh as f64,
         &tmp,
+        screen.then_some((out_w, out_h)),
     );
     if zoomed.is_err() {
         tmp.retain();
@@ -2342,6 +2454,178 @@ mod tests {
         }
     }
 
+    /// With the whole screen in shot, a control's card is kept whole: the zoom eases off
+    /// rather than cutting the card's edge, and the button on it, out of the crop.
+    #[test]
+    fn surface_first_keeps_the_whole_card_in_shot() {
+        // A 320 wide card with its button at the right edge, typed into from the left.
+        let card = Some((100.0, 100.0, 320.0, 120.0));
+        let marks = vec![
+            Mark {
+                t: 1.0,
+                kind: "type".into(),
+                label: String::new(),
+                bbox: Some((110.0, 150.0, 200.0, 30.0)),
+                context: card,
+            },
+            Mark {
+                t: 2.0,
+                kind: "click".into(),
+                label: String::new(),
+                bbox: Some((350.0, 150.0, 60.0, 30.0)),
+                context: card,
+            },
+        ];
+        let (fw, fh) = (560.0, 1000.0);
+        for (first, keeps) in [(false, false), (true, true)] {
+            let ev = events_with(&marks, 1.0, fw, fh, 8.0, first);
+            let e = &ev[0];
+            let half = fw / e.z / 2.0;
+            let inside = e.cx - half <= 100.0 + 1e-6 && e.cx + half >= 420.0 - 1e-6;
+            assert_eq!(
+                inside, keeps,
+                "surface_first={first}: z {} cx {}",
+                e.z, e.cx
+            );
+            assert!(e.z >= 1.0);
+            if first {
+                // Typing and the click share one aim, so the camera does not travel between them.
+                assert!(
+                    (e.cx - 260.0).abs() < 1e-6,
+                    "aimed off the card centre: {}",
+                    e.cx
+                );
+                assert!(
+                    e.path.iter().all(|p| (p.1 - 260.0).abs() < 1e-6),
+                    "the camera moved between two interactions on one card"
+                );
+            }
+        }
+    }
+
+    /// Under a frame the camera films the composite: the chrome is in the picture and is
+    /// carried by the zoom, rather than sitting still over a page that zooms beneath it.
+    #[test]
+    fn a_framed_take_zooms_the_whole_screen() {
+        let Some(ffmpeg) = ffmpeg_for_test() else {
+            return;
+        };
+        let tmp = TempDir::new("screen-zoom-test", false).unwrap();
+        let raw = tmp.join("raw.mp4");
+        assert!(run(
+            &ffmpeg,
+            &[
+                "-y",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=white:size=320x180:rate=30:duration=1.2",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                &raw,
+            ],
+        ));
+        // A composite at twice a 320x180 video, with a pure red title bar as the chrome.
+        let (cw, ch) = (640u32, 360u32);
+        let layout = crate::backdrop::Layout::plain(cw, ch, 320.0 / 180.0);
+        let bg = crate::backdrop::background("tide").unwrap();
+        let mut plate = crate::backdrop::build_with(
+            &tmp.path,
+            crate::backdrop::Source::Fill(bg),
+            "tide",
+            cw,
+            ch,
+            &layout,
+        )
+        .unwrap();
+        let mut px = vec![0u8; (cw * ch * 4) as usize];
+        for y in 0..40usize {
+            for x in 0..cw as usize {
+                px[(y * cw as usize + x) * 4..][..4].copy_from_slice(&[255, 0, 0, 255]);
+            }
+        }
+        let chrome = tmp.path.join("chrome.png");
+        crate::backdrop::write_png_rgba(&chrome, cw, ch, &px).unwrap();
+        plate.chrome = Some(chrome);
+        let out = tmp.join("out.mp4");
+        // Zoomed in hard on the middle of the page from the first frame.
+        let events = vec![ZoomEvent {
+            t: 0.0,
+            end: 1.2,
+            cx: 320.0,
+            cy: 200.0,
+            z: 1.8,
+            path: Vec::new(),
+        }];
+        render_zoom(
+            &raw,
+            &out,
+            &[],
+            cw,
+            ch,
+            Some(&plate),
+            &ffmpeg,
+            320.0 / 180.0,
+            &tmp,
+            Some((320, 180)),
+        )
+        .unwrap();
+        let flat = first_frame(&ffmpeg, &out);
+        assert_eq!(
+            flat.len(),
+            320 * 180 * 3,
+            "the video is the requested size, not the composite"
+        );
+        let red = |f: &[u8], y: usize| {
+            let i = (y * 320 + 160) * 3;
+            f[i] > 200 && f[i + 1] < 60 && f[i + 2] < 60
+        };
+        assert!(
+            red(&flat, 5),
+            "without a zoom the chrome's title bar is at the top"
+        );
+        let out2 = tmp.join("out2.mp4");
+        render_zoom(
+            &raw,
+            &out2,
+            &events,
+            cw,
+            ch,
+            Some(&plate),
+            &ffmpeg,
+            320.0 / 180.0,
+            &tmp,
+            Some((320, 180)),
+        )
+        .unwrap();
+        // Late in the take, once the ease in has landed.
+        let late = tmp.join("late.mp4");
+        assert!(run(
+            &ffmpeg,
+            &[
+                "-y",
+                "-loglevel",
+                "error",
+                "-ss",
+                "0.9",
+                "-i",
+                &out2,
+                "-frames:v",
+                "1",
+                &late
+            ]
+        ));
+        let zoomed = first_frame(&ffmpeg, &late);
+        assert!(
+            !red(&zoomed, 5),
+            "zoomed on the page, the title bar has left the top of the shot"
+        );
+    }
+
     #[test]
     fn composites_the_take_onto_its_plate() {
         let Some(ffmpeg) = ffmpeg_for_test() else {
@@ -2390,6 +2674,7 @@ mod tests {
             &ffmpeg,
             320.0 / 180.0,
             &tmp,
+            None,
         )
         .unwrap();
 
@@ -2452,6 +2737,7 @@ mod tests {
             &ffmpeg,
             320.0 / 180.0,
             &tmp,
+            None,
         )
         .unwrap();
         assert_eq!(first_frame(&ffmpeg, &out).len(), 640 * 360 * 3);
@@ -2494,6 +2780,7 @@ mod tests {
             &ffmpeg,
             320.0 / 180.0,
             &tmp,
+            None,
         )
         .unwrap();
         let frame = first_frame(&ffmpeg, &out);

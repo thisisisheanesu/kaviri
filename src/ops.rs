@@ -659,6 +659,18 @@ impl Session {
         let spec = self.frame.clone()?;
         let out_w = self.out_size.0 - self.out_size.0 % 2;
         let out_h = self.out_size.1 - self.out_size.1 % 2;
+        /*
+         * The camera zooms the whole composite, so it is drawn at twice the
+         * video's size where that stays a sane number of pixels: a 1.85x zoom
+         * then samples real detail instead of upscaling. Past 4800 on a side
+         * the plate and the zoom pass cost more than the sharpness is worth.
+         */
+        let ss: u32 = if out_w * 2 <= 4800 && out_h * 2 <= 4800 {
+            2
+        } else {
+            1
+        };
+        let (out_w, out_h) = (out_w * ss, out_h * ss);
         let page = self
             .cdp
             .evaluate_within(crate::device::PAGE_JS, std::time::Duration::from_secs(5))
@@ -683,6 +695,7 @@ impl Session {
         }
         match self.cdp.render_html_png(&html, out_w, out_h) {
             Ok(png) => Some(crate::zoom::Framing {
+                ss,
                 layout: g.layout(),
                 chrome_png: png,
                 wallpaper,
