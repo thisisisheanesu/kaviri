@@ -80,7 +80,8 @@ Platforms: `macos`, `windows`, `linux`, `ios`, `android`, `android-emulator`,
 `ios-simulator`. A phone platform films at that phone's viewport and user agent, so the page
 serves its phone layout, and shows a tap dot instead of a mouse pointer. `"style":"recording"`
 (phones) looks like the phone's own screen recording. Every field mirrors a `--frame*` flag;
-the flags win. Put the op before `start_recording`.
+the flags win. Put the op before `start_recording`. Under a frame the whole screen zooms, and
+the camera anchors on the card a control sits on, holding still while you work in one card.
 
 ## Serve mode, which is the one built for you
 

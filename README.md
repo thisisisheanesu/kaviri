@@ -188,6 +188,11 @@ mouse pointer. The emulators draw the same handsets with the Android Emulator's 
 the iOS Simulator's device title bar. The playground at kaviri.dev/play has the same platforms
 in a picker, which writes the `frame` line for you.
 
+Under a frame the zoom takes in the whole screen: the window or handset, the dock and the
+wallpaper zoom with the page, rendered at twice the video's size so a close-up stays sharp. The
+camera anchors on the card a control sits on, so typing into a field and pressing the button
+beside it hold the shot steady with both in frame.
+
 ```
 kaviri record --script demo.jsonl --out demo.mp4 --frame macos --desktop on
 kaviri record --script demo.jsonl --out demo.mp4 --frame ios --clock 10:08 --battery 40

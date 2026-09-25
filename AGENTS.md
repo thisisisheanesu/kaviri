@@ -128,7 +128,10 @@ that system's window or handset, with the page's real title, favicon and URL in 
 A phone platform also switches the browser to that phone's viewport and user agent, so write
 the script against the phone layout, and it draws a tap dot instead of a mouse pointer.
 `"style":"recording"` on `ios` or `android` makes the take look like the phone's own screen
-recording: the screen edge to edge, no bezel, the red recording indicator in the status bar. `--desktop on` adds the menu bar and dock or the
+recording: the screen edge to edge, no bezel, the red recording indicator in the status bar.
+Under a frame the zoom takes in the whole screen (chrome, dock and wallpaper zoom with the page)
+and anchors on the card a control sits on, so several ops on one card hold the camera still.
+Keep a card's interactions together in the script and the take stays steady. `--desktop on` adds the menu bar and dock or the
 taskbar; `--dock on` draws the dock without the menu bar, `--dock-position` puts it on a side, and
 `--icon-set` restyles the icons; `kaviri frames` lists the frames, icons, dock groups and
 icon sets. The chrome is read off the page when `stop_recording` runs, so stop on the page you

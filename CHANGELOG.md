@@ -55,6 +55,11 @@ dated `[0.1.0]` heading, when the tag is cut.
   `minimal`), `--dock-position bottom|left|right` and `--dock-size`, and `--icon-set
   color|pastel|dark|mono|tinted|glass|outline` with `--icon-tint` restyles every built-in icon. The chrome is HTML rendered once per
   take by the recording browser, in a throwaway tab the filmed page never sees.
+- **Under a frame the whole screen zooms.** Page, chrome, dock and wallpaper are composited
+  first, at twice the video's size, and the camera runs over the composite, so a close-up
+  brings the title bar or bezel in with it. The camera anchors on the card a control sits on:
+  interactions on one card share one aim, so typing and clicking there hold the shot still with
+  the button in frame. The playground zooms the whole scene the same way.
 - **Platforms in the script, and phones that look filmed on a phone.** A `frame` op declares
   the platform in the `.jsonl` itself, with a field for every `--frame*` flag; `record` reads
   it before launch so a phone starts at the phone's viewport, and `serve` applies it on

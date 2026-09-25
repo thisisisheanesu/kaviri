@@ -164,6 +164,24 @@ function resolve(selector, n) {
   return { el, box: b };
 }
 
+/**
+ * The surface a control sits on: the first painted ancestor clearly taller than it, the way
+ * the binary finds it. Under a platform the camera frames this rather than the control, so
+ * the card and the button on its edge stay in shot together and the camera holds still
+ * while you work in one card.
+ */
+function surfaceOf(el) {
+  const own = el.getBoundingClientRect();
+  const win = els.frame.contentWindow;
+  for (let p = el.parentElement; p && p !== doc().body; p = p.parentElement) {
+    const r = p.getBoundingClientRect();
+    const bg = win.getComputedStyle(p).backgroundColor;
+    const painted = bg && !/rgba\(0, 0, 0, 0\)|transparent/.test(bg);
+    if (painted && r.height > own.height * 1.8) return { x: r.left, y: r.top, w: r.width, h: r.height };
+  }
+  return null;
+}
+
 function log(kind, text, bad) {
   const li = document.createElement("li");
   li.className = bad ? "bad" : "";
@@ -261,7 +279,7 @@ async function runOp({ n, o }, cam, state) {
       if (o.selector !== undefined) {
         const r = resolve(o.selector, n);
         box = r.box;
-        cam.aim(box, "click", performance.now() / 1000);
+        cam.aim((state.screen && surfaceOf(r.el)) || box, "click", performance.now() / 1000);
         state.interactions++;
         await sleep(260); // the camera is allowed to arrive before the click lands
         r.el.click();
@@ -277,6 +295,7 @@ async function runOp({ n, o }, cam, state) {
     }
     case "type": {
       const { el } = resolve(o.selector, n);
+      const card = state.screen ? surfaceOf(el) : null;
       el.focus();
       el.value = "";
       const per = o.typewriter_ms ?? 18;
@@ -286,7 +305,7 @@ async function runOp({ n, o }, cam, state) {
         el.dispatchEvent(new els.frame.contentWindow.Event("input", { bubbles: true }));
         // Re-aim at the caret as it moves. In the binary this is a CDP measurement every
         // 0.12s; here it is every character, which the deadzone flattens out either way.
-        cam.aim(caretBox(el), "type", performance.now() / 1000);
+        cam.aim(card || caretBox(el), card ? "click" : "type", performance.now() / 1000);
         await sleep(per);
       }
       log("type", `${o.selector} <- ${JSON.stringify(o.text)}`);
@@ -325,7 +344,7 @@ function closeResult() {
   els.result.hidden = true;
 }
 
-function startCamera(cam) {
+function startCamera(cam, target) {
   let last = performance.now();
   let stop = false;
   const tick = (now) => {
@@ -335,7 +354,7 @@ function startCamera(cam) {
     const dt = Math.min((now - last) / 1000, 1 / 20);
     last = now;
     cam.step(dt, now / 1000);
-    els.stage.style.transform = cam.transform();
+    target.style.transform = cam.transform();
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
@@ -377,10 +396,30 @@ async function run(withCapture) {
    */
   const frameOp = ops.find((p) => p.o.op === "frame");
   setPlatform(frameOp ? platformOf(frameOp.o) : "none", false);
-  const frame = { w: els.frame.clientWidth, h: els.frame.clientHeight };
-  const cam = new Camera(frame);
-  const stopCam = startCamera(cam);
-  const state = { recording: false, interactions: 0 };
+  /*
+   * Under a platform the camera films the whole screen, so boxes measured in the app are moved
+   * into the scene: offset by where the viewport sits, scaled by the phone's zoom.
+   */
+  const screen = els.platform.value !== "none";
+  let cam;
+  let target = els.stage;
+  if (screen) {
+    const sc = els.scene.getBoundingClientRect();
+    const vp = els.viewport.getBoundingClientRect();
+    const f = vp.width / els.frame.clientWidth;
+    const inner = new Camera({ w: els.scene.clientWidth, h: els.scene.clientHeight });
+    const map = (b) => ({ x: vp.left - sc.left + b.x * f, y: vp.top - sc.top + b.y * f, w: b.w * f, h: b.h * f });
+    cam = {
+      aim: (b, kind, t) => inner.aim(map(b), kind, t),
+      step: (dt, t) => inner.step(dt, t),
+      transform: () => inner.transform(),
+    };
+    target = els.scene;
+  } else {
+    cam = new Camera({ w: els.frame.clientWidth, h: els.frame.clientHeight });
+  }
+  const stopCam = startCamera(cam, target);
+  const state = { recording: false, interactions: 0, screen };
   running = true;
 
   try {
@@ -395,6 +434,7 @@ async function run(withCapture) {
     setTimeout(async () => {
       stopCam();
       els.stage.style.transform = "";
+      els.scene.style.transform = "";
       els.rec.hidden = true;
       if (capture) {
         const blob = await capture.stop().catch(() => null);
@@ -447,7 +487,7 @@ function boot() {
   for (const id of ["script", "run", "download", "getscript", "frame", "stage", "log", "rec",
                     "reset", "result", "resultvideo", "resultdl", "resultmeta", "resultclose",
                     "platform", "stagebg", "device", "dvtop", "dvbottom", "dvside", "dvover",
-                    "viewport"]) {
+                    "viewport", "scene"]) {
     els[id] = document.getElementById(id);
   }
   els.run.addEventListener("click", () => run(false));

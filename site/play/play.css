@@ -170,8 +170,11 @@
 }
 #platform-note { margin: 4px 0 var(--k-space-2); }
 
-.stagebg { border-radius: var(--k-radius); display: flex; justify-content: center; }
-.stagebg:not([data-platform="none"]) { padding: var(--k-space-3) var(--k-space-2); }
+/* The screen. Under a platform the camera moves #scene, the whole of it, so the window or
+   handset and the wallpaper zoom with the app, as they do in the binary's video. */
+.stagebg { border-radius: var(--k-radius); overflow: hidden; position: relative; }
+#scene { display: flex; justify-content: center; transform-origin: 0 0; }
+.stagebg:not([data-platform="none"]) #scene { padding: var(--k-space-3) var(--k-space-2); will-change: transform; }
 .stagebg[data-platform="macos"] { background: linear-gradient(170deg, #28225c, #a85c96 55%, #f6a678); }
 .stagebg[data-platform="windows"] { background: radial-gradient(circle at 50% 55%, #c4e2ff, #6eb0ff 22%, #0a2260 70%); }
 .stagebg[data-platform="linux"] { background: linear-gradient(125deg, #2c001e, #77216f 45%, #ec6e32); }

@@ -106,6 +106,25 @@ The vertical is not biased. Content is read left to right and top to bottom, but
 vertical relationship to what it acts on is not consistent the way its horizontal one is, so
 `cy` is the target's centre and nothing else.
 
+## Under a frame: the whole screen, anchored on the card
+
+With `--frame` (or a `frame` op), the camera films the whole screen, not just the page. The
+page, the window or handset, the dock and the wallpaper are composited first, at twice the
+video's size so a zoom reads real pixels, and the camera runs over that picture. Zooming in on a
+button brings the window's title bar or the phone's bezel in with it, the way a screen recording
+of the whole display zooms, and they slide out of shot together.
+
+Every interaction's box is moved into that picture before the camera is derived from it, and
+the camera itself is the same spring, deadzone and speed cap. One rule changes. When the control
+sits on a surface (the card or form around it) that can be framed at a zoom of 1.15 or more,
+the camera aims at the centre of that surface, zoomed only as far as keeps it whole with a
+deadzone of margin each side. Every interaction on that card then asks for the same place, so
+typing into its field and clicking its button hold the camera still, with the button in shot,
+and the camera moves only when the action moves to another card. A surface too big for that
+falls back to the rules below.
+
+The playground does the same when a platform is picked: it moves the whole scene, not the app.
+
 ## The shape of one move
 
 ```
