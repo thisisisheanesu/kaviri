@@ -8,7 +8,7 @@
 //! - VFR frames are normalized to CFR 30fps BEFORE any time-based math
 //!   (pass 1), then a zoompan expression does the zooms (pass 2).
 
-use crate::backdrop::{self, Choice, Plate};
+use crate::backdrop::{self, Choice, Layout, Plate, Source};
 use crate::cdp::FrameSpool;
 use crate::ops::Mark;
 use std::hash::{BuildHasher, Hasher};
@@ -1138,10 +1138,19 @@ fn render_zoom(
             let (x, y) = p.origin;
             (
                 true,
-                format!(
-                    "[0:v]{core},format=rgba,pad={out_w}:{out_h}:{x}:{y}[c];\
-                     [c][1:v]overlay=0:0:format=auto,format=yuv420p[v]"
-                ),
+                match p.chrome {
+                    // The frame goes on last: bezels and title bars sit over
+                    // both the content and the plate's edge.
+                    Some(_) => format!(
+                        "[0:v]{core},format=rgba,pad={out_w}:{out_h}:{x}:{y}[c];\
+                         [c][1:v]overlay=0:0:format=auto[p];\
+                         [p][2:v]overlay=0:0:format=auto,format=yuv420p[v]"
+                    ),
+                    None => format!(
+                        "[0:v]{core},format=rgba,pad={out_w}:{out_h}:{x}:{y}[c];\
+                         [c][1:v]overlay=0:0:format=auto,format=yuv420p[v]"
+                    ),
+                },
             )
         }
         None => {
@@ -1176,6 +1185,10 @@ fn render_zoom(
     if let Some(p) = plate {
         args.push("-i".into());
         args.push(arg_path(&p.path.display().to_string()));
+        if let Some(c) = &p.chrome {
+            args.push("-i".into());
+            args.push(arg_path(&c.display().to_string()));
+        }
     }
     // An argv element is capped at 128 KiB by the kernel, so a graph that has outgrown one is
     // passed by filename instead. Ordinary takes stay on the argument, which every ffmpeg
@@ -1235,13 +1248,24 @@ fn render_zoom(
     Ok(())
 }
 
+/// A device frame, ready to composite: where everything sits, the chrome
+/// drawn over it, and the wallpaper `auto` means under this frame.
+pub struct Framing {
+    pub layout: Layout,
+    pub chrome_png: Vec<u8>,
+    pub wallpaper: &'static backdrop::Background,
+    pub name: &'static str,
+}
+
 /// Resolve `--background` into a rendered plate.
 ///
 /// A backdrop is decoration, so nothing here is fatal: a failed probe falls
 /// back to the deterministic default, and a failed render falls back to the
 /// full-frame take that kaviri produced before backdrops existed.
+#[allow(clippy::too_many_arguments)]
 fn plate_for(
-    choice: Choice,
+    choice: &Choice,
+    framing: Option<&Framing>,
     tmp_dir: &Path,
     raw_path: &str,
     ffmpeg: &str,
@@ -1249,10 +1273,31 @@ fn plate_for(
     out_h: u32,
     aspect: f64,
 ) -> Option<Plate> {
-    let (bg, how) = match choice {
-        Choice::Off => return None,
-        Choice::Named(bg) => (bg, String::from("--background")),
-        Choice::Auto => {
+    let layout = match framing {
+        Some(f) => f.layout.clone(),
+        None => Layout::plain(out_w, out_h, aspect),
+    };
+    let mut image: Option<Vec<u8>> = None;
+    let (bg, how): (&'static backdrop::Background, String) = match (choice, framing) {
+        (Choice::Off, None) => return None,
+        // A frame has to be cut out of something.
+        (Choice::Off, Some(_)) => (&backdrop::BLACK, "--background none under a frame".into()),
+        (Choice::Named(bg), _) => (bg, String::from("--background")),
+        (Choice::Auto, Some(f)) => (f.wallpaper, format!("auto, the {} wallpaper", f.name)),
+        (Choice::Image(p), _) => match backdrop::load_image(p, ffmpeg, out_w, out_h) {
+            Ok(px) => {
+                image = Some(px);
+                (&backdrop::BLACK, format!("image {}", p.display()))
+            }
+            Err(e) => {
+                eprintln!("kaviri: {e}; using the default backdrop");
+                (
+                    &backdrop::BACKGROUNDS[0],
+                    "image unreadable - default".into(),
+                )
+            }
+        },
+        (Choice::Auto, None) => {
             let probe = backdrop::probe(raw_path, ffmpeg);
             let how = match probe.as_ref() {
                 Some(p) => match p.hue {
@@ -1264,11 +1309,32 @@ fn plate_for(
             (backdrop::choose(probe.as_ref()), how)
         }
     };
-    match backdrop::build(tmp_dir, bg, out_w, out_h, aspect) {
+    let (source, name) = match &image {
+        Some(px) => (Source::Pixels(px), "image"),
+        None => (Source::Fill(bg), bg.name),
+    };
+    let built =
+        backdrop::build_with(tmp_dir, source, name, out_w, out_h, &layout).and_then(|mut p| {
+            if let Some(f) = framing {
+                let path = tmp_dir.join(format!("frame-{}.png", f.name));
+                std::fs::write(&path, &f.chrome_png)
+                    .map_err(|e| format!("write {}: {e}", path.display()))?;
+                p.chrome = Some(path);
+            }
+            Ok(p)
+        });
+    match built {
         Ok(p) => {
             eprintln!(
-                "kaviri: backdrop {} ({how}), content {}x{} at {},{}",
-                p.name, p.content.0, p.content.1, p.origin.0, p.origin.1
+                "kaviri: backdrop {} ({how}){}, content {}x{} at {},{}",
+                p.name,
+                framing
+                    .map(|f| format!(", {} frame", f.name))
+                    .unwrap_or_default(),
+                p.content.0,
+                p.content.1,
+                p.origin.0,
+                p.origin.1
             );
             Some(p)
         }
@@ -1330,7 +1396,9 @@ pub fn render(
      */
     out_size: (u32, u32),
     /* The backdrop the content is composited onto, if any. */
-    background: Choice,
+    background: &Choice,
+    /* A device frame drawn round the content, if any. */
+    framing: Option<&Framing>,
     smooth: Smooth,
     /* Seconds of the tail to dissolve into the opening. Zero is off. See loop_seam. */
     loop_tail: f64,
@@ -1371,6 +1439,7 @@ pub fn render(
      */
     let plate = plate_for(
         background,
+        framing,
         &tmp.path,
         &raw_path,
         &ffmpeg,
@@ -1386,6 +1455,7 @@ pub fn render(
             "css_size": [css_w, css_h],
             "scale": scale,
             "background": plate.as_ref().map(|p| p.name),
+            "frame": framing.map(|f| f.name),
             "content_box": plate.as_ref().map(|p| vec![p.origin.0, p.origin.1, p.content.0, p.content.1]),
             // The surface is in here because leaving it out cost an hour: a check against
             // the sidecar said no mark had one, when every mark did and only the sidecar was

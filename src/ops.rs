@@ -49,6 +49,8 @@ pub struct Session {
     pub cursor: CursorCfg,
     /// Backdrop for the finished video; resolved at render time.
     pub background: Choice,
+    /// The device the take is framed as being filmed on, if any.
+    pub frame: Option<crate::device::Spec>,
     /// Whether a slow capture is motion interpolated up to the output frame rate.
     pub smooth: crate::zoom::Smooth,
     /// Seconds of the tail dissolved into the opening so the take loops without a cut.
@@ -547,11 +549,66 @@ impl Session {
             keep_temp,
             cursor,
             background: Choice::Auto,
+            frame: None,
             smooth: crate::zoom::Smooth::Auto,
             loop_tail: 0.0,
             rendered: None,
             pointer: None,
         })
+    }
+
+    /// Frame the take as a device. A phone frame also makes the browser claim
+    /// to be that phone, so the site serves the layout the frame shows.
+    pub fn set_frame(&mut self, spec: Option<crate::device::Spec>) -> Result<(), String> {
+        if let Some(ua) = spec.as_ref().and_then(|s| s.os.user_agent()) {
+            self.cdp.send(
+                "Emulation.setDeviceMetricsOverride",
+                json!({"width": self.css_w, "height": self.css_h,
+                       "deviceScaleFactor": self.scale, "mobile": true}),
+            )?;
+            self.cdp
+                .send("Emulation.setUserAgentOverride", json!({ "userAgent": ua }))?;
+        }
+        self.frame = spec;
+        Ok(())
+    }
+
+    /// Draw the frame's chrome for this take. Decoration, so a failure costs
+    /// the frame and never the take.
+    fn framing(&mut self) -> Option<crate::zoom::Framing> {
+        let spec = self.frame.clone()?;
+        let out_w = self.out_size.0 - self.out_size.0 % 2;
+        let out_h = self.out_size.1 - self.out_size.1 % 2;
+        let page = self
+            .cdp
+            .evaluate_within(crate::device::PAGE_JS, std::time::Duration::from_secs(5))
+            .map(|v| crate::device::PageInfo::from_value(&v))
+            .unwrap_or_else(|e| {
+                eprintln!("kaviri: could not read the page for its frame ({e}); drawing it blank");
+                crate::device::PageInfo {
+                    top_bg: "#ffffff".into(),
+                    bottom_bg: "#ffffff".into(),
+                    ..Default::default()
+                }
+            });
+        let g = crate::device::geometry(&spec, out_w, out_h, self.css_w, self.css_h);
+        let html = crate::device::html(&spec, &page, &g);
+        if crate::env::is_set("DEBUG") {
+            let _ = std::fs::write(crate::cdp::session_dir().ok()?.join("frame.html"), &html);
+        }
+        match self.cdp.render_html_png(&html, out_w, out_h) {
+            Ok(png) => Some(crate::zoom::Framing {
+                layout: g.layout(),
+                chrome_png: png,
+                wallpaper: crate::backdrop::background(spec.os.wallpaper())
+                    .unwrap_or(&crate::backdrop::BACKGROUNDS[0]),
+                name: spec.os.name(),
+            }),
+            Err(e) => {
+                eprintln!("kaviri: frame unavailable ({e}); rendering without it");
+                None
+            }
+        }
     }
 
     /// Where the caret sits horizontally, in CSS pixels, or None if nothing is focused.
@@ -1247,6 +1304,7 @@ impl Session {
                     "kaviri: captured {n_frames} frames ({:.1} MB spooled), rendering {out} ...",
                     spooled as f64 / 1_048_576.0
                 );
+                let framing = self.framing();
                 let rendered = crate::zoom::render(
                     &self.cdp.frames,
                     &self.marks,
@@ -1254,7 +1312,8 @@ impl Session {
                     self.css_w,
                     self.css_h,
                     self.out_size,
-                    self.background,
+                    &self.background,
+                    framing.as_ref(),
                     self.smooth,
                     self.loop_tail,
                     self.keep_temp,

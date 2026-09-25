@@ -49,18 +49,30 @@ enum Fill {
         base: [u8; 3],
         blobs: &'static [(f64, f64, f64, [u8; 3])],
     },
+    /// Rolling hills over a vertical sky wash, back to front. Each band is
+    /// (height, amplitude, frequency, phase, colour): everything below its
+    /// curve takes its colour, darkening a little with depth.
+    Waves {
+        sky: &'static [(f64, [u8; 3])],
+        bands: &'static [(f64, f64, f64, f64, [u8; 3])],
+    },
 }
 
 pub struct Background {
     pub name: &'static str,
     pub about: &'static str,
+    /// Whether `auto` may pick it. The desktop wallpapers are chosen by
+    /// `--frame`, not by the colour contest, so a plain take looks as it did.
+    auto: bool,
     fill: Fill,
 }
 
-/// The built-in set: five washes, two muted solids, two mesh gradients.
+/// The built-in set: five washes, two muted solids, two mesh gradients, then
+/// one wallpaper in the idiom of each system `--frame` can draw.
 pub const BACKGROUNDS: &[Background] = &[
     Background {
         name: "dusk",
+        auto: true,
         about: "indigo to violet to magenta wash (the fallback if auto cannot probe)",
         fill: Fill::Linear {
             angle: 115.0,
@@ -74,6 +86,7 @@ pub const BACKGROUNDS: &[Background] = &[
     },
     Background {
         name: "dawn",
+        auto: true,
         about: "peach to rose to lilac, light and warm",
         fill: Fill::Linear {
             angle: 120.0,
@@ -87,6 +100,7 @@ pub const BACKGROUNDS: &[Background] = &[
     },
     Background {
         name: "tide",
+        auto: true,
         about: "deep teal to blue to cyan",
         fill: Fill::Linear {
             angle: 110.0,
@@ -100,6 +114,7 @@ pub const BACKGROUNDS: &[Background] = &[
     },
     Background {
         name: "moss",
+        auto: true,
         about: "forest to olive to sand",
         fill: Fill::Linear {
             angle: 115.0,
@@ -113,6 +128,7 @@ pub const BACKGROUNDS: &[Background] = &[
     },
     Background {
         name: "ember",
+        auto: true,
         about: "oxblood to orange to amber",
         fill: Fill::Linear {
             angle: 115.0,
@@ -126,16 +142,19 @@ pub const BACKGROUNDS: &[Background] = &[
     },
     Background {
         name: "slate",
+        auto: true,
         about: "solid muted blue-grey",
         fill: Fill::Solid([58, 66, 80]),
     },
     Background {
         name: "linen",
+        auto: true,
         about: "solid warm off-white",
         fill: Fill::Solid([232, 226, 214]),
     },
     Background {
         name: "mesh-cool",
+        auto: true,
         about: "dark mesh gradient, blue and violet blobs",
         fill: Fill::Mesh {
             base: [18, 24, 52],
@@ -149,6 +168,7 @@ pub const BACKGROUNDS: &[Background] = &[
     },
     Background {
         name: "mesh-warm",
+        auto: true,
         about: "light mesh gradient, rose and amber blobs",
         fill: Fill::Mesh {
             base: [244, 232, 224],
@@ -160,7 +180,91 @@ pub const BACKGROUNDS: &[Background] = &[
             ],
         },
     },
+    Background {
+        name: "hills",
+        auto: false,
+        about: "rolling violet and amber hills at dusk (the macOS frame's wallpaper)",
+        fill: Fill::Waves {
+            sky: &[
+                (0.0, [40, 34, 92]),
+                (0.55, [168, 92, 150]),
+                (1.0, [246, 166, 120]),
+            ],
+            bands: &[
+                (0.46, 0.05, 1.3, 0.4, [214, 112, 128]),
+                (0.58, 0.06, 0.9, 2.1, [150, 70, 140]),
+                (0.70, 0.05, 1.6, 4.0, [92, 48, 124]),
+                (0.83, 0.04, 1.1, 1.2, [44, 28, 84]),
+            ],
+        },
+    },
+    Background {
+        name: "bloom",
+        auto: false,
+        about: "a pale blue bloom on deep blue (the Windows frame's wallpaper)",
+        fill: Fill::Mesh {
+            base: [10, 34, 96],
+            blobs: &[
+                (0.50, 0.55, 0.42, [110, 176, 255]),
+                (0.44, 0.50, 0.24, [196, 226, 255]),
+                (0.62, 0.62, 0.22, [150, 200, 255]),
+                (0.15, 0.10, 0.60, [20, 70, 170]),
+                (0.90, 0.95, 0.55, [6, 40, 120]),
+            ],
+        },
+    },
+    Background {
+        name: "aubergine",
+        auto: false,
+        about: "aubergine to orange (the Linux frame's wallpaper)",
+        fill: Fill::Linear {
+            angle: 125.0,
+            stops: &[
+                (0.00, [44, 0, 30]),
+                (0.45, [119, 33, 111]),
+                (0.80, [208, 70, 60]),
+                (1.00, [236, 110, 50]),
+            ],
+        },
+    },
+    Background {
+        name: "material",
+        auto: false,
+        about: "soft teal, sage and cream (the Android frames' wallpaper)",
+        fill: Fill::Mesh {
+            base: [226, 236, 226],
+            blobs: &[
+                (0.15, 0.15, 0.60, [150, 206, 196]),
+                (0.90, 0.35, 0.55, [196, 224, 170]),
+                (0.40, 0.95, 0.60, [110, 176, 170]),
+                (0.95, 0.95, 0.40, [246, 226, 190]),
+            ],
+        },
+    },
+    Background {
+        name: "aurora",
+        auto: false,
+        about: "vivid blue, pink and orange glow on near black (the iOS frames' wallpaper)",
+        fill: Fill::Mesh {
+            base: [8, 8, 24],
+            blobs: &[
+                (0.20, 0.25, 0.60, [40, 90, 240]),
+                (0.85, 0.35, 0.55, [236, 70, 150]),
+                (0.55, 0.90, 0.60, [250, 140, 60]),
+                (0.10, 0.90, 0.40, [120, 60, 220]),
+            ],
+        },
+    },
 ];
+
+/// Behind a frame taken with `--background none`: the device on black, since a
+/// frame without a plate would have nothing to cut its outline from.
+pub const BLACK: Background = Background {
+    name: "black",
+    about: "",
+    auto: false,
+    fill: Fill::Solid([0, 0, 0]),
+};
 
 pub fn background(name: &str) -> Option<&'static Background> {
     BACKGROUNDS.iter().find(|b| b.name == name)
@@ -174,24 +278,44 @@ pub fn help() -> String {
         .join("\n");
     s.push_str("\n  auto       pick one from the recording's dominant colour (default)");
     s.push_str("\n  none       no backdrop: the content fills the frame, as before");
+    s.push_str("\n  <file>     any image ffmpeg can read (.png, .jpg, .webp), scaled to cover");
     s
 }
 
 /// What the caller asked for on the command line.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub enum Choice {
     Off,
     Auto,
     Named(&'static Background),
+    /// A picture of the caller's own, scaled to cover the frame.
+    Image(PathBuf),
 }
 
 pub fn parse_choice(s: &str) -> Result<Choice, String> {
     match s {
         "none" | "off" => Ok(Choice::Off),
         "auto" => Ok(Choice::Auto),
-        name => background(name)
-            .map(Choice::Named)
-            .ok_or_else(|| format!("unknown background: {name}\n\nBackgrounds:\n{}", help())),
+        name => match background(name) {
+            Some(b) => Ok(Choice::Named(b)),
+            /*
+             * Anything that looks like a path is taken as one, and checked now: a
+             * missing wallpaper found after the take has been filmed is a take
+             * rendered on the wrong background.
+             */
+            None if name.contains('/') || name.contains('.') => {
+                let p = PathBuf::from(name);
+                if p.is_file() {
+                    Ok(Choice::Image(p))
+                } else {
+                    Err(format!("background image not found: {name}"))
+                }
+            }
+            None => Err(format!(
+                "unknown background: {name}\n\nBackgrounds:\n{}",
+                help()
+            )),
+        },
     }
 }
 
@@ -239,6 +363,27 @@ impl Fill {
                     let w = (1.0 - d * d).powi(2);
                     for k in 0..3 {
                         c[k] += (col[k] as f64 / 255.0 - c[k]) * w;
+                    }
+                }
+                c
+            }
+            Fill::Waves { sky, bands } => {
+                let mut c = sample_stops(sky, v);
+                let tau = std::f64::consts::TAU;
+                for (i, (y0, amp, freq, phase, col)) in bands.iter().enumerate() {
+                    let curve = y0
+                        + amp * (tau * freq * u + phase).sin()
+                        + amp * 0.35 * (tau * freq * 2.7 * u + phase * 1.9).sin();
+                    // A soft edge a few pixels wide at any output size.
+                    let edge = ((v - curve) / 0.006).clamp(0.0, 1.0);
+                    if edge <= 0.0 {
+                        continue;
+                    }
+                    let depth = 1.0 - 0.18 * ((v - curve) / 0.25).clamp(0.0, 1.0);
+                    let lift = 1.0 + 0.04 * i as f64;
+                    for k in 0..3 {
+                        let t = (col[k] as f64 / 255.0 * depth * lift).min(1.0);
+                        c[k] += (t - c[k]) * edge;
                     }
                 }
                 c
@@ -445,7 +590,7 @@ pub fn choose(probe: Option<&Probe>) -> &'static Background {
     };
     let mut best = &BACKGROUNDS[0];
     let mut best_score = f64::MAX;
-    for bg in BACKGROUNDS {
+    for bg in BACKGROUNDS.iter().filter(|b| b.auto) {
         let (hue, lum) = bg.key();
         let hue_term = match probe.hue {
             Some(h) => hue_dist(hue, (h + 150.0) % 360.0) / 180.0,
@@ -471,6 +616,55 @@ pub struct Plate {
     /// Where the content sits in the frame, always even.
     pub origin: (u32, u32),
     pub name: &'static str,
+    /// A device frame drawn over everything, transparent where the plate shows
+    /// through. See `device`.
+    pub chrome: Option<PathBuf>,
+}
+
+/// Where things sit on the plate.
+///
+/// The content box is where the take lands. The outline is the silhouette the
+/// plate cuts its window from and casts its shadow with: the content itself
+/// when there is no frame, the whole window or handset when there is one. It
+/// is a union of rounded rects (x, y, w, h, radius) because an emulator is a
+/// handset and a toolbar with wallpaper between them.
+#[derive(Clone, Debug)]
+pub struct Layout {
+    pub content: (u32, u32),
+    pub origin: (u32, u32),
+    pub outline: Vec<(f64, f64, f64, f64, f64)>,
+}
+
+impl Layout {
+    /// The unframed take: content centred and inset, its own rounded corners.
+    pub fn plain(out_w: u32, out_h: u32, aspect: f64) -> Layout {
+        let (content, origin) = content_box(out_w, out_h, aspect);
+        let (cw, ch) = (content.0 as f64, content.1 as f64);
+        let radius = (cw.min(ch) * RADIUS_FRAC).clamp(RADIUS_MIN, RADIUS_MAX);
+        Layout {
+            content,
+            origin,
+            outline: vec![(origin.0 as f64, origin.1 as f64, cw, ch, radius)],
+        }
+    }
+
+    /// Signed distance to the outline, shifted by `dy` and grown by `spread`.
+    fn sd(&self, px: f64, py: f64, dy: f64, spread: f64) -> f64 {
+        self.outline
+            .iter()
+            .map(|&(x, y, w, h, r)| {
+                sd_round_rect(
+                    px,
+                    py,
+                    x + w / 2.0,
+                    y + h / 2.0 + dy,
+                    w / 2.0 + spread,
+                    h / 2.0 + spread,
+                    r + spread,
+                )
+            })
+            .fold(f64::MAX, f64::min)
+    }
 }
 
 fn even(v: f64) -> u32 {
@@ -589,7 +783,50 @@ fn hash32(mut x: u32) -> u32 {
     x
 }
 
-/// Render the plate for one take and write it next to the intermediate.
+/// What the plate is painted with.
+pub enum Source<'a> {
+    Fill(&'static Background),
+    /// rgb24 pixels, already exactly the frame's size.
+    Pixels(&'a [u8]),
+}
+
+/// Scale a picture to cover the frame and read it back as rgb24, through the
+/// ffmpeg that is already a dependency, so no image decoder is needed here.
+pub fn load_image(path: &Path, ffmpeg: &str, w: u32, h: u32) -> Result<Vec<u8>, String> {
+    let out = Command::new(ffmpeg)
+        .args(["-v", "error", "-nostdin", "-i"])
+        .arg(path)
+        .args([
+            "-frames:v",
+            "1",
+            "-vf",
+            &format!(
+                "scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos,crop={w}:{h}"
+            ),
+            "-pix_fmt",
+            "rgb24",
+            "-f",
+            "rawvideo",
+            "-",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("spawn ffmpeg: {e}"))?;
+    let want = (w as usize) * (h as usize) * 3;
+    if !out.status.success() || out.stdout.len() != want {
+        return Err(format!(
+            "could not read {} as an image: {}",
+            path.display(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(out.stdout)
+}
+
+/// Render the plate for one unframed take. The renderer goes through
+/// `build_with`; this is the short form the tests use.
+#[cfg(test)]
 pub fn build(
     dir: &Path,
     bg: &'static Background,
@@ -597,30 +834,35 @@ pub fn build(
     out_h: u32,
     aspect: f64,
 ) -> Result<Plate, String> {
-    let (content, origin) = content_box(out_w, out_h, aspect);
+    let layout = Layout::plain(out_w, out_h, aspect);
+    build_with(dir, Source::Fill(bg), bg.name, out_w, out_h, &layout)
+}
+
+/// Render a plate around any layout.
+pub fn build_with(
+    dir: &Path,
+    source: Source,
+    name: &'static str,
+    out_w: u32,
+    out_h: u32,
+    layout: &Layout,
+) -> Result<Plate, String> {
     let (w, h) = (out_w as usize, out_h as usize);
-    let (cw, ch) = (content.0 as f64, content.1 as f64);
-    let (ox, oy) = (origin.0 as f64, origin.1 as f64);
+    if let Source::Pixels(p) = source {
+        if p.len() != w * h * 3 {
+            return Err("background image is the wrong size".into());
+        }
+    }
     let short = out_w.min(out_h) as f64;
-    let radius = (cw.min(ch) * RADIUS_FRAC).clamp(RADIUS_MIN, RADIUS_MAX);
     let blur_px = (short * SHADOW_BLUR_FRAC).max(6.0);
     let dy = blur_px * SHADOW_DY;
     let spread = blur_px * SHADOW_SPREAD;
 
-    // The shadow: the same rounded rect, nudged down, spread a little, blurred.
+    // The shadow: the same outline, nudged down, spread a little, blurred.
     let mut shadow = vec![0f32; w * h];
-    let (scx, scy) = (ox + cw / 2.0, oy + ch / 2.0 + dy);
     for y in 0..h {
         for x in 0..w {
-            let d = sd_round_rect(
-                x as f64 + 0.5,
-                y as f64 + 0.5,
-                scx,
-                scy,
-                cw / 2.0 + spread,
-                ch / 2.0 + spread,
-                radius + spread,
-            );
+            let d = layout.sd(x as f64 + 0.5, y as f64 + 0.5, dy, spread);
             shadow[y * w + x] = (0.5 - d).clamp(0.0, 1.0) as f32;
         }
     }
@@ -631,21 +873,17 @@ pub fn build(
     for y in 0..h {
         for x in 0..w {
             let i = y * w + x;
-            let c = bg
-                .fill
-                .sample((x as f64 + 0.5) / w as f64, (y as f64 + 0.5) / h as f64, ar);
+            let c = match source {
+                Source::Fill(bg) => {
+                    bg.fill
+                        .sample((x as f64 + 0.5) / w as f64, (y as f64 + 0.5) / h as f64, ar)
+                }
+                Source::Pixels(p) => rgb01([p[i * 3], p[i * 3 + 1], p[i * 3 + 2]]),
+            };
             let s = shadow[i] as f64 * SHADOW_ALPHA;
-            // Alpha is the inverse of the content window's coverage, so the
-            // rounded corners are anti-aliased against the real content edge.
-            let d = sd_round_rect(
-                x as f64 + 0.5,
-                y as f64 + 0.5,
-                ox + cw / 2.0,
-                oy + ch / 2.0,
-                cw / 2.0,
-                ch / 2.0,
-                radius,
-            );
+            // Alpha is the inverse of the outline's coverage, so the rounded
+            // corners are anti-aliased against the real content edge.
+            let d = layout.sd(x as f64 + 0.5, y as f64 + 0.5, 0.0, 0.0);
             let alpha = 1.0 - (0.5 - d).clamp(0.0, 1.0);
             let n = (hash32(i as u32) as f64 / u32::MAX as f64 - 0.5) * 2.0 * DITHER;
             for k in 0..3 {
@@ -658,13 +896,14 @@ pub fn build(
         }
     }
 
-    let path = dir.join(format!("backdrop-{}.png", bg.name));
+    let path = dir.join(format!("backdrop-{name}.png"));
     write_png_rgba(&path, out_w, out_h, &px)?;
     Ok(Plate {
         path,
-        content,
-        origin,
-        name: bg.name,
+        content: layout.content,
+        origin: layout.origin,
+        name,
+        chrome: None,
     })
 }
 

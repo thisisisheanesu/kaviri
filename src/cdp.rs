@@ -1310,6 +1310,92 @@ impl Cdp {
         .or_else(|e| if e.is_empty() { Ok(()) } else { Err(e) })
     }
 
+    /// Evaluate JS in the page with a deadline of its own, for a probe that
+    /// is worth a second or two and never worth the default thirty.
+    pub fn evaluate_within(&mut self, expr: &str, timeout: Duration) -> Result<Value, String> {
+        let r = self.send_within(
+            "Runtime.evaluate",
+            json!({"expression": expr, "returnByValue": true, "awaitPromise": true}),
+            timeout,
+        )?;
+        if let Some(exc) = r.get("exceptionDetails") {
+            return Err(format!("js exception: {exc}"));
+        }
+        Ok(r["result"]["value"].clone())
+    }
+
+    /// Render a standalone HTML document to a PNG, `w` x `h` at 1x, with a
+    /// transparent background.
+    ///
+    /// It runs in a throwaway target in the same browser, so it costs no
+    /// second launch, and the page being filmed never sees it: not its
+    /// scripts, its clock or its viewport.
+    pub fn render_html_png(&mut self, html: &str, w: u32, h: u32) -> Result<Vec<u8>, String> {
+        let target = self.send_raw("Target.createTarget", json!({"url": "about:blank"}), None)?;
+        let target_id = target["targetId"]
+            .as_str()
+            .ok_or("no targetId")?
+            .to_string();
+        let out = (|| -> Result<Vec<u8>, String> {
+            let attach = self.send_raw(
+                "Target.attachToTarget",
+                json!({"targetId": target_id, "flatten": true}),
+                None,
+            )?;
+            let sid = attach["sessionId"]
+                .as_str()
+                .ok_or("no sessionId")?
+                .to_string();
+            let s = Some(sid.as_str());
+            self.send_raw(
+                "Emulation.setDeviceMetricsOverride",
+                json!({"width": w, "height": h, "deviceScaleFactor": 1, "mobile": false}),
+                s,
+            )?;
+            self.send_raw(
+                "Emulation.setDefaultBackgroundColorOverride",
+                json!({"color": {"r": 0, "g": 0, "b": 0, "a": 0}}),
+                s,
+            )?;
+            let tree = self.send_raw("Page.getFrameTree", json!({}), s)?;
+            let frame_id = tree["frameTree"]["frame"]["id"]
+                .as_str()
+                .ok_or("no frame id")?
+                .to_string();
+            self.send_raw(
+                "Page.setDocumentContent",
+                json!({"frameId": frame_id, "html": html}),
+                s,
+            )?;
+            // Fonts and every image decoded, or the screenshot has holes in it.
+            self.send_raw_within(
+                "Runtime.evaluate",
+                json!({
+                    "expression": "document.fonts.ready.then(() => Promise.all([...document.images].map(i => i.decode().catch(() => 0)))).then(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))",
+                    "awaitPromise": true,
+                }),
+                s,
+                Duration::from_secs(10),
+            )?;
+            let shot = self.send_raw_within(
+                "Page.captureScreenshot",
+                json!({
+                    "format": "png",
+                    "clip": {"x": 0, "y": 0, "width": w, "height": h, "scale": 1},
+                    "captureBeyondViewport": true,
+                }),
+                s,
+                Duration::from_secs(20),
+            )?;
+            let data = shot["data"].as_str().ok_or("screenshot had no data")?;
+            base64::engine::general_purpose::STANDARD
+                .decode(data)
+                .map_err(|e| format!("screenshot base64: {e}"))
+        })();
+        let _ = self.send_raw("Target.closeTarget", json!({"targetId": target_id}), None);
+        out
+    }
+
     /// Evaluate JS in the page; returns the by-value result.
     pub fn evaluate(&mut self, expr: &str) -> Result<Value, String> {
         let r = self.send(

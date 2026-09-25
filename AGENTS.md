@@ -111,6 +111,16 @@ and your filesystem. Prefer stdin, where the ops come from the process you start
 screen recording with no camera work at all. That is almost always a broken script rather than
 a choice, and it is the single most useful thing to assert on.
 
+## Framing it as a device
+
+`--frame macos|windows|linux|android|ios|android-emulator|ios-simulator` films the take
+inside that system's window or handset, with the page's real title, favicon and URL in the
+chrome. A phone frame also switches the browser to that phone's viewport and user agent, so
+write the script against the phone layout. `--desktop on` adds the menu bar and dock or the
+taskbar; `kaviri frames` lists the frames and the built-in icons for `--frame-icon` and
+`--dock`. The chrome is read off the page when `stop_recording` runs, so stop on the page you
+want the address bar to show.
+
 ## What it will not do
 
 It will not record a native application, a terminal, or anything outside the browser it starts.

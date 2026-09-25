@@ -75,7 +75,7 @@ The four subcommands:
 kaviri record --script demo.jsonl --out demo.mp4   # a scripted take, end to end
 kaviri serve                                        # NDJSON ops on stdin, results on stdout
 kaviri doctor                                       # what chromium and ffmpeg resolve to
-kaviri presets | kaviri backgrounds                 # the named shapes and backdrops
+kaviri presets | kaviri backgrounds | kaviri frames # the named shapes, backdrops and device frames
 ```
 
 `serve` is the mode an agent holds open: it drives one browser across many ops,
@@ -169,7 +169,35 @@ shadow. `kaviri backgrounds` lists the nine built-in plates. The default is
 chroma-weighted mean hue and a mean lightness, and picks the backdrop nearest a
 split-complementary target while penalising one that sits within 0.35 of the
 content's own lightness. Nothing is random: the same recording always picks the
-same backdrop. `--background none` renders full frame.
+same backdrop. `--background none` renders full frame, and `--background
+photo.jpg` uses any image ffmpeg can read, scaled to cover.
+
+`--frame` films the take as if it were on a device: `macos`, `windows`,
+`linux`, `android`, `ios`, `android-emulator` or `ios-simulator`. The desktop
+frames draw a browser window by default, with the page's own favicon, title and
+URL in the tab and address bar; `--frame-style app` draws a bare title bar
+instead, as an installed app. The phone frames draw the bezel, status bar and
+home indicator, and make the browser claim to be that phone, so the site serves
+its phone layout; with no size given they film at that phone's viewport.
+`--frame-style browser` adds the phone's address bar. The emulators draw the
+Android Emulator's side toolbar or the iOS Simulator's device title bar.
+
+```
+kaviri record --script demo.jsonl --out demo.mp4 --frame macos --desktop on
+kaviri record --script demo.jsonl --out demo.mp4 --frame ios --clock 10:08 --battery 40
+kaviri record --script demo.jsonl --out demo.mp4 --frame windows --frame-style app \
+  --frame-icon terminal --frame-title "Parcel" --background wall.jpg
+```
+
+`--desktop on` puts the window on its desktop: the macOS menu bar and dock, the
+Windows taskbar, or the GNOME top bar and dash; an emulator gets the desktop it
+runs on (`--desktop windows` to choose). `--frame-icon` is `auto` (the favicon),
+`none`, one of the built-in icons `kaviri frames` lists, or an image file, and
+`--dock` names the icons beside it. `--frame-theme`, `--frame-title`,
+`--frame-url`, `--device-name` and `--clock` override what the chrome would
+otherwise read off the page. Under a frame, `--background auto` is that
+system's own wallpaper. The chrome is HTML, drawn once per take by the same
+headless browser, so its text uses real fonts and stays sharp at any size.
 
 Headless capture has no OS cursor, so kaviri draws one into the page as vector
 SVG, with a click ripple. It is part of the page, so the zoom transform carries
@@ -407,9 +435,10 @@ enough.
   not the same file.
 - **The default capture path competes with the app it films** for CPU, as above.
   `--scale 1` is the way out.
-- **No window chrome, ever.** What sits around the content is a backdrop, not a
-  fake title bar. If you want a browser frame, kaviri is not going to draw you
-  one.
+- **Window chrome is opt in.** A take is a backdrop and nothing else until
+  `--frame` asks for a device. The chrome is drawn, not captured: it is a
+  plausible likeness of each system, with the fonts the machine running kaviri
+  has, and the icons are kaviri's own rather than any vendor's.
 - **`serve` serialises.** Concurrent connections each get a thread, but they are
   serialised onto the single browser by a mutex held for one op at a time.
   `stop_recording` holds it for the whole render, so other clients wait out the
@@ -436,6 +465,8 @@ enough.
   the two-pass render.
 - `src/backdrop.rs` is the built-in backdrops, the auto picker and the
   dependency-free PNG plate.
+- `src/device.rs` is the device frames: where the window or handset sits, and
+  the chrome drawn over it as HTML.
 - `src/main.rs` is the CLI.
 
 `cargo test` runs the suite, including two tests that shell out to a real ffmpeg

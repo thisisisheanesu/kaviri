@@ -7,6 +7,7 @@
 
 mod backdrop;
 mod cdp;
+mod device;
 mod env;
 mod ops;
 mod zoom;
@@ -25,7 +26,7 @@ kaviri: programmable recording browser (Screen Studio for AI agents)
 USAGE:
   kaviri record --script <file.jsonl> --out <file.mp4> [options]
   kaviri serve [--port <n>] [--out <file.mp4>] [options]
-  kaviri doctor | kaviri presets | kaviri backgrounds | kaviri --version
+  kaviri doctor | kaviri presets | kaviri backgrounds | kaviri frames | kaviri --version
 
 OPTIONS:
   --script <path>     newline-delimited JSON ops to run (record mode)
@@ -41,6 +42,23 @@ OPTIONS:
   --out-height <px>   video height (default: the viewport height, 64..8192)
   --background <name> backdrop the take is composited onto: a name, auto or
                       none (default auto); --backgrounds lists the names
+  --frame <name>      film the take as if on a device: macos, windows, linux,
+                      android, ios, android-emulator or ios-simulator (default
+                      none); --frames lists them. A phone frame with no size
+                      given films at that phone's viewport, as that phone
+  --frame-style <s>   browser (tabs and an address bar, the desktop default) or
+                      app (a bare title bar, or the full screen on a phone)
+  --frame-theme <t>   auto, light or dark (default auto: follows the page)
+  --frame-title <t>   title bar and tab text (default: the page's title)
+  --frame-url <u>     address bar text (default: the page's URL)
+  --frame-icon <i>    auto (the page's favicon), none, a built-in icon name, or
+                      an image file; shown in the tab, title bar and dock
+  --desktop <d>       draw the desktop round the window: on, off, macos,
+                      windows or linux (menu bar and dock, or the taskbar)
+  --dock <a,b,..>     built-in icons for the dock or taskbar
+  --device-name <n>   the handset an emulator's title names
+  --clock <text>      the time on a status bar, menu bar or taskbar
+  --battery <0-100>   the battery level a status bar shows (default 100)
   --smooth <mode>     on, off or auto (default auto, which is off with a note).
                       A browser under software rendering paints six to seventeen
                       frames a second, so a take can be choppy however smooth
@@ -191,6 +209,7 @@ struct Args {
     out_w: Option<u32>,
     out_h: Option<u32>,
     background: backdrop::Choice,
+    frame: Option<device::Spec>,
     smooth: zoom::Smooth,
     slowmo: f64,
     loop_tail: f64,
@@ -276,6 +295,12 @@ fn parse_argv() -> Result<Parsed, String> {
             preset_help()
         )));
     }
+    if mode == "--frames" || mode == "frames" {
+        return Ok(Parsed::Help(format!(
+            "Frames (--frame):\n{}\n\nUse one with: kaviri record --frame ios ...",
+            device::help()
+        )));
+    }
     if mode == "--backgrounds" || mode == "backgrounds" {
         return Ok(Parsed::Help(format!(
             "Backgrounds:\n{}\n\nUse one with: kaviri record --background <name> ...\n\nCursors (--cursor):\n{}",
@@ -292,6 +317,20 @@ fn parse_argv() -> Result<Parsed, String> {
     let mut smooth = "auto".to_string();
     let mut cursor = "auto".to_string();
     let mut cursor_scale = DEFAULT_CURSOR_SCALE;
+    let mut frame: Option<String> = None;
+    let mut frame_style: Option<String> = None;
+    let mut frame_theme = "auto".to_string();
+    let mut frame_icon = "auto".to_string();
+    let mut frame_title: Option<String> = None;
+    let mut frame_url: Option<String> = None;
+    let mut desktop = "off".to_string();
+    let mut dock: Option<String> = None;
+    let mut device_name: Option<String> = None;
+    let mut clock: Option<String> = None;
+    let mut battery: u8 = 100;
+    // Whether the take's size was chosen, so a phone frame knows it may choose.
+    let mut sized = false;
+    let mut out_sized = false;
     let mut a = Args {
         mode,
         script: None,
@@ -303,6 +342,7 @@ fn parse_argv() -> Result<Parsed, String> {
         out_w: None,
         out_h: None,
         background: backdrop::Choice::Auto,
+        frame: None,
         smooth: zoom::Smooth::Auto,
         slowmo: 1.0,
         loop_tail: 0.0,
@@ -329,14 +369,22 @@ fn parse_argv() -> Result<Parsed, String> {
                 }
                 a.port = Some(p);
             }
-            "--width" => a.width = dimension("--width", &val("--width")?, 64, 16384)?,
-            "--height" => a.height = dimension("--height", &val("--height")?, 64, 16384)?,
+            "--width" => {
+                a.width = dimension("--width", &val("--width")?, 64, 16384)?;
+                sized = true;
+            }
+            "--height" => {
+                a.height = dimension("--height", &val("--height")?, 64, 16384)?;
+                sized = true;
+            }
             "--scale" => a.scale = ratio("--scale", &val("--scale")?, 0.5, 4.0)?,
             "--out-width" => {
-                a.out_w = Some(dimension("--out-width", &val("--out-width")?, 64, 8192)?)
+                a.out_w = Some(dimension("--out-width", &val("--out-width")?, 64, 8192)?);
+                out_sized = true;
             }
             "--out-height" => {
-                a.out_h = Some(dimension("--out-height", &val("--out-height")?, 64, 8192)?)
+                a.out_h = Some(dimension("--out-height", &val("--out-height")?, 64, 8192)?);
+                out_sized = true;
             }
             /*
              * Applied where it is read, so an explicit --width after --preset still wins
@@ -352,11 +400,33 @@ fn parse_argv() -> Result<Parsed, String> {
                 a.scale = p.scale;
                 a.out_w = Some(p.out.0);
                 a.out_h = Some(p.out.1);
+                sized = true;
+                out_sized = true;
             }
             "--presets" => {
                 return Ok(Parsed::Help(format!("Presets:\n{}", preset_help())));
             }
             "--background" => background = val("--background")?,
+            "--frame" => frame = Some(val("--frame")?),
+            "--frames" => {
+                return Ok(Parsed::Help(format!("Frames:\n{}", device::help())));
+            }
+            "--frame-style" => frame_style = Some(val("--frame-style")?),
+            "--frame-theme" => frame_theme = val("--frame-theme")?,
+            "--frame-icon" => frame_icon = val("--frame-icon")?,
+            "--frame-title" => frame_title = Some(val("--frame-title")?),
+            "--frame-url" => frame_url = Some(val("--frame-url")?),
+            "--desktop" => desktop = val("--desktop")?,
+            "--dock" => dock = Some(val("--dock")?),
+            "--device-name" => device_name = Some(val("--device-name")?),
+            "--clock" => clock = Some(val("--clock")?.replace("\\n", "\n")),
+            "--battery" => {
+                let raw = val("--battery")?;
+                battery = match raw.parse::<u8>() {
+                    Ok(n) if n <= 100 => n,
+                    _ => return Err(format!("--battery must be 0 to 100, got {raw}")),
+                };
+            }
             "--smooth" => smooth = val("--smooth")?,
             "--slowmo" => a.slowmo = ratio("--slowmo", &val("--slowmo")?, 1.0, 16.0)?,
             "--loop" => a.loop_tail = ratio("--loop", &val("--loop")?, 0.0, 5000.0)? / 1000.0,
@@ -385,6 +455,51 @@ fn parse_argv() -> Result<Parsed, String> {
         }
     }
     a.background = backdrop::parse_choice(&background)?;
+    let os = match frame.as_deref() {
+        None | Some("none") | Some("off") => None,
+        Some(name) => Some(
+            device::Os::parse(name)
+                .ok_or_else(|| format!("unknown frame: {name}\n\nFrames:\n{}", device::help()))?,
+        ),
+    };
+    match os {
+        Some(os) => {
+            let mut spec = device::Spec::new(os);
+            if let Some(st) = frame_style {
+                spec.style = device::parse_style(&st)?;
+            }
+            spec.theme = device::parse_theme(&frame_theme)?;
+            spec.icon = device::parse_icon(&frame_icon)?;
+            spec.title = frame_title;
+            spec.url = frame_url;
+            spec.desktop = device::parse_desktop(&desktop, Some(os))?;
+            if let Some(d) = dock {
+                spec.dock = Some(device::parse_dock(&d)?);
+            }
+            spec.device_name = device_name;
+            spec.clock = clock;
+            spec.battery = battery;
+            if let Some((css, scale, out)) = os.default_shape() {
+                if !sized {
+                    a.width = css.0;
+                    a.height = css.1;
+                    a.scale = scale;
+                }
+                if !out_sized {
+                    a.out_w = Some(out.0);
+                    a.out_h = Some(out.1);
+                }
+            }
+            a.frame = Some(spec);
+        }
+        None => {
+            // The frame options mean nothing without a frame, and silently
+            // ignoring one is how a take comes out without the thing asked for.
+            if desktop != "off" || frame_style.is_some() || dock.is_some() {
+                return Err("--desktop, --frame-style and --dock need a --frame".into());
+            }
+        }
+    }
     a.smooth = zoom::Smooth::parse(&smooth)?;
     a.cursor = CursorCfg::parse(&cursor, cursor_scale)?;
     Ok(Parsed::Run(Box::new(a)))
@@ -538,7 +653,8 @@ fn run_record(a: &Args) -> Result<(), String> {
         a.cursor,
     )?;
     s.out_path = Some(a.out.clone());
-    s.background = a.background;
+    s.background = a.background.clone();
+    s.set_frame(a.frame.clone())?;
     s.smooth = a.smooth;
     s.set_slowmo(a.slowmo)?;
     s.loop_tail = a.loop_tail;
@@ -919,7 +1035,8 @@ fn run_serve(a: &Args) -> Result<(), String> {
         a.cursor,
     )?;
     sess.out_path = Some(a.out.clone());
-    sess.background = a.background;
+    sess.background = a.background.clone();
+    sess.set_frame(a.frame.clone())?;
     sess.smooth = a.smooth;
     sess.set_slowmo(a.slowmo)?;
     sess.loop_tail = a.loop_tail;

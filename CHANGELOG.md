@@ -43,6 +43,19 @@ dated `[0.1.0]` heading, when the tag is cut.
 
 ### Added
 
+- **Device frames.** `--frame macos|windows|linux|android|ios|android-emulator|ios-simulator`
+  draws the take inside that system's window or handset. Desktop frames default to a browser
+  window carrying the page's own favicon, title and URL (`--frame-style app` for a bare title
+  bar). Phone frames draw the bezel, status bar and home indicator, and emulate the phone's
+  viewport and user agent unless a size is given. `--desktop on|macos|windows|linux` adds the
+  menu bar and dock or the taskbar. `--frame-theme`, `--frame-title`, `--frame-url`,
+  `--frame-icon`, `--dock`, `--device-name`, `--clock` and `--battery` adjust the chrome, and
+  `kaviri frames` lists the frames and the built-in icons. The chrome is HTML rendered once per
+  take by the recording browser, in a throwaway tab the filmed page never sees.
+- **Wallpapers and image backgrounds.** Five new backdrops, one per system (`hills`, `bloom`,
+  `aubergine`, `material`, `aurora`), which `--background auto` uses under a frame and never
+  picks for an unframed take. `--background <file>` takes any image ffmpeg can read.
+
 - A `press` op that sends a real key or chord (`"Enter"`, `"ArrowDown"`,
   `"Meta+Shift+P"`, `"?"`) through `Input.dispatchKeyEvent`, with `repeat`,
   `interval_ms`, `hold_ms` and an optional `selector` to focus first. Until now
