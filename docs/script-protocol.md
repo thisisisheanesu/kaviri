@@ -344,6 +344,9 @@ key up, and the modifiers up in reverse, all through `Input.dispatchKeyEvent`, s
 listeners see real `keydown` / `keyup` events with `key`, `code`, `shiftKey`, `metaKey` and
 the rest set. The layout is US: a capital letter or a shifted symbol (`?`, `!`, `+`) holds
 Shift for you, so a handler bound to `?` sees `shiftKey` true, as it would from a person.
+In a chord a letter's case does not matter: `Meta+L` is Command-L, and Shift is held only
+when the chord names it (`Meta+Shift+L`). `repeat`, `interval_ms` and `hold_ms` are paced
+by the clock in page time, so they hold under `--slowmo` and on a busy machine.
 A printable key with no Control or Meta also inserts its character into a focused field; a
 chord with either one is a shortcut and inserts nothing.
 

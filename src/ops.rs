@@ -499,8 +499,15 @@ fn parse_chord(chord: &str) -> Result<(Vec<&'static str>, KeyDef), String> {
             }
         }
     }
-    let (def, needs_shift) = key_def(last.trim())?;
-    if needs_shift && !mods.contains(&"Shift") {
+    let (mut def, needs_shift) = key_def(last.trim())?;
+    // A capital letter alone means Shift, the way a person types one. In a chord it is just
+    // how shortcuts are written: `Meta+L` is Command-L, not Command-Shift-L, so the letter is
+    // sent as the lowercase key it is unless the chord names Shift itself.
+    let letter_in_chord = !mods.is_empty() && def.code.starts_with("Key");
+    if letter_in_chord && !mods.contains(&"Shift") {
+        def.key = def.key.to_ascii_lowercase();
+        def.text = def.text.map(|t| t.to_ascii_lowercase());
+    } else if needs_shift && !mods.contains(&"Shift") {
         mods.push("Shift");
     }
     Ok((mods, def))
@@ -1042,7 +1049,14 @@ impl Session {
                 // A chord with Control or Meta is a shortcut, and a shortcut types nothing.
                 let text = def.text.clone().filter(|_| all & (2 | 4) == 0);
                 let m = self.mark("press", &chord, None);
+                // Paced by the clock in page time, like a hover glide. Under capture every pump
+                // can block on a screenshot, so sleeping the full interval after the keys were
+                // sent made 120ms repeats land 230ms apart on a loaded machine.
+                let page_ms = |t: std::time::Instant, slowmo: f64| {
+                    (t.elapsed().as_secs_f64() * 1000.0 / slowmo) as u64
+                };
                 for i in 0..repeat {
+                    let started = std::time::Instant::now();
                     let mut held = 0;
                     for name in &mods {
                         let (_, b, code, vk) = MODIFIERS.iter().find(|x| x.0 == *name).unwrap();
@@ -1063,8 +1077,9 @@ impl Session {
                         down["unmodifiedText"] = json!(t);
                     }
                     self.cdp.send("Input.dispatchKeyEvent", down)?;
-                    if hold > 0 {
-                        self.cdp.sleep_pump(hold)?;
+                    let spent = page_ms(started, self.cdp.slowmo);
+                    if hold > spent {
+                        self.cdp.sleep_pump(hold - spent)?;
                     }
                     self.cdp.send(
                         "Input.dispatchKeyEvent",
@@ -1080,8 +1095,9 @@ impl Session {
                                    "windowsVirtualKeyCode": vk, "modifiers": held}),
                         )?;
                     }
-                    if i + 1 < repeat {
-                        self.cdp.sleep_pump(interval)?;
+                    let spent = page_ms(started, self.cdp.slowmo);
+                    if i + 1 < repeat && interval > spent {
+                        self.cdp.sleep_pump(interval - spent)?;
                     }
                 }
                 self.cdp.sleep_pump(60)?;
@@ -1298,6 +1314,13 @@ mod tests {
         let (mods, k) = parse_chord("ArrowDown").unwrap();
         assert!(mods.is_empty());
         assert_eq!((k.code.as_str(), k.vk, k.text), ("ArrowDown", 40, None));
+        // The regression: a capital letter in a chord also held Shift, so `Meta+L` reached the
+        // page as Command-Shift-L and `Control+Alt+N` as Control-Alt-Shift-N.
+        for chord in ["Meta+L", "Control+Alt+N"] {
+            let (mods, k) = parse_chord(chord).unwrap();
+            assert!(!mods.contains(&"Shift"), "{chord} held Shift");
+            assert_eq!(k.key, k.key.to_ascii_lowercase());
+        }
         let (mods, k) = parse_chord("cmd+l").unwrap();
         assert_eq!(mods, vec!["Meta"]);
         assert_eq!(k.code, "KeyL");
@@ -1313,6 +1336,9 @@ mod tests {
         let (mods, k) = parse_chord("F").unwrap();
         assert_eq!(mods, vec!["Shift"]);
         assert_eq!(k.code, "KeyF");
+        let (mods, k) = parse_chord("Meta+Shift+P").unwrap();
+        assert_eq!(mods, vec!["Meta", "Shift"]);
+        assert_eq!(k.key, "P");
         let (mods, k) = parse_chord("+").unwrap();
         assert_eq!(mods, vec!["Shift"]);
         assert_eq!(k.code, "Equal");
