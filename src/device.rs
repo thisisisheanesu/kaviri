@@ -161,6 +161,9 @@ pub enum Style {
     Browser,
     /// A bare title bar (desktop) or the full screen (phone), as an installed app.
     App,
+    /// The phone's own screen recording: the screen edge to edge, no bezel and
+    /// no wallpaper, with the recording indicator in the status bar.
+    Recording,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -334,6 +337,17 @@ pub const DOCK_GROUPS: &[(&str, &[&str])] = &[
 ];
 
 impl Spec {
+    /// Viewport, scale and video size when the command line chose none. A
+    /// screen recording is the phone's own screen: 9:19.5, and the page gets
+    /// what the status bar and home indicator leave of it.
+    pub fn default_shape(&self) -> Option<Shape> {
+        match (self.os, self.style) {
+            (Os::Ios, Style::Recording) => Some(((393, 764), 3.0, (1080, 2344))),
+            (Os::Android, Style::Recording) => Some(((412, 855), 2.625, (1080, 2400))),
+            (os, _) => os.default_shape(),
+        }
+    }
+
     /// The desktop whose dock is drawn, if any.
     pub fn dock_shell(&self) -> Option<Os> {
         match (self.show_dock, self.desktop) {
@@ -374,7 +388,10 @@ pub fn parse_style(s: &str) -> Result<Style, String> {
     match s {
         "browser" => Ok(Style::Browser),
         "app" | "window" => Ok(Style::App),
-        o => Err(format!("--frame-style must be browser or app, got {o}")),
+        "recording" | "screen" => Ok(Style::Recording),
+        o => Err(format!(
+            "--frame-style must be browser, app or recording, got {o}"
+        )),
     }
 }
 
@@ -462,6 +479,191 @@ pub fn parse_desktop(s: &str, os: Option<Os>) -> Result<Option<Os>, String> {
                 "--desktop must be on, off, macos, windows or linux, got {name}"
             )),
         },
+    }
+}
+
+/// Everything that chooses a frame, as text, from either the command line
+/// or a `frame` op in a script. One parser for both, so a script and a flag
+/// can never disagree about what a word means.
+#[derive(Clone, Debug, Default)]
+pub struct FrameOpts {
+    pub platform: Option<String>,
+    pub style: Option<String>,
+    pub theme: Option<String>,
+    pub icon: Option<String>,
+    pub title: Option<String>,
+    pub url: Option<String>,
+    pub desktop: Option<String>,
+    pub dock: Option<String>,
+    pub dock_pos: Option<String>,
+    pub dock_size: Option<f64>,
+    pub icon_set: Option<String>,
+    pub icon_tint: Option<String>,
+    pub device_name: Option<String>,
+    pub clock: Option<String>,
+    pub battery: Option<u8>,
+    /// A `frame` op may carry the backdrop too, since the two are chosen together.
+    pub background: Option<String>,
+}
+
+/// The fields a `frame` op accepts, with the flag each one mirrors.
+pub const FRAME_OP_FIELDS: &[(&str, &str)] = &[
+    ("platform", "--frame"),
+    ("style", "--frame-style"),
+    ("theme", "--frame-theme"),
+    ("icon", "--frame-icon"),
+    ("title", "--frame-title"),
+    ("url", "--frame-url"),
+    ("desktop", "--desktop"),
+    ("dock", "--dock"),
+    ("dock_position", "--dock-position"),
+    ("dock_size", "--dock-size"),
+    ("icon_set", "--icon-set"),
+    ("icon_tint", "--icon-tint"),
+    ("device_name", "--device-name"),
+    ("clock", "--clock"),
+    ("battery", "--battery"),
+    ("background", "--background"),
+];
+
+impl FrameOpts {
+    /// Read a `{"op":"frame", ...}` line. Unknown fields are refused: a typo
+    /// in a platform declaration is a take on the wrong device.
+    pub fn from_op(v: &Value) -> Result<FrameOpts, String> {
+        let obj = v.as_object().ok_or("frame: not an object")?;
+        for k in obj.keys() {
+            if k != "op" && k != "frame" && !FRAME_OP_FIELDS.iter().any(|f| f.0 == k) {
+                return Err(format!(
+                    "frame: no field \"{k}\"; it takes {}",
+                    FRAME_OP_FIELDS
+                        .iter()
+                        .map(|f| f.0)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+        }
+        let text = |k: &str| -> Result<Option<String>, String> {
+            match &v[k] {
+                Value::Null => Ok(None),
+                Value::String(s) => Ok(Some(s.clone())),
+                Value::Bool(b) => Ok(Some(if *b { "on" } else { "off" }.into())),
+                Value::Number(n) => Ok(Some(n.to_string())),
+                o => Err(format!("frame: {k} must be a string, got {o}")),
+            }
+        };
+        let num = |k: &str| -> Result<Option<f64>, String> {
+            match &v[k] {
+                Value::Null => Ok(None),
+                Value::Number(n) => Ok(n.as_f64()),
+                Value::String(s) => s
+                    .parse()
+                    .map(Some)
+                    .map_err(|_| format!("frame: {k} must be a number, got {s}")),
+                o => Err(format!("frame: {k} must be a number, got {o}")),
+            }
+        };
+        let battery = match num("battery")? {
+            None => None,
+            Some(b) if (0.0..=100.0).contains(&b) => Some(b as u8),
+            Some(b) => return Err(format!("frame: battery must be 0 to 100, got {b}")),
+        };
+        let dock_size = match num("dock_size")? {
+            None => None,
+            Some(d) if (24.0..=128.0).contains(&d) => Some(d),
+            Some(d) => return Err(format!("frame: dock_size must be 24 to 128, got {d}")),
+        };
+        Ok(FrameOpts {
+            platform: text("platform")?.or(text("frame")?),
+            style: text("style")?,
+            theme: text("theme")?,
+            icon: text("icon")?,
+            title: text("title")?,
+            url: text("url")?,
+            desktop: text("desktop")?,
+            dock: text("dock")?,
+            dock_pos: text("dock_position")?,
+            dock_size,
+            icon_set: text("icon_set")?,
+            icon_tint: text("icon_tint")?,
+            device_name: text("device_name")?,
+            clock: text("clock")?.map(|c| c.replace("\\n", "\n")),
+            battery,
+            background: text("background")?,
+        })
+    }
+
+    /// The spec these options describe, or `None` for no frame.
+    pub fn build(&self) -> Result<Option<Spec>, String> {
+        let os = match self.platform.as_deref() {
+            None | Some("none") | Some("off") => {
+                let stray = self.desktop.as_deref().is_some_and(|d| d != "off")
+                    || self.style.is_some()
+                    || self.dock.is_some()
+                    || self.dock_pos.is_some();
+                // Said rather than ignored: a dock asked for with no frame is
+                // a take that comes out without it.
+                if stray {
+                    return Err("desktop, style and the dock options need a frame".into());
+                }
+                return Ok(None);
+            }
+            Some(name) => Os::parse(name)
+                .ok_or_else(|| format!("unknown frame: {name}\n\nFrames:\n{}", help()))?,
+        };
+        let mut spec = Spec::new(os);
+        if let Some(st) = &self.style {
+            spec.style = parse_style(st)?;
+        }
+        if spec.style == Style::Recording && !matches!(os, Os::Ios | Os::Android) {
+            return Err(format!(
+                "the recording style is a phone's own screen recording, so it needs the ios or \
+                 android frame, not {}",
+                os.name()
+            ));
+        }
+        if let Some(t) = &self.theme {
+            spec.theme = parse_theme(t)?;
+        }
+        if let Some(i) = &self.icon {
+            spec.icon = parse_icon(i)?;
+        }
+        spec.title = self.title.clone();
+        spec.url = self.url.clone();
+        spec.desktop = parse_desktop(self.desktop.as_deref().unwrap_or("off"), Some(os))?;
+        if let Some(d) = &self.dock {
+            let (show, icons) = parse_dock(d)?;
+            spec.show_dock = Some(show);
+            spec.dock = icons;
+        }
+        if let Some(p) = &self.dock_pos {
+            spec.dock_pos = parse_dock_pos(p)?;
+        }
+        if let Some(d) = self.dock_size {
+            spec.dock_size = d;
+        }
+        if let Some(i) = &self.icon_set {
+            spec.icon_set = parse_icon_set(i)?;
+        }
+        if let Some(t) = &self.icon_tint {
+            spec.icon_tint = parse_tint(t)?;
+        }
+        if spec.show_dock == Some(true) && spec.dock_shell().is_none() {
+            return Err(
+                "a dock on a phone frame needs a desktop: a handset has no dock of its own \
+                 here, so the dock belongs to the desktop the emulator runs on"
+                    .into(),
+            );
+        }
+        if spec.dock_shell() == Some(Os::Windows) && spec.dock_pos != DockPos::Bottom {
+            return Err(
+                "the Windows taskbar only sits at the bottom; drop the dock position".into(),
+            );
+        }
+        spec.device_name = self.device_name.clone();
+        spec.clock = self.clock.clone();
+        spec.battery = self.battery.unwrap_or(100);
+        Ok(Some(spec))
     }
 }
 
@@ -778,6 +980,22 @@ fn insets(spec: &Spec) -> Insets {
                 bezel: 0.0,
             }
         }
+        os if spec.style == Style::Recording => {
+            // The screen alone: status bar above, home indicator below.
+            let (t, b) = if os.is_ios() {
+                (54.0, 34.0)
+            } else {
+                (36.0, 24.0)
+            };
+            Insets {
+                t,
+                r: 0.0,
+                b,
+                l: 0.0,
+                radius: 0.0,
+                bezel: 0.0,
+            }
+        }
         os if os.is_ios() => {
             let bezel = 15.0;
             Insets {
@@ -913,7 +1131,11 @@ pub fn geometry(spec: &Spec, out_w: u32, out_h: u32, css_w: u32, css_h: u32) -> 
     }
     let short = ow.min(oh);
     let framed_desk = spec.desktop.is_some() || spec.dock_shell().is_some();
-    let pad = (short * if framed_desk { 0.05 } else { 0.055 }).max(12.0);
+    let pad = if spec.style == Style::Recording {
+        0.0
+    } else {
+        (short * if framed_desk { 0.05 } else { 0.055 }).max(12.0)
+    };
     let avail_x = left_bar as f64 + pad;
     let avail_y = top_bar as f64 + pad;
     let avail_w = (ow - left_bar as f64 - right_bar as f64 - 2.0 * pad).max(16.0);
@@ -933,8 +1155,11 @@ pub fn geometry(spec: &Spec, out_w: u32, out_h: u32, css_w: u32, css_h: u32) -> 
     let full_h = ext + it + ch + ib;
     let bx = avail_x + (avail_w - full_w as f64) / 2.0;
     let by = avail_y + (avail_h - full_h as f64) / 2.0;
-    let cx = even_i(bx + il as f64).max(0);
-    let cy = even_i(by + ext as f64 + it as f64).max(0);
+    // Positions round to even but may be zero: a screen recording starts at
+    // the frame's very edge, where even_i's two pixel floor left a seam.
+    let even0 = |v: f64| ((v / 2.0).round() * 2.0).max(0.0) as i64;
+    let cx = even0(bx + il as f64);
+    let cy = even0(by + ext as f64 + it as f64);
     let content = Rect {
         x: cx,
         y: cy,
@@ -1734,33 +1959,152 @@ fn fg_on(dark_bg: bool) -> &'static str {
     }
 }
 
-fn ios_status(page: &PageInfo, clock: &str, battery: u8) -> String {
+/// The iOS status bar. In a screen recording the clock sits in the red
+/// recording pill and there is no Dynamic Island: it is hardware, a hole in
+/// the glass, and a recording is of the pixels behind it.
+fn ios_status(page: &PageInfo, clock: &str, battery: u8, recording: bool) -> String {
     let fg = fg_on(page.top_dark);
+    let clock = if recording {
+        format!(
+            r#"<span style="background:#ff3b30;color:#fff;border-radius:999px;padding:2px 10px 2px 10px">{}</span>"#,
+            esc(clock)
+        )
+    } else {
+        esc(clock)
+    };
+    let island = if recording {
+        ""
+    } else {
+        r#"<div style="position:absolute;left:50%;top:11px;width:124px;height:36px;margin-left:-62px;border-radius:18px;background:#000"></div>"#
+    };
     format!(
         r#"<div style="height:100%;background:{bg};position:relative;font:600 17px {FONT};color:{fg};letter-spacing:-.2px">
 <div style="position:absolute;left:0;top:0;width:36%;height:100%;display:flex;align-items:center;justify-content:center;padding:4px 0 0 12px;box-sizing:border-box">{clock}</div>
-<div style="position:absolute;left:50%;top:11px;width:124px;height:36px;margin-left:-62px;border-radius:18px;background:#000"></div>
+{island}
 <div style="position:absolute;right:0;top:0;width:36%;height:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:4px 14px 0 0;box-sizing:border-box">{sig}{wifi}{bat}</div></div>"#,
         bg = page.top_bg,
-        clock = esc(clock),
         sig = signal_bars(fg),
         wifi = wifi(fg, 17.0),
         bat = battery_ios(battery, fg),
     )
 }
 
-fn android_status(page: &PageInfo, clock: &str, battery: u8) -> String {
+/// The Android status bar. A screen recording shows the red record icon
+/// beside the clock, and no camera hole, for the same reason as on iOS.
+fn android_status(page: &PageInfo, clock: &str, battery: u8, recording: bool) -> String {
     let fg = fg_on(page.top_dark);
+    let rec = if recording {
+        r##"<svg width="16" height="16" viewBox="0 0 16 16" style="display:block;margin-left:8px"><circle cx="8" cy="8" r="7" fill="none" stroke="#ff453a" stroke-width="1.6"/><circle cx="8" cy="8" r="3.6" fill="#ff453a"/></svg>"##
+    } else {
+        ""
+    };
+    let hole = if recording {
+        ""
+    } else {
+        r#"<div style="position:absolute;left:50%;top:9px;width:20px;height:20px;margin-left:-10px;border-radius:50%;background:#050505;box-shadow:0 0 0 1.5px rgba(128,128,128,.25)"></div>"#
+    };
     let level = 13.0 * battery.min(100) as f64 / 100.0;
     format!(
         r#"<div style="height:100%;background:{bg};position:relative;font:500 14px Roboto,{FONT};color:{fg}">
-<div style="position:absolute;left:22px;top:0;height:100%;display:flex;align-items:center">{clock}</div>
-<div style="position:absolute;left:50%;top:9px;width:20px;height:20px;margin-left:-10px;border-radius:50%;background:#050505;box-shadow:0 0 0 1.5px rgba(128,128,128,.25)"></div>
+<div style="position:absolute;left:22px;top:0;height:100%;display:flex;align-items:center">{clock}{rec}</div>
+{hole}
 <div style="position:absolute;right:20px;top:0;height:100%;display:flex;align-items:center;gap:6px">{wifi}<svg width="14" height="14" viewBox="0 0 14 14" style="display:block" fill="{fg}"><path d="M14 0v14H0z"/></svg><svg width="9" height="15" viewBox="0 0 9 15" style="display:block"><rect x="2.8" y="0" width="3.4" height="2" rx=".5" fill="{fg}"/><rect x=".75" y="1.75" width="7.5" height="12.5" rx="1.4" fill="none" stroke="{fg}" stroke-width="1.3"/><rect x="2" y="{ly}" width="5" height="{level}" rx=".5" fill="{fg}"/></svg></div></div>"#,
         bg = page.top_bg,
         clock = esc(clock),
         wifi = wifi(fg, 15.0),
         ly = 14.0 - level - 0.3,
+    )
+}
+
+/// A rounded rect as a path, for rings cut with the even-odd rule.
+fn rr(x: f64, y: f64, w: f64, h: f64, r: f64) -> String {
+    let r = r.min(w / 2.0).min(h / 2.0).max(0.0);
+    format!(
+        "M{} {y}H{}A{r} {r} 0 0 1 {} {}V{}A{r} {r} 0 0 1 {} {}H{}A{r} {r} 0 0 1 {x} {}V{}A{r} {r} 0 0 1 {} {y}Z",
+        x + r,
+        x + w - r,
+        x + w,
+        y + r,
+        y + h - r,
+        x + w - r,
+        y + h,
+        x + r,
+        y + h - r,
+        y + r,
+        x + r
+    )
+}
+
+/// The handset itself: a metal band round the edge, the black glass border
+/// inside it, and the side buttons standing proud of the band. iPhone in
+/// natural titanium with its action button, volume, side button and camera
+/// control; Pixel in obsidian with its power key over a volume rocker.
+/// `unit` is video pixels per point.
+fn hardware(os: Os, b: Rect, bezel: i64, radius: f64, unit: f64) -> String {
+    let ios = os.is_ios();
+    let band = if ios { 3.4 } else { 2.8 } * unit;
+    let m = (3.0 * unit).ceil();
+    let (w, h, bz) = (b.w as f64, b.h as f64, bezel as f64);
+    let metal = if ios {
+        r##"<stop offset="0" stop-color="#d8d3ca"/><stop offset=".07" stop-color="#8f8a82"/><stop offset=".5" stop-color="#bdb7ad"/><stop offset=".93" stop-color="#8a857d"/><stop offset="1" stop-color="#d2ccc3"/>"##
+    } else {
+        r##"<stop offset="0" stop-color="#6b6e74"/><stop offset=".07" stop-color="#2c2e32"/><stop offset=".5" stop-color="#4a4d52"/><stop offset=".93" stop-color="#2a2c30"/><stop offset="1" stop-color="#666a70"/>"##
+    };
+    // Buttons, in points down the body from its top: (right side?, from, to).
+    let buttons: &[(bool, f64, f64)] = if ios {
+        &[
+            (false, 118.0, 146.0),
+            (false, 178.0, 238.0),
+            (false, 252.0, 312.0),
+            (true, 206.0, 304.0),
+            (true, 520.0, 578.0),
+        ]
+    } else {
+        &[(true, 170.0, 222.0), (true, 262.0, 360.0)]
+    };
+    let bw = 2.6 * unit;
+    let mut keys = String::new();
+    for &(right, from, to) in buttons {
+        let (y0, y1) = (from * unit, to * unit);
+        if y1 > h - radius {
+            continue;
+        }
+        let x = if right {
+            m + w - 0.8 * unit
+        } else {
+            m - bw + 0.8 * unit
+        };
+        keys.push_str(&format!(
+            r#"<rect x="{x:.2}" y="{y0:.2}" width="{bw:.2}" height="{:.2}" rx="{:.2}" fill="url(#hwm)"/>"#,
+            y1 - y0,
+            bw / 2.0
+        ));
+    }
+    let outer = rr(m, 0.0, w, h, radius);
+    let inner_band = rr(
+        m + band,
+        band,
+        w - 2.0 * band,
+        h - 2.0 * band,
+        radius - band,
+    );
+    let inner_glass = rr(
+        m + bz,
+        bz,
+        w - 2.0 * bz,
+        h - 2.0 * bz,
+        (radius - bz).max(0.0),
+    );
+    format!(
+        r##"<svg style="position:absolute;left:{}px;top:{}px;overflow:visible" width="{}" height="{}" viewBox="0 0 {} {}"><defs><linearGradient id="hwm" x1="0" y1="0" x2="1" y2="0">{metal}</linearGradient></defs>{keys}<path d="{outer}{inner_band}" fill="url(#hwm)" fill-rule="evenodd"/><path d="{inner_band}{inner_glass}" fill="#050506" fill-rule="evenodd"/><path d="{outer}" fill="none" stroke="#000" stroke-opacity=".35" stroke-width="{:.2}"/><path d="{inner_band}" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="{:.2}"/></svg>"##,
+        b.x as f64 - m,
+        b.y,
+        w + 2.0 * m,
+        h,
+        w + 2.0 * m,
+        h,
+        0.6 * unit,
+        0.5 * unit
     )
 }
 
@@ -2180,15 +2524,16 @@ pub fn html(spec: &Spec, page: &PageInfo, g: &Geometry) -> String {
             h: status_h,
         };
         // The screen's own corners: the bars are rects, the glass is not.
+        let recording = spec.style == Style::Recording;
         let r_in = (g.body_radius - g.bezel as f64).max(0.0);
         parts.push(part(
             status,
             unit,
             &format!("border-radius:{r_in}px {r_in}px 0 0"),
             &if spec.os.is_ios() {
-                ios_status(page, &clock, spec.battery)
+                ios_status(page, &clock, spec.battery, recording)
             } else {
-                android_status(page, &clock, spec.battery)
+                android_status(page, &clock, spec.battery, recording)
             },
         ));
         if !spec.os.is_ios() && browser {
@@ -2220,18 +2565,11 @@ pub fn html(spec: &Spec, page: &PageInfo, g: &Geometry) -> String {
                 )
             },
         ));
-        // The bezel last, so its inner curve rounds off the screen's corners.
-        let ring = (2.0 * unit).max(1.0);
-        parts.push(format!(
-            r#"<div style="position:absolute;left:{}px;top:{}px;width:{}px;height:{}px;box-sizing:border-box;border:{}px solid #0b0b0c;border-radius:{}px;box-shadow:0 0 0 {ring}px #3a3a3e, inset 0 0 0 {}px #1d1d20"></div>"#,
-            b.x,
-            b.y,
-            b.w,
-            b.h,
-            g.bezel,
-            g.body_radius,
-            (1.0 * unit).max(1.0),
-        ));
+        // The hardware last, so the bezel's inner curve rounds off the
+        // screen's corners. A screen recording has none.
+        if !recording {
+            parts.push(hardware(spec.os, b, g.bezel, g.body_radius, unit));
+        }
         if let Some((r, _)) = g.extra {
             let name_default = if spec.os.is_ios() {
                 "iPhone 16 Pro"
@@ -2492,6 +2830,72 @@ mod tests {
         let mut phone = Spec::new(Os::Ios);
         phone.show_dock = Some(true);
         assert_eq!(phone.dock_shell(), None, "a handset alone has no dock");
+    }
+
+    #[test]
+    fn a_frame_op_reads_like_the_flags() {
+        let v: Value = serde_json::from_str(
+            r#"{"op":"frame","platform":"ios","style":"recording","battery":40,"clock":"10:08"}"#,
+        )
+        .unwrap();
+        let spec = FrameOpts::from_op(&v).unwrap().build().unwrap().unwrap();
+        assert_eq!(spec.os, Os::Ios);
+        assert_eq!(spec.style, Style::Recording);
+        assert_eq!(spec.battery, 40);
+        assert_eq!(spec.default_shape().unwrap().2, (1080, 2344));
+        // "frame" is accepted for "platform", and booleans read as on/off.
+        let v: Value = serde_json::from_str(
+            r#"{"op":"frame","frame":"macos","desktop":true,"dock":"dev","dock_size":64}"#,
+        )
+        .unwrap();
+        let spec = FrameOpts::from_op(&v).unwrap().build().unwrap().unwrap();
+        assert_eq!(spec.desktop, Some(Os::Macos));
+        assert_eq!(spec.dock_size, 64.0);
+        // A typo is refused, and so is a style the platform cannot have.
+        let typo: Value = serde_json::from_str(r#"{"op":"frame","platfrom":"ios"}"#).unwrap();
+        assert!(FrameOpts::from_op(&typo).is_err());
+        for bad in [
+            r#"{"op":"frame","platform":"macos","style":"recording"}"#,
+            r#"{"op":"frame","platform":"ios-simulator","style":"recording"}"#,
+            r#"{"op":"frame","platform":"ios","battery":140}"#,
+            r#"{"op":"frame","desktop":"on"}"#,
+        ] {
+            let v: Value = serde_json::from_str(bad).unwrap();
+            assert!(
+                FrameOpts::from_op(&v).and_then(|o| o.build()).is_err(),
+                "{bad} should be refused"
+            );
+        }
+        let none: Value = serde_json::from_str(r#"{"op":"frame","platform":"none"}"#).unwrap();
+        assert!(FrameOpts::from_op(&none)
+            .unwrap()
+            .build()
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn a_screen_recording_is_the_screen_edge_to_edge() {
+        for os in [Os::Ios, Os::Android] {
+            let mut spec = Spec::new(os);
+            spec.style = Style::Recording;
+            let ((cw, ch), _, (ow, oh)) = spec.default_shape().unwrap();
+            let g = geometry(&spec, ow, oh, cw, ch);
+            assert_eq!(g.bezel, 0);
+            assert_eq!(g.body_radius, 0.0);
+            // The page spans the full width, and the bars take the rest.
+            assert!(
+                (g.content.w - ow as i64).abs() <= 2,
+                "{os:?}: {:?}",
+                g.content
+            );
+            assert!(g.content.y > 0 && g.content.bottom() < oh as i64);
+            assert!(
+                g.body.y <= 2 && g.body.bottom() >= oh as i64 - 2,
+                "{os:?}: {:?}",
+                g.body
+            );
+        }
     }
 
     #[test]

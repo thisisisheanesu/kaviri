@@ -47,8 +47,10 @@ OPTIONS:
                       android, ios, android-emulator or ios-simulator (default
                       none); --frames lists them. A phone frame with no size
                       given films at that phone's viewport, as that phone
-  --frame-style <s>   browser (tabs and an address bar, the desktop default) or
-                      app (a bare title bar, or the full screen on a phone)
+  --frame-style <s>   browser (tabs and an address bar, the desktop default),
+                      app (a bare title bar, or the full screen on a phone), or
+                      recording (ios, android: the phone's own screen recording,
+                      edge to edge with the red recording indicator)
   --frame-theme <t>   auto, light or dark (default auto: follows the page)
   --frame-title <t>   title bar and tab text (default: the page's title)
   --frame-url <u>     address bar text (default: the page's URL)
@@ -58,9 +60,9 @@ OPTIONS:
                       windows or linux (menu bar and dock, or the taskbar)
   --dock <spec>       the dock or taskbar: on, off, or icons, groups (dev,
                       creative, office, social, media, minimal) and icon image
-                      files, mixed freely: --dock dev,maps,./myapp.png. On a desktop frame it draws the
-                      dock even without --desktop; --desktop on --dock off
-                      keeps the menu bar and drops the dock
+                      files, mixed freely: --dock dev,maps,./myapp.png. On a
+                      desktop frame it draws the dock even without --desktop;
+                      --desktop on --dock off keeps the menu bar, drops the dock
   --dock-position <p> bottom, left or right (macOS and Linux; default bottom)
   --dock-size <pt>    dock tile size in points, 24 to 128 (default 52)
   --icon-set <set>    how built-in icons are finished: color, pastel, dark,
@@ -86,7 +88,8 @@ OPTIONS:
                       Needs the opening to be a held still, which it is when
                       start_recording follows the wait that proves the app is up.
                       The take comes out <ms> shorter.
-  --cursor <name>     pointer shape: auto, arrow, hand, text or none
+  --cursor <name>     pointer shape: auto, arrow, hand, text, touch or none
+                      (a phone frame's auto is touch: a tap dot, no pointer)
                       (default auto: whatever the OS would show)
   --cursor-scale <f>  pointer size against a 1x system cursor (default 1.75)
   --chromium <path>   browser binary (default: autodetect / $KAVIRI_CHROMIUM)
@@ -100,6 +103,7 @@ OPTIONS:
   --version, -V       print the version and exit
 
 OPS (one JSON object per line):
+  {\"op\":\"frame\",\"platform\":\"ios\"[,\"style\":\"recording\"]}  (first; mirrors --frame*)
   {\"op\":\"start_recording\"[,\"path\":\"out.mp4\"]}
   {\"op\":\"navigate\",\"url\":\"https://…\"}       (bare paths become file://)
   {\"op\":\"click\",\"selector\":\"css\"}  or  {\"op\":\"click\",\"x\":.., \"y\":..}
@@ -208,6 +212,7 @@ fn preset_help() -> String {
         .join("\n")
 }
 
+#[derive(Clone)]
 struct Args {
     mode: String,
     script: Option<String>,
@@ -220,6 +225,11 @@ struct Args {
     out_h: Option<u32>,
     background: backdrop::Choice,
     frame: Option<device::Spec>,
+    /// Whether the viewport, the video size and the backdrop were chosen on
+    /// the command line, so a frame declared in a script knows what it may set.
+    sized: bool,
+    out_sized: bool,
+    background_set: bool,
     smooth: zoom::Smooth,
     slowmo: f64,
     loop_tail: f64,
@@ -357,6 +367,9 @@ fn parse_argv() -> Result<Parsed, String> {
         out_h: None,
         background: backdrop::Choice::Auto,
         frame: None,
+        sized: false,
+        out_sized: false,
+        background_set: false,
         smooth: zoom::Smooth::Auto,
         slowmo: 1.0,
         loop_tail: 0.0,
@@ -473,78 +486,29 @@ fn parse_argv() -> Result<Parsed, String> {
         }
     }
     a.background = backdrop::parse_choice(&background)?;
-    let os = match frame.as_deref() {
-        None | Some("none") | Some("off") => None,
-        Some(name) => Some(
-            device::Os::parse(name)
-                .ok_or_else(|| format!("unknown frame: {name}\n\nFrames:\n{}", device::help()))?,
-        ),
+    let opts = device::FrameOpts {
+        platform: frame,
+        style: frame_style,
+        theme: Some(frame_theme),
+        icon: Some(frame_icon),
+        title: frame_title,
+        url: frame_url,
+        desktop: Some(desktop),
+        dock,
+        dock_pos,
+        dock_size: Some(dock_size),
+        icon_set: Some(icon_set),
+        icon_tint: Some(icon_tint),
+        device_name,
+        clock,
+        battery: Some(battery),
+        background: None,
     };
-    match os {
-        Some(os) => {
-            let mut spec = device::Spec::new(os);
-            if let Some(st) = frame_style {
-                spec.style = device::parse_style(&st)?;
-            }
-            spec.theme = device::parse_theme(&frame_theme)?;
-            spec.icon = device::parse_icon(&frame_icon)?;
-            spec.title = frame_title;
-            spec.url = frame_url;
-            spec.desktop = device::parse_desktop(&desktop, Some(os))?;
-            if let Some(d) = dock {
-                let (show, icons) = device::parse_dock(&d)?;
-                spec.show_dock = Some(show);
-                spec.dock = icons;
-            }
-            if let Some(p) = dock_pos {
-                spec.dock_pos = device::parse_dock_pos(&p)?;
-            }
-            spec.dock_size = dock_size;
-            spec.icon_set = device::parse_icon_set(&icon_set)?;
-            spec.icon_tint = device::parse_tint(&icon_tint)?;
-            /*
-             * Said rather than ignored: a dock asked for where none can be drawn
-             * is a take that comes out without it.
-             */
-            if spec.show_dock == Some(true) && spec.dock_shell().is_none() {
-                return Err(
-                    "--dock on a phone frame needs --desktop: a handset has no dock of its own \
-                     here, so the dock belongs to the desktop the emulator runs on"
-                        .into(),
-                );
-            }
-            if spec.dock_shell() == Some(device::Os::Windows)
-                && spec.dock_pos != device::DockPos::Bottom
-            {
-                return Err(
-                    "the Windows taskbar only sits at the bottom; drop --dock-position".into(),
-                );
-            }
-            spec.device_name = device_name;
-            spec.clock = clock;
-            spec.battery = battery;
-            if let Some((css, scale, out)) = os.default_shape() {
-                if !sized {
-                    a.width = css.0;
-                    a.height = css.1;
-                    a.scale = scale;
-                }
-                if !out_sized {
-                    a.out_w = Some(out.0);
-                    a.out_h = Some(out.1);
-                }
-            }
-            a.frame = Some(spec);
-        }
-        None => {
-            // The frame options mean nothing without a frame, and silently
-            // ignoring one is how a take comes out without the thing asked for.
-            if desktop != "off" || frame_style.is_some() || dock.is_some() || dock_pos.is_some() {
-                return Err(
-                    "--desktop, --frame-style and the --dock options need a --frame".into(),
-                );
-            }
-        }
+    a.sized = sized;
+    a.out_sized = out_sized;
+    a.background_set = background != "auto";
+    if let Some(spec) = opts.build()? {
+        apply_frame(&mut a, spec);
     }
     a.smooth = zoom::Smooth::parse(&smooth)?;
     a.cursor = CursorCfg::parse(&cursor, cursor_scale)?;
@@ -661,6 +625,52 @@ fn err_envelope(error: &str) -> Value {
     json!({"ok": false, "error": error})
 }
 
+/// Take on a frame: a phone frame films at that phone's shape unless the
+/// size was chosen, and the take remembers the spec for its chrome.
+fn apply_frame(a: &mut Args, spec: device::Spec) {
+    if let Some((css, scale, out)) = spec.default_shape() {
+        if !a.sized {
+            a.width = css.0;
+            a.height = css.1;
+            a.scale = scale;
+        }
+        if !a.out_sized {
+            a.out_w = Some(out.0);
+            a.out_h = Some(out.1);
+        }
+    }
+    a.frame = Some(spec);
+}
+
+/// A script that declares its platform with a `frame` op gets it before the
+/// browser starts, so a phone is launched at the phone's viewport rather
+/// than resized under a page that has already laid itself out. A `--frame`
+/// on the command line wins, and says so.
+fn frame_from_script(a: &mut Args, ops: &[Value]) -> Result<(), String> {
+    let Some(op) = ops.iter().find(|o| o["op"] == "frame") else {
+        return Ok(());
+    };
+    if let Some(i) = ops.iter().position(|o| o["op"] == "start_recording") {
+        if ops.iter().position(|o| o["op"] == "frame") > Some(i) {
+            return Err("the frame op must come before start_recording".into());
+        }
+    }
+    if a.frame.is_some() {
+        eprintln!("kaviri: --frame on the command line overrides the script's frame op");
+        return Ok(());
+    }
+    let opts = device::FrameOpts::from_op(op)?;
+    if let Some(bg) = &opts.background {
+        if !a.background_set {
+            a.background = backdrop::parse_choice(bg)?;
+        }
+    }
+    if let Some(spec) = opts.build()? {
+        apply_frame(a, spec);
+    }
+    Ok(())
+}
+
 fn run_record(a: &Args) -> Result<(), String> {
     let script_path = a.script.as_ref().ok_or("record mode needs --script")?;
     let body = std::fs::read_to_string(script_path)
@@ -676,6 +686,9 @@ fn run_record(a: &Args) -> Result<(), String> {
         ops_list.push(v);
     }
     let has_start = ops_list.iter().any(|o| o["op"] == "start_recording");
+    let mut owned = a.clone();
+    frame_from_script(&mut owned, &ops_list)?;
+    let a = &owned;
 
     let ffmpeg = preflight()?;
     if env::is_set("DEBUG") {
@@ -701,6 +714,9 @@ fn run_record(a: &Args) -> Result<(), String> {
     s.out_path = Some(a.out.clone());
     s.background = a.background.clone();
     s.set_frame(a.frame.clone())?;
+    s.frame_fixed = a.frame.is_some();
+    s.sized = a.sized;
+    s.background_fixed = a.background_set;
     s.smooth = a.smooth;
     s.set_slowmo(a.slowmo)?;
     s.loop_tail = a.loop_tail;
@@ -1083,6 +1099,9 @@ fn run_serve(a: &Args) -> Result<(), String> {
     sess.out_path = Some(a.out.clone());
     sess.background = a.background.clone();
     sess.set_frame(a.frame.clone())?;
+    sess.frame_fixed = a.frame.is_some();
+    sess.sized = a.sized;
+    sess.background_fixed = a.background_set;
     sess.smooth = a.smooth;
     sess.set_slowmo(a.slowmo)?;
     sess.loop_tail = a.loop_tail;

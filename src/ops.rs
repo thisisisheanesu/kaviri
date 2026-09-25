@@ -51,6 +51,13 @@ pub struct Session {
     pub background: Choice,
     /// The device the take is framed as being filmed on, if any.
     pub frame: Option<crate::device::Spec>,
+    /// Whether the frame was settled before launch (by `--frame`, or by a
+    /// `frame` op read ahead of time in record mode), so the op is a no-op.
+    pub frame_fixed: bool,
+    /// Whether the viewport and the backdrop were chosen on the command line,
+    /// which a `frame` op then leaves alone.
+    pub sized: bool,
+    pub background_fixed: bool,
     /// Whether a slow capture is motion interpolated up to the output frame rate.
     pub smooth: crate::zoom::Smooth,
     /// Seconds of the tail dissolved into the opening so the take loops without a cut.
@@ -68,6 +75,10 @@ pub const CURSOR_SHAPES: &[(&str, &str)] = &[
     ),
     ("hand", "pointing hand, for links and buttons"),
     ("text", "I-beam, for text fields and editable content"),
+    (
+        "touch",
+        "a phone's tap indicator: a soft dot shown only around a touch (phone frames' default)",
+    ),
 ];
 
 /// A 1x pointer is a 24 CSS px arrow, which is a speck once a 1470px take is
@@ -241,9 +252,21 @@ const CURSOR_JS: &str = r##"
     text: {
       w: 12, h: 24, vb: '-6 -12 12 24', ox: 6, oy: 12, fill: 0, hw: 4.2, bw: 1.7,
       parts: '<path d="M-3.2 -8.8H3.2M0 -8.8V8.8M-3.2 8.8H3.2"/>'
+    },
+    /* What iOS and Android draw for "show touches": a soft grey disc under the
+       finger, there only while the finger is. No outline pass, no shadow. */
+    touch: {
+      w: 24, h: 24, vb: '-12 -12 24 24', ox: 12, oy: 12, raw:
+        '<circle r="10.5" fill="rgba(128,128,128,.42)" stroke="rgba(255,255,255,.75)" stroke-width="1.2"/>'
     }
   };
-  const svg = (s) =>
+  /* A frame can pin a shape after launch (serve mode's frame op), so the pin
+     is read at every paint rather than fixed at install. */
+  const pinned = () => window.__kaviri_force_shape || PIN;
+  const svg = (s) => s.raw ?
+    '<svg xmlns="http://www.w3.org/2000/svg" width="' + (s.w * S) + '" height="' +
+    (s.h * S) + '" viewBox="' + s.vb +
+    '" style="position:absolute;left:0;top:0;display:block;overflow:visible">' + s.raw + '</svg>' :
     '<svg xmlns="http://www.w3.org/2000/svg" width="' + (s.w * S) + '" height="' +
     (s.h * S) + '" viewBox="' + s.vb +
     '" style="position:absolute;left:0;top:0;display:block;overflow:visible">' +
@@ -270,17 +293,33 @@ const CURSOR_JS: &str = r##"
   };
   const apply = (k) => {
     const c = ensure();
-    k = PIN || k || state.k || 'arrow';
+    k = pinned() || k || state.k || 'arrow';
     if (!SHAPES[k]) k = 'arrow';
-    if (k !== state.k) { state.k = k; c.innerHTML = svg(SHAPES[k]); }
+    if (k !== state.k) {
+      state.k = k;
+      c.innerHTML = svg(SHAPES[k]);
+      c.style.filter = k === 'touch' ? 'none' :
+        'drop-shadow(0 ' + (1.2 * S) + 'px ' + (1.8 * S) + 'px rgba(0,0,0,.38))';
+    }
     const s = SHAPES[k];
     c.style.transform =
       'translate(' + (state.x - s.ox * S) + 'px,' + (state.y - s.oy * S) + 'px)';
+    /* A finger is on the glass only around a touch: show the dot, then lift. */
+    if (k === 'touch') {
+      c.style.transition = 'opacity .18s ease-out';
+      c.style.opacity = '1';
+      clearTimeout(state.lift);
+      state.lift = setTimeout(() => { c.style.opacity = '0'; }, 700);
+    } else {
+      c.style.transition = 'transform .45s cubic-bezier(.22,.61,.36,1)';
+      c.style.opacity = '1';
+    }
   };
   window.__kaviri = {
     move(x, y, k) { state.x = x; state.y = y; apply(k); },
     shape(k) { apply(k); },
     ripple(x, y) {
+      if (state.k === 'touch') { apply('touch'); return; }
       if (!document.getElementById('__kaviri_style')) {
         const s = document.createElement('style'); s.id = '__kaviri_style';
         s.textContent = '@keyframes __kaviri_r{from{transform:scale(.4);opacity:1}' +
@@ -550,6 +589,9 @@ impl Session {
             cursor,
             background: Choice::Auto,
             frame: None,
+            frame_fixed: false,
+            sized: false,
+            background_fixed: false,
             smooth: crate::zoom::Smooth::Auto,
             loop_tail: 0.0,
             rendered: None,
@@ -560,16 +602,54 @@ impl Session {
     /// Frame the take as a device. A phone frame also makes the browser claim
     /// to be that phone, so the site serves the layout the frame shows.
     pub fn set_frame(&mut self, spec: Option<crate::device::Spec>) -> Result<(), String> {
-        if let Some(ua) = spec.as_ref().and_then(|s| s.os.user_agent()) {
-            self.cdp.send(
-                "Emulation.setDeviceMetricsOverride",
-                json!({"width": self.css_w, "height": self.css_h,
-                       "deviceScaleFactor": self.scale, "mobile": true}),
-            )?;
+        let ua = spec.as_ref().and_then(|s| s.os.user_agent());
+        self.cdp.send(
+            "Emulation.setDeviceMetricsOverride",
+            json!({"width": self.css_w, "height": self.css_h,
+                   "deviceScaleFactor": self.scale, "mobile": ua.is_some()}),
+        )?;
+        if let Some(ua) = ua {
             self.cdp
                 .send("Emulation.setUserAgentOverride", json!({ "userAgent": ua }))?;
         }
+        /*
+         * A phone has no pointer. Unless a shape was chosen, a phone frame
+         * draws the tap indicator, on this page and every page after it.
+         */
+        if self.cursor.enabled && self.cursor.shape.is_none() {
+            let pin = if ua.is_some() { "'touch'" } else { "''" };
+            let src = format!("window.__kaviri_force_shape = {pin};");
+            self.cdp.send(
+                "Page.addScriptToEvaluateOnNewDocument",
+                json!({ "source": src }),
+            )?;
+            let _ = self.cdp.evaluate(&src);
+        }
         self.frame = spec;
+        Ok(())
+    }
+
+    /// Change the viewport, scale and video size mid-session, for a `frame`
+    /// op in serve mode. The browser window is resized too: the compositor
+    /// surface is the window, and a viewport taller than it would be
+    /// captured cropped.
+    fn resize(&mut self, css: (u32, u32), scale: f64, out: (u32, u32)) -> Result<(), String> {
+        let (dw, dh) = (
+            (css.0 as f64 * scale).round() as u32,
+            (css.1 as f64 * scale).round() as u32,
+        );
+        if let Ok(w) = self.cdp.send("Browser.getWindowForTarget", json!({})) {
+            if let Some(id) = w["windowId"].as_i64() {
+                let _ = self.cdp.send(
+                    "Browser.setWindowBounds",
+                    json!({"windowId": id, "bounds": {"width": dw, "height": dh}}),
+                );
+            }
+        }
+        self.css_w = css.0;
+        self.css_h = css.1;
+        self.scale = scale;
+        self.out_size = out;
         Ok(())
     }
 
@@ -1254,6 +1334,32 @@ impl Session {
             "mark" => {
                 let label = op["label"].as_str().unwrap_or("").to_string();
                 Ok(self.mark("mark", &label, None))
+            }
+            "frame" => {
+                if self.cdp.is_recording() {
+                    return Err("frame must come before start_recording: a take cannot \
+                                change device halfway through"
+                        .into());
+                }
+                let opts = crate::device::FrameOpts::from_op(op)?;
+                let spec = opts.build()?;
+                if self.frame_fixed {
+                    return Ok(json!({"event": "frame",
+                        "platform": self.frame.as_ref().map(|f| f.os.name()).unwrap_or("none"),
+                        "note": "settled before launch"}));
+                }
+                if let (Some(bg), false) = (&opts.background, self.background_fixed) {
+                    self.background = crate::backdrop::parse_choice(bg)?;
+                }
+                if let (Some((css, scale, out)), false) =
+                    (spec.as_ref().and_then(|s| s.default_shape()), self.sized)
+                {
+                    self.resize(css, scale, out)?;
+                }
+                let name = spec.as_ref().map(|f| f.os.name()).unwrap_or("none");
+                self.set_frame(spec)?;
+                Ok(json!({"event": "frame", "platform": name,
+                          "viewport": [self.css_w, self.css_h], "video": [self.out_size.0, self.out_size.1]}))
             }
             "start_recording" => {
                 // Starting over the top of a live take threw its frames away with no
