@@ -274,6 +274,28 @@ pub fn events_with(
                             z,
                         });
                     }
+                    /*
+                     * Too tall or too big to hold whole, but no wider than the screen: a card
+                     * spanning a phone's width. Keep its width in shot, centred, and follow
+                     * the control only up and down, so a button on its edge is never cropped
+                     * and the camera does not drift sideways.
+                     */
+                    let fit_across = frame_w / (sw * scale * 1.02);
+                    if fit_across >= 1.0 {
+                        z = z.min(fit_across).max(1.0);
+                        let crop_h = frame_h / z;
+                        let (lo, hi) = (sy * scale, (sy + sh) * scale);
+                        let mut cy = (y + h / 2.0) * scale;
+                        if hi - lo <= crop_h {
+                            cy = cy.max(hi - crop_h / 2.0).min(lo + crop_h / 2.0);
+                        }
+                        return Some(Target {
+                            t: m.t,
+                            cx: ((sx + sw / 2.0) * scale).clamp(0.0, frame_w),
+                            cy: cy.clamp(0.0, frame_h),
+                            z,
+                        });
+                    }
                 }
             }
             let crop_w = frame_w / z;
@@ -2501,6 +2523,47 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A card nearly as wide as the screen (a phone's) cannot be framed whole at a real zoom,
+    /// so the camera keeps its width in shot, centred, and only follows the control vertically.
+    #[test]
+    fn a_full_width_card_is_never_cropped_sideways() {
+        let card = Some((20.0, 300.0, 540.0, 240.0));
+        let marks = vec![
+            Mark {
+                t: 1.0,
+                kind: "type".into(),
+                label: String::new(),
+                bbox: Some((40.0, 400.0, 380.0, 40.0)),
+                context: card,
+            },
+            Mark {
+                t: 2.0,
+                kind: "click".into(),
+                label: String::new(),
+                bbox: Some((440.0, 400.0, 100.0, 40.0)),
+                context: card,
+            },
+        ];
+        let (fw, fh) = (600.0, 1300.0);
+        let e = &events_with(&marks, 1.0, fw, fh, 8.0, true)[0];
+        let half = fw / e.z / 2.0;
+        assert!(
+            e.cx - half <= 20.0 + 1e-6 && e.cx + half >= 560.0 - 1e-6,
+            "card cropped: z {} cx {}",
+            e.z,
+            e.cx
+        );
+        assert!(
+            (e.cx - 290.0).abs() < 1e-6,
+            "not centred on the card: {}",
+            e.cx
+        );
+        assert!(
+            e.path.iter().all(|p| (p.1 - 290.0).abs() < 1e-6),
+            "drifted sideways"
+        );
     }
 
     /// Under a frame the camera films the composite: the chrome is in the picture and is

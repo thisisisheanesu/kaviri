@@ -120,8 +120,10 @@ sits on a surface (the card or form around it) that can be framed at a zoom of 1
 the camera aims at the centre of that surface, zoomed only as far as keeps it whole with a
 deadzone of margin each side. Every interaction on that card then asks for the same place, so
 typing into its field and clicking its button hold the camera still, with the button in shot,
-and the camera moves only when the action moves to another card. A surface too big for that
-falls back to the rules below.
+and the camera moves only when the action moves to another card. A surface too tall for that
+but no wider than the screen, such as a card spanning a phone, keeps its width: the camera
+stays centred on it across, zoomed only as far as its width allows, and follows the control up
+and down. Only a surface wider than the screen falls back to the rules below.
 
 The playground does the same when a platform is picked: it moves the whole scene, not the app.
 
