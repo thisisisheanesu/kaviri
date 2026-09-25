@@ -189,7 +189,7 @@ pub struct Spec {
     pub icon: Icon,
     /// The desktop drawn around the window: its menu bar, dock or taskbar.
     pub desktop: Option<Os>,
-    pub dock: Option<Vec<&'static str>>,
+    pub dock: Option<Vec<DockItem>>,
     /// Whether the dock (or taskbar) is drawn: `None` follows `desktop`,
     /// `Some(true)` draws it on a desktop frame even without the menu bar.
     pub show_dock: Option<bool>,
@@ -203,6 +203,14 @@ pub struct Spec {
     pub device_name: Option<String>,
     pub clock: Option<String>,
     pub battery: u8,
+}
+
+/// One tile in a dock: a built-in icon, or a finished icon image of the
+/// caller's own (a real app's icon they have the rights to), drawn as is.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DockItem {
+    Builtin(&'static str),
+    File(PathBuf),
 }
 
 /// Which edge the dock sits on. The Windows taskbar only knows the bottom.
@@ -402,38 +410,42 @@ pub fn parse_icon(s: &str) -> Result<Icon, String> {
     }
 }
 
-/// `--dock`: on, off, or a list of icons and groups. Returns whether the dock
-/// is shown and the icons, `None` meaning the system's own default set.
-pub fn parse_dock(s: &str) -> Result<(bool, Option<Vec<&'static str>>), String> {
+/// `--dock`: on, off, or a list of icons, groups and image files. Returns
+/// whether the dock is shown and its tiles, `None` meaning the system's own
+/// default set.
+pub fn parse_dock(s: &str) -> Result<(bool, Option<Vec<DockItem>>), String> {
     match s {
         "off" | "none" => return Ok((false, None)),
         "on" | "default" | "" => return Ok((true, None)),
         _ => {}
     }
-    let mut out: Vec<&'static str> = Vec::new();
+    let mut out: Vec<DockItem> = Vec::new();
+    let mut push = |i: DockItem| {
+        if !out.contains(&i) {
+            out.push(i);
+        }
+    };
     for n in s.split(',').map(str::trim).filter(|n| !n.is_empty()) {
         if let Some((_, group)) = DOCK_GROUPS.iter().find(|g| g.0 == n) {
             for i in group.iter() {
-                let i = builtin_icon(i).map(|b| b.0).unwrap_or("files");
-                if !out.contains(&i) {
-                    out.push(i);
-                }
+                push(DockItem::Builtin(
+                    builtin_icon(i).map(|b| b.0).unwrap_or("files"),
+                ));
             }
+        } else if let Some(b) = builtin_icon(n) {
+            push(DockItem::Builtin(b.0));
+        } else if Path::new(n).is_file() {
+            push(DockItem::File(PathBuf::from(n)));
         } else {
-            let i = builtin_icon(n).map(|b| b.0).ok_or_else(|| {
-                format!(
-                    "--dock: unknown icon or group {n}\n\nIcons: {}\nGroups: {}",
-                    icon_names().join(", "),
-                    DOCK_GROUPS
-                        .iter()
-                        .map(|g| g.0)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            })?;
-            if !out.contains(&i) {
-                out.push(i);
-            }
+            return Err(format!(
+                "--dock: {n} is not an icon, a group or an image file\n\nIcons: {}\nGroups: {}",
+                icon_names().join(", "),
+                DOCK_GROUPS
+                    .iter()
+                    .map(|g| g.0)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
         }
     }
     Ok((true, Some(out)))
@@ -1200,6 +1212,11 @@ fn squircle(cx: f64, cy: f64, a: f64) -> String {
 }
 
 fn tile_svg(name: &str, uid: &str, set: IconSet, tint: &str, mac: bool) -> String {
+    if set == IconSet::Color {
+        if let Some(t) = art_tile(name, uid, mac) {
+            return t;
+        }
+    }
     let (n, a, b, glyph) = builtin_icon(name).copied().unwrap_or(ICONS[0]);
     let (top, bottom, ink, rim, extra) = match set {
         IconSet::Color => (
@@ -1337,6 +1354,44 @@ struct Look<'a> {
     tint: &'a str,
     /// macOS tiles: a squircle inset in its canvas, with a drop shadow.
     mac: bool,
+}
+
+/// One dock tile. A caller's own icon file is a finished icon, drawn as is.
+fn dock_tile(item: &DockItem, px: f64, uid: &str, look: Look) -> String {
+    match item {
+        DockItem::Builtin(n) => big_icon(&AppIcon::Builtin(n), px, uid, look),
+        DockItem::File(p) => match file_data_url(p) {
+            Ok(src) => format!(
+                r#"<img src="{}" onerror="this.style.visibility='hidden'" style="width:{px}px;height:{px}px;object-fit:contain;display:block">"#,
+                esc(&src)
+            ),
+            Err(_) => String::new(),
+        },
+    }
+}
+
+/// A built-in icon's illustration on its tile: clipped to a squircle inset
+/// in the canvas on macOS, a rounded square filling it elsewhere, with the
+/// tile's own shadow and a faint top light.
+fn art_tile(name: &str, uid: &str, mac: bool) -> Option<String> {
+    let art = crate::icons::art(name)?;
+    let id = format!("a{uid}{name}");
+    let body = art.replace("ID", &id);
+    let clip = if mac {
+        squircle(50.0, 50.0, 50.0)
+    } else {
+        "M22 0H78A22 22 0 0 1 100 22V78A22 22 0 0 1 78 100H22A22 22 0 0 1 0 78V22A22 22 0 0 1 22 0Z"
+            .into()
+    };
+    // The macOS grid: the body is about 81% of the canvas, a touch high.
+    let (tx, ty, sc) = if mac {
+        (6.0, 5.0, 0.52)
+    } else {
+        (2.0, 2.0, 0.6)
+    };
+    Some(format!(
+        r##"<svg viewBox="0 0 64 64" width="100%" height="100%" style="overflow:visible;display:block"><defs><clipPath id="{id}c"><path d="{clip}"/></clipPath><filter id="{id}sh" x="-25%" y="-25%" width="150%" height="160%"><feDropShadow dx="0" dy="1.8" stdDeviation="1.8" flood-color="#000" flood-opacity=".22"/></filter><filter id="{id}t" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="2.2" stdDeviation="2.2" flood-color="#000" flood-opacity=".3"/></filter><linearGradient id="{id}l" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".16"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/></linearGradient></defs><g transform="translate({tx} {ty}) scale({sc})"><g filter="url(#{id}t)"><g clip-path="url(#{id}c)">{body}<rect width="100" height="100" fill="url(#{id}l)"/></g></g><path d="{clip}" fill="none" stroke="#000" stroke-opacity=".1" stroke-width="1"/></g></svg>"##
+    ))
 }
 
 /// Large icon for a dock or taskbar, `px` points square.
@@ -1906,7 +1961,7 @@ const TRASH: &str = r##"<svg viewBox="0 0 64 64" width="100%" height="100%" styl
 /// the Trash at the far end, and the running light in the shelf's own ink.
 #[allow(clippy::too_many_arguments)]
 fn dock(
-    icons: &[&'static str],
+    icons: &[DockItem],
     app: Option<&AppIcon>,
     active_builtin: Option<&str>,
     dark: bool,
@@ -1943,10 +1998,10 @@ fn dock(
         )
     };
     let mut tiles = String::new();
-    for (i, name) in icons.iter().enumerate() {
+    for (i, item) in icons.iter().enumerate() {
         tiles.push_str(&cell(
-            big_icon(&AppIcon::Builtin(name), size, &format!("d{i}"), look),
-            active_builtin == Some(*name),
+            dock_tile(item, size, &format!("d{i}"), look),
+            matches!(item, DockItem::Builtin(n) if active_builtin == Some(*n)),
         ));
     }
     if let Some(a) = app {
@@ -1999,7 +2054,7 @@ fn dock(
 }
 
 fn windows_taskbar(
-    icons: &[&'static str],
+    icons: &[DockItem],
     app: &AppIcon,
     active_builtin: Option<&str>,
     clock: &str,
@@ -2038,10 +2093,10 @@ fn windows_taskbar(
         ),
         false,
     ));
-    for (i, n) in icons.iter().enumerate() {
+    for (i, item) in icons.iter().enumerate() {
         row.push_str(&slot(
-            big_icon(&AppIcon::Builtin(n), 26.0, &format!("t{i}"), look),
-            active_builtin == Some(*n),
+            dock_tile(item, 26.0, &format!("t{i}"), look),
+            matches!(item, DockItem::Builtin(n) if active_builtin == Some(*n)),
         ));
     }
     if !matches!(app, AppIcon::None) {
@@ -2297,7 +2352,12 @@ pub fn html(spec: &Spec, page: &PageInfo, g: &Geometry) -> String {
     }
 
     if let Some(shell) = spec.dock_shell() {
-        let icons = spec.dock.clone().unwrap_or_else(|| default_dock(shell));
+        let icons = spec.dock.clone().unwrap_or_else(|| {
+            default_dock(shell)
+                .into_iter()
+                .map(DockItem::Builtin)
+                .collect()
+        });
         if shell == Os::Windows {
             let clock = spec
                 .clock
@@ -2499,7 +2559,10 @@ mod tests {
         assert!(parse_icon("no-such-icon").is_err());
         assert_eq!(
             parse_dock("mail, chat").unwrap(),
-            (true, Some(vec!["mail", "chat"]))
+            (
+                true,
+                Some(vec![DockItem::Builtin("mail"), DockItem::Builtin("chat")])
+            )
         );
         assert!(parse_dock("mail,nope").is_err());
         assert_eq!(parse_dock("off").unwrap(), (false, None));
@@ -2507,9 +2570,30 @@ mod tests {
         // A group expands in place, and a repeat is kept once.
         let (_, dev) = parse_dock("dev,maps,code").unwrap();
         let dev = dev.unwrap();
-        assert_eq!(dev.first(), Some(&"files"));
-        assert_eq!(dev.last(), Some(&"maps"));
-        assert_eq!(dev.iter().filter(|i| **i == "code").count(), 1);
+        assert_eq!(dev.first(), Some(&DockItem::Builtin("files")));
+        assert_eq!(dev.last(), Some(&DockItem::Builtin("maps")));
+        assert_eq!(
+            dev.iter()
+                .filter(|i| **i == DockItem::Builtin("code"))
+                .count(),
+            1
+        );
+        // A file is a tile of its own.
+        let f = std::env::temp_dir().join(format!("kaviri-dock-{}.png", std::process::id()));
+        std::fs::write(&f, b"x").unwrap();
+        let (_, with_file) = parse_dock(&format!("mail,{}", f.display())).unwrap();
+        assert_eq!(with_file.unwrap()[1], DockItem::File(f.clone()));
+        let _ = std::fs::remove_file(&f);
+        // Every built-in icon has its illustration, in both shapes.
+        for n in icon_names() {
+            for mac in [false, true] {
+                let t = art_tile(n, "u", mac).unwrap_or_else(|| panic!("{n} has no art"));
+                assert!(
+                    !t.contains("\"ID") && !t.contains("#ID"),
+                    "{n}: unreplaced id"
+                );
+            }
+        }
         for (n, g) in DOCK_GROUPS {
             for i in g.iter() {
                 assert!(

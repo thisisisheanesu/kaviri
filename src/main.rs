@@ -9,6 +9,7 @@ mod backdrop;
 mod cdp;
 mod device;
 mod env;
+mod icons;
 mod ops;
 mod zoom;
 
@@ -55,9 +56,9 @@ OPTIONS:
                       an image file; shown in the tab, title bar and dock
   --desktop <d>       draw the desktop round the window: on, off, macos,
                       windows or linux (menu bar and dock, or the taskbar)
-  --dock <spec>       the dock or taskbar: on, off, or icons and groups
-                      (dev, creative, office, social, media, minimal), mixed
-                      freely: --dock dev,maps. On a desktop frame it draws the
+  --dock <spec>       the dock or taskbar: on, off, or icons, groups (dev,
+                      creative, office, social, media, minimal) and icon image
+                      files, mixed freely: --dock dev,maps,./myapp.png. On a desktop frame it draws the
                       dock even without --desktop; --desktop on --dock off
                       keeps the menu bar and drops the dock
   --dock-position <p> bottom, left or right (macOS and Linux; default bottom)

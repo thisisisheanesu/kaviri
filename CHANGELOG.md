@@ -55,6 +55,10 @@ dated `[0.1.0]` heading, when the tag is cut.
   `minimal`), `--dock-position bottom|left|right` and `--dock-size`, and `--icon-set
   color|pastel|dark|mono|tinted|glass|outline` with `--icon-tint` restyles every built-in icon. The chrome is HTML rendered once per
   take by the recording browser, in a throwaway tab the filmed page never sees.
+- **A dock that looks like one.** The built-in icons are illustrations rather than line
+  glyphs, the macOS dock is frosted glass over a blurred wallpaper with squircle tiles, a
+  separator and the Trash, and the menu bar's ink follows the wallpaper. `--dock` accepts icon
+  image files, drawn as is.
 - **Wallpapers and image backgrounds.** Five new backdrops, one per system (`hills`, `bloom`,
   `aubergine`, `material`, `aurora`), which `--background auto` uses under a frame and never
   picks for an unframed take. `--background <file>` takes any image ffmpeg can read.

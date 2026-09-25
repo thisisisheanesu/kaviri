@@ -197,11 +197,15 @@ runs on (`--desktop windows` to choose). `--frame-icon` is `auto` (the favicon),
 The dock is its own option. `--dock on` draws the macOS dock (or the GNOME dash,
 or the Windows taskbar) on a desktop frame even without the menu bar, and
 `--desktop on --dock off` keeps the menu bar and drops it. `--dock` also takes
-icons and named groups, mixed freely: `--dock dev,maps` (the groups are `dev`,
-`creative`, `office`, `social`, `media` and `minimal`). `--dock-position left`
+icons, named groups and icon image files, mixed freely: `--dock dev,maps,myapp.png`
+(the groups are `dev`, `creative`, `office`, `social`, `media` and `minimal`). A
+file is taken as a finished icon and drawn as is, so a real app icon you have
+the rights to sits in the dock looking like itself. `--dock-position left`
 or `right` stands it up a side, as macOS allows, and `--dock-size` sets the tile
-size in points. `--icon-set` finishes every built-in icon one way: `color` (the
-default), `pastel`, `dark`, `mono`, `tinted` (in `--icon-tint`), `glass` or
+size in points. The built-in icons are small illustrations in the desktop app
+icon idiom (a folder, an envelope, a calendar page, a notepad, a gear), clipped
+to the macOS squircle on a Mac and a rounded square elsewhere. `--icon-set`
+restyles them all: `color` (the illustrations, the default), `pastel`, `dark`, `mono`, `tinted` (in `--icon-tint`), `glass` or
 `outline`. `--frame-theme`, `--frame-title`,
 `--frame-url`, `--device-name` and `--clock` override what the chrome would
 otherwise read off the page. Under a frame, `--background auto` is that
