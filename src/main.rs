@@ -10,7 +10,9 @@ mod cdp;
 mod device;
 mod env;
 mod icons;
+mod motion;
 mod ops;
+mod synth;
 mod zoom;
 
 use ops::{CursorCfg, Session, DEFAULT_CURSOR_SCALE};
@@ -25,6 +27,7 @@ const USAGE: &str = "\
 kaviri: programmable recording browser (Screen Studio for AI agents)
 
 USAGE:
+  kaviri motion --script <reel.jsonl> --out <reel.mp4> [motion options]
   kaviri record --script <file.jsonl> --out <file.mp4> [options]
   kaviri serve [--port <n>] [--out <file.mp4>] [options]
   kaviri doctor | kaviri presets | kaviri backgrounds | kaviri frames | kaviri --version
@@ -101,6 +104,10 @@ OPTIONS:
   --keep-temp         keep the intermediate CFR video and the frame spool
   --audio             reserved; audio capture is not yet implemented
   --version, -V       print the version and exit
+
+MOTION (kaviri motion --help for the rest):
+  a JSONL timeline of scenes, layers, animations and sound, rendered frame by
+  frame with a soundtrack on the same beat grid. docs/motion.md.
 
 OPS (one JSON object per line):
   {\"op\":\"frame\",\"platform\":\"ios\"[,\"style\":\"recording\"]}  (first; mirrors --frame*)
@@ -238,6 +245,110 @@ struct Args {
     keep_temp: bool,
     spool_dir: Option<PathBuf>,
     max_spool_bytes: Option<u64>,
+}
+
+const MOTION_USAGE: &str = "\
+kaviri motion: a motion-graphics video from a JSONL timeline
+
+USAGE:
+  kaviri motion --script reel.jsonl --out reel.mp4
+
+OPTIONS:
+  --script <path>     the timeline (required); asset paths resolve against it
+  --out <path>        the MP4 to write (default kaviri-motion.mp4), or a .png
+                      with --still
+  --check             validate and print the timeline, render nothing
+  --still <t,...>     write PNG stills at these times (seconds, or 4bar, 2b)
+                      instead of a video. The quickest way to look at a frame
+  --preview <dir>     write a self-contained player (index.html + music.wav)
+                      that plays in any browser with sound
+  --from <s> --to <s> render only part of the timeline
+  --fps <n>           override the script's frame rate
+  --jobs <n>          browsers rendering in parallel (default: one per CPU, up to 8)
+  --crf <n>           x264 quality, lower is better (default 16)
+  --audio-out <path>  also write the soundtrack as a WAV
+  --mute              no soundtrack
+  --chromium <path>   browser binary (default: autodetect / $KAVIRI_CHROMIUM)
+  --keep-temp         keep the page, the frames and the WAV
+
+The format is in docs/motion.md; docs/motion-llm.md is the one-file version
+to hand to a model.
+";
+
+fn parse_motion() -> Result<Option<motion::Opts>, String> {
+    let mut argv = std::env::args().skip(2);
+    let cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(2);
+    let mut o = motion::Opts {
+        script: String::new(),
+        out: String::new(),
+        chromium: None,
+        jobs: cpus.clamp(1, 8),
+        fps: None,
+        from: None,
+        to: None,
+        stills: Vec::new(),
+        preview: None,
+        check: false,
+        audio_out: None,
+        mute: false,
+        keep_temp: false,
+        crf: 16,
+    };
+    let mut stills_raw: Option<String> = None;
+    let mut script = None;
+    let mut from_raw = None;
+    let mut to_raw = None;
+    while let Some(flag) = argv.next() {
+        let mut val = |name: &str| -> Result<String, String> {
+            argv.next().ok_or_else(|| format!("{name} needs a value"))
+        };
+        match flag.as_str() {
+            "--script" => script = Some(val("--script")?),
+            "--out" => o.out = val("--out")?,
+            "--check" => o.check = true,
+            "--still" | "--stills" => stills_raw = Some(val("--still")?),
+            "--preview" => o.preview = Some(val("--preview")?),
+            "--from" => from_raw = Some(val("--from")?),
+            "--to" => to_raw = Some(val("--to")?),
+            "--fps" => o.fps = Some(ratio("--fps", &val("--fps")?, 1.0, 120.0)?),
+            "--jobs" => o.jobs = dimension("--jobs", &val("--jobs")?, 1, 16)? as usize,
+            "--crf" => o.crf = dimension("--crf", &val("--crf")?, 0, 51)?,
+            "--audio-out" => o.audio_out = Some(val("--audio-out")?),
+            "--mute" => o.mute = true,
+            "--chromium" => o.chromium = Some(val("--chromium")?),
+            "--keep-temp" => o.keep_temp = true,
+            "--help" | "-h" => {
+                println!("{MOTION_USAGE}");
+                return Ok(None);
+            }
+            other => return Err(format!("unknown flag: {other}\n\n{MOTION_USAGE}")),
+        }
+    }
+    o.script = script.ok_or_else(|| format!("motion needs --script\n\n{MOTION_USAGE}"))?;
+    // A preview on its own is the whole job; with --out it comes as well as the video.
+    if o.out.is_empty() && (o.preview.is_none() || !stills_raw.as_deref().unwrap_or("").is_empty()) {
+        o.out = "kaviri-motion.mp4".into();
+    }
+    /*
+     * Times on the command line may be musical too, so they are read against
+     * the script's own grid once the script has been read.
+     */
+    let grid = motion::script_grid(&o.script)?;
+    let t = |s: &str| motion::parse_time(&serde_json::Value::String(s.to_string()), &grid);
+    if let Some(s) = stills_raw {
+        for part in s.split(',') {
+            o.stills.push(t(part.trim())?);
+        }
+    }
+    if let Some(s) = from_raw {
+        o.from = Some(t(&s)?);
+    }
+    if let Some(s) = to_raw {
+        o.to = Some(t(&s)?);
+    }
+    Ok(Some(o))
 }
 
 /// What the command line asked for.
@@ -1266,6 +1377,22 @@ fn main() {
     // disposition runs none of them.
     cdp::install_signal_handlers();
 
+    if std::env::args().nth(1).as_deref() == Some("motion") {
+        match parse_motion() {
+            Ok(Some(o)) => {
+                if let Err(e) = motion::run(&o) {
+                    eprintln!("kaviri: error: {e}");
+                    std::process::exit(1);
+                }
+                return;
+            }
+            Ok(None) => return,
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(2);
+            }
+        }
+    }
     let a = match parse_args() {
         Parsed::Run(a) => a,
         Parsed::Help(msg) => {

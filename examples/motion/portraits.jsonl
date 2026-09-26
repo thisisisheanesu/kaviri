@@ -1,0 +1,104 @@
+# A 4:5 feed ad for a fictional app, light theme: phone, scan, wall, carousel, call to action.
+#   kaviri motion --script examples/motion/portraits.jsonl --out portraits.mp4
+{"op":"video","size":[1080,1350],"fps":30,"bpm":124,"grain":0.025,"vignette":0.12,"pulse":0.006}
+{"op":"theme","bg":"#f5f6f3","surface":"#ffffff","surface2":"#f1f3f0","border":"rgba(15,28,46,.08)","border_strong":"rgba(15,28,46,.16)","hover":"rgba(15,28,46,.05)","text":"#0f1c2e","text2":"#33415a","muted":"#5b6678","faint":"#98a1ae","accent":"#139a86","accent2":"#27c2a9","ok":"#139a86","track":"rgba(15,28,46,.15)","shadow":"0 30px 70px -25px rgba(15,28,46,.35), 0 2px 6px rgba(15,28,46,.06)"}
+{"op":"music","key":"D","progression":["I","V","vi","IV"],"sections":[{"bars":1,"part":"intro"},{"bars":0.5,"part":"build"},{"bars":4.5,"part":"drop"},{"bars":2,"part":"outro"}]}
+{"op":"background","kind":"mesh","base":"#f5f6f3","colors":["#d6efe9","#eef3f7","#e3f4ef","#f3efe6"],"speed":0.6}
+
+# The brand line rides the top of every light scene.
+{"op":"ui","id":"brand","kind":"chip","label":"Acme Portraits","icon":"◎","color":"#139a86","size":22,"y":"4.5%","bg":"transparent","style":"","in":{"fx":"drop","at":0},"out":{"fx":"fade","at":"6bar-1b","dur":"0.5b"}}
+
+# 1. Pick one selfie.
+{"op":"scene","id":"pick","dur":"1.5bar","push":0.03}
+{"op":"text","scene":"pick","text":"Pick one [selfie.]","size":78,"y":"11.5%","in":{"fx":"wave","at":0,"dur":"1b"},"out":{"fx":"rise","at":"5.3b","dur":"0.6b"}}
+{"op":"ui","id":"phone","scene":"pick","kind":"phone","title":"Recents","action":"Select","w":430,"h":880,"y":"66%","in":{"fx":"rise","at":"0.5b","dur":"1.5b"},"keys":[{"t":"4b","y":"66%"},{"t":"5.5b","y":"62%","scale":1.06,"ease":"inOutCubic"}]}
+{"op":"group","id":"roll","parent":"phone","x":"50%","y":"55%","layout":{"kind":"grid","cols":3,"gap":6,"cell":[128,150]},"keys":[{"t":"0.5b","y":"70%"},{"t":"4b","y":"40%","ease":"inOutCubic"}]}
+{"op":"image","parent":"roll","src":"portraits/p01.svg","w":128,"h":150}
+{"op":"image","parent":"roll","src":"portraits/p02.svg","w":128,"h":150}
+{"op":"image","parent":"roll","src":"portraits/p03.svg","w":128,"h":150}
+{"op":"image","parent":"roll","src":"portraits/p04.svg","w":128,"h":150}
+{"op":"image","id":"pickme","parent":"roll","src":"portraits/selfie.svg","w":128,"h":150}
+{"op":"image","parent":"roll","src":"portraits/p05.svg","w":128,"h":150}
+{"op":"image","parent":"roll","src":"portraits/p06.svg","w":128,"h":150}
+{"op":"image","parent":"roll","src":"portraits/p07.svg","w":128,"h":150}
+{"op":"image","parent":"roll","src":"portraits/p08.svg","w":128,"h":150}
+{"op":"image","parent":"roll","src":"portraits/p09.svg","w":128,"h":150}
+{"op":"image","parent":"roll","src":"portraits/p10.svg","w":128,"h":150}
+{"op":"image","parent":"roll","src":"portraits/p11.svg","w":128,"h":150}
+{"op":"image","parent":"roll","src":"portraits/p12.svg","w":128,"h":150}
+{"op":"image","parent":"roll","src":"portraits/p02.svg","w":128,"h":150}
+{"op":"image","parent":"roll","src":"portraits/p05.svg","w":128,"h":150}
+{"op":"act","target":"pickme","do":"highlight","at":"4.2b","hold":"2b","color":"#139a86"}
+{"op":"anim","target":"pickme","at":"4.2b","dur":"0.5b","ease":"outBack","to":{"scale":1.12}}
+{"op":"sfx","kind":"tick","at":"4.2b","gain":0.6}
+
+# 2. Get a studio headshot: a scan line walks down the selfie and leaves a headshot behind it.
+{"op":"scene","id":"studio","dur":"1.5bar","transition":{"kind":"push","dur":"0.75b"}}
+{"op":"text","scene":"studio","text":"Get a studio [headshot.]","size":74,"y":"11.5%","in":{"fx":"wave","at":0,"dur":"1b"}}
+{"op":"image","id":"before","scene":"studio","src":"portraits/selfie.svg","w":560,"h":672,"y":"55%","radius":28,"shadow":true,"in":{"fx":"pop","at":0,"dur":"1b"}}
+{"op":"image","id":"after","scene":"studio","src":"portraits/headshot.svg","w":560,"h":672,"y":"55%","radius":28,"shadow":true,"in":{"fx":"wipe-down","at":"1b","dur":"2b","ease":"inOutCubic"}}
+{"op":"shape","scene":"studio","kind":"rect","w":600,"h":6,"radius":3,"fill":"#27c2a9","glow":22,"glow_color":"#27c2a9","y":"30%","in":{"fx":"fade","at":"1b","dur":"0.2b"},"out":{"fx":"fade","at":"3b","dur":"0.3b"},"keys":[{"at":"1b","dur":"2b","y":"80%","ease":"inOutCubic"}]}
+{"op":"ui","scene":"studio","kind":"chip","label":"Your selfie","size":16,"x":"31%","y":"33%","in":{"fx":"pop","at":"0.5b"},"out":{"fx":"shrink","at":"2.5b"}}
+{"op":"sfx","kind":"riser","scene":"studio","at":"1b","dur":"2b","gain":0.5}
+{"op":"ui","scene":"studio","kind":"chip","label":"Studio lighting","icon":"✓","color":"#139a86","size":20,"x":"22%","y":"42%","shadow":true,"in":{"fx":"pop","at":"3.2b","sfx":"pop"},"loop":{"fx":"float","amp":6}}
+{"op":"ui","scene":"studio","kind":"chip","label":"Sharp outfit","icon":"✓","color":"#139a86","size":20,"x":"80%","y":"58%","in":{"fx":"pop","at":"3.8b","sfx":"pop"},"loop":{"fx":"float","amp":6,"phase":2}}
+{"op":"ui","scene":"studio","kind":"chip","label":"City backdrop","icon":"✓","color":"#139a86","size":20,"x":"26%","y":"76%","in":{"fx":"pop","at":"4.4b","sfx":"pop"},"loop":{"fx":"float","amp":6,"phase":4}}
+
+# 3. No studio needed: the wall.
+{"op":"scene","id":"wall","dur":"1.5bar","transition":{"kind":"zoom","dur":"0.75b"},"push":0.06}
+{"op":"group","id":"grid","scene":"wall","y":"62%","rotate":-12,"rx":18,"layout":{"kind":"grid","cols":5,"gap":22,"cell":[210,252]},"cascade":{"fx":"pop","at":0,"stagger":"0.12b","dur":"1b","order":"center"},"loop":{"fx":"drift","vy":-45}}
+{"op":"image","parent":"grid","src":"portraits/p01.svg","w":210,"h":252,"radius":16,"shadow":true}
+{"op":"image","parent":"grid","src":"portraits/p02.svg","w":210,"h":252,"radius":16,"shadow":true}
+{"op":"image","parent":"grid","src":"portraits/p03.svg","w":210,"h":252,"radius":16,"shadow":true}
+{"op":"image","parent":"grid","src":"portraits/p04.svg","w":210,"h":252,"radius":16,"shadow":true}
+{"op":"image","parent":"grid","src":"portraits/p05.svg","w":210,"h":252,"radius":16,"shadow":true}
+{"op":"image","parent":"grid","src":"portraits/p06.svg","w":210,"h":252,"radius":16,"shadow":true}
+{"op":"image","parent":"grid","src":"portraits/headshot.svg","w":210,"h":252,"radius":16,"shadow":true}
+{"op":"image","parent":"grid","src":"portraits/p07.svg","w":210,"h":252,"radius":16,"shadow":true}
+{"op":"image","parent":"grid","src":"portraits/p08.svg","w":210,"h":252,"radius":16,"shadow":true}
+{"op":"image","parent":"grid","src":"portraits/p09.svg","w":210,"h":252,"radius":16,"shadow":true}
+{"op":"image","parent":"grid","src":"portraits/p10.svg","w":210,"h":252,"radius":16,"shadow":true}
+{"op":"image","parent":"grid","src":"portraits/p11.svg","w":210,"h":252,"radius":16,"shadow":true}
+{"op":"image","parent":"grid","src":"portraits/p12.svg","w":210,"h":252,"radius":16,"shadow":true}
+{"op":"image","parent":"grid","src":"portraits/p03.svg","w":210,"h":252,"radius":16,"shadow":true}
+{"op":"image","parent":"grid","src":"portraits/p01.svg","w":210,"h":252,"radius":16,"shadow":true}
+{"op":"shape","scene":"wall","fixed":true,"kind":"rect","w":1080,"h":330,"radius":0,"fill":["#f5f6f3","rgba(245,246,243,0)"],"angle":180,"y":"12%"}
+{"op":"text","scene":"wall","fixed":true,"text":"No studio [needed.]","size":78,"y":"11.5%","in":{"fx":"wave","at":0,"dur":"1b"}}
+{"op":"ui","scene":"wall","fixed":true,"kind":"chip","label":"Same AI as our paid headshots","icon":"✦","color":"#139a86","size":18,"y":"18%","in":{"fx":"pop","at":"1.5b"}}
+
+# 4. Still looks like you: a carousel of after shots, each with its before tucked in the corner.
+{"op":"scene","id":"you","dur":"1.5bar","transition":{"kind":"slide","dur":"0.75b"}}
+{"op":"text","scene":"you","text":"Still looks like [you.]","size":78,"y":"11.5%","in":{"fx":"wave","at":0,"dur":"1b"}}
+{"op":"group","id":"car","scene":"you","y":"52%","layout":{"kind":"row","gap":36},"x":"50%+496","keys":[{"t":"2b","x":"50%+496"},{"t":"2.6b","x":"50%","ease":"snap"},{"t":"4.2b","x":"50%"},{"t":"4.8b","x":"50%-496","ease":"snap"}],"cascade":{"fx":"right","at":0,"stagger":"0.15b"}}
+{"op":"image","id":"a1","parent":"car","src":"portraits/p06.svg","w":460,"h":560,"radius":26,"shadow":true}
+{"op":"image","id":"a2","parent":"car","src":"portraits/p09.svg","w":460,"h":560,"radius":26,"shadow":true}
+{"op":"image","id":"a3","parent":"car","src":"portraits/p11.svg","w":460,"h":560,"radius":26,"shadow":true}
+{"op":"image","parent":"a1","src":"portraits/p04.svg","w":120,"h":144,"x":90,"y":470,"radius":14,"border":"3px solid #fff","in":{"fx":"pop","at":"0.8b"}}
+{"op":"image","parent":"a2","src":"portraits/p01.svg","w":120,"h":144,"x":90,"y":470,"radius":14,"border":"3px solid #fff","in":{"fx":"pop","at":"2.8b"}}
+{"op":"image","parent":"a3","src":"portraits/p07.svg","w":120,"h":144,"x":90,"y":470,"radius":14,"border":"3px solid #fff","in":{"fx":"pop","at":"4.9b"}}
+{"op":"ui","parent":"a1","kind":"chip","label":"After","size":15,"x":400,"y":36}
+{"op":"ui","parent":"a2","kind":"chip","label":"After","size":15,"x":400,"y":36}
+{"op":"ui","parent":"a3","kind":"chip","label":"After","size":15,"x":400,"y":36}
+{"op":"ui","scene":"you","kind":"chip","label":"Real customers, real selfies","icon":"●","color":"#139a86","size":20,"y":"80%","in":{"fx":"rise","at":"1b"}}
+{"op":"text","scene":"you","text":"[★★★★★] 4.7 · 3,568 reviews","size":24,"weight":600,"accent":"#139a86","y":"85.5%","in":{"fx":"fade","at":"1.5b"}}
+{"op":"sfx","kind":"whoosh","scene":"you","at":"2b","dur":"0.6b","gain":0.4}
+{"op":"sfx","kind":"whoosh","scene":"you","at":"4.2b","dur":"0.6b","gain":0.4}
+
+# 5. The call to action, on navy, with a cursor that presses the button on the beat.
+{"op":"scene","id":"cta","dur":"2bar","transition":{"kind":"iris","dur":"1b"},"bg":"radial-gradient(ellipse at 50% 40%, #2a2f8f 0%, #16195a 55%, #0e1040 100%)","push":0.02}
+{"op":"group","id":"float","scene":"cta","cascade":{"fx":"pop","at":0,"stagger":"0.1b","order":"random"}}
+{"op":"image","parent":"float","src":"portraits/p01.svg","w":130,"h":156,"radius":16,"x":-400,"y":-520,"rotate":-10,"loop":{"fx":"float","amp":10,"period":3}}
+{"op":"image","parent":"float","src":"portraits/p05.svg","w":120,"h":144,"radius":16,"x":380,"y":-540,"rotate":8,"loop":{"fx":"float","amp":12,"period":3.5}}
+{"op":"image","parent":"float","src":"portraits/p09.svg","w":110,"h":132,"radius":16,"x":-450,"y":80,"rotate":-6,"loop":{"fx":"float","amp":9,"period":2.8}}
+{"op":"image","parent":"float","src":"portraits/p03.svg","w":120,"h":144,"radius":16,"x":460,"y":20,"rotate":7,"loop":{"fx":"float","amp":11,"period":3.2}}
+{"op":"image","parent":"float","src":"portraits/p12.svg","w":120,"h":144,"radius":16,"x":-380,"y":520,"rotate":9,"loop":{"fx":"float","amp":10,"period":3.7}}
+{"op":"image","parent":"float","src":"portraits/p07.svg","w":130,"h":156,"radius":16,"x":400,"y":540,"rotate":-8,"loop":{"fx":"float","amp":9,"period":3.1}}
+{"op":"ui","scene":"cta","kind":"chip","label":"Acme Portraits","icon":"◎","color":"#27c2a9","size":24,"y":"33%","bg":"transparent","style":"color:#fff","in":{"fx":"drop","at":"0.5b"}}
+{"op":"text","scene":"cta","text":"Get your headshot\n[for free.]","size":84,"leading":1.1,"color":"#ffffff","accent":"#6fe3cf","y":"43%","in":{"fx":"wave","at":"0.75b","dur":"1b"}}
+{"op":"ui","scene":"cta","kind":"chip","label":"No sign-up. No credit card.","icon":"✓","color":"#139a86","size":18,"y":"54%","in":{"fx":"rise","at":"2b"}}
+{"op":"ui","id":"go","scene":"cta","kind":"button","label":"Try for free  →","size":24,"variant":"secondary","bg":"#ffffff","style":"color:#0f1c2e","y":"62%","in":{"fx":"pop","at":"2.5b","sfx":"pop"},"loop":{"fx":"pulse","amp":0.04,"at":"3b"}}
+{"op":"text","scene":"cta","text":"One selfie in. One HD headshot out, free to download.","size":20,"weight":500,"color":"rgba(255,255,255,.7)","y":"68%","in":{"fx":"fade","at":"3b"}}
+{"op":"ui","id":"cur","scene":"cta","kind":"cursor","style":"hand","size":46,"x":"75%","y":"85%","in":{"fx":"fade","at":"3b"},"keys":[{"at":"3.2b","dur":"1.2b","x":"53%","y":"63.5%","ease":"inOutCubic"}]}
+{"op":"act","target":"cur","do":"click","at":"4.6b"}
+{"op":"act","target":"go","do":"click","at":"4.6b","color":"#139a86"}
+{"op":"particles","scene":"cta","kind":"confetti","at":"4.7b","oy":"62%","count":90,"speed":900}

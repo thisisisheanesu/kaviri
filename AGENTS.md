@@ -137,6 +137,16 @@ taskbar; `--dock on` draws the dock without the menu bar, `--dock-position` puts
 icon sets. The chrome is read off the page when `stop_recording` runs, so stop on the page you
 want the address bar to show.
 
+## Making a video that is not a recording
+
+If you were asked for a launch video, a showreel or an ad rather than a take of an app, use
+`kaviri motion`. Read `docs/motion-llm.md` (or https://kaviri.dev/motion-llm.txt) first: it is
+the whole format in one file. Then work in a loop: write the `.jsonl`, run
+`kaviri motion --script reel.jsonl --check`, render the frames that matter with
+`--still 1b,2bar,4bar+2b --out look.png` and look at them, fix what is wrong, and only then
+render with `--out reel.mp4`. The checker names the line and the real options for every
+misspelled effect, ease, kind or target, so read its error and correct the script.
+
 ## What it will not do
 
 It will not record a native application, a terminal, or anything outside the browser it starts.

@@ -15,6 +15,10 @@ kaviri is ChiShona for "twice, a second time", pronounced ka-VEE-ree.
 - [Agent guide](https://kaviri.dev/llms-full.txt): the whole op protocol in one file, written
   for an AI agent that has been asked for a video and has a shell.
 - [Landing page](https://kaviri.dev/): what it is and the shape of a script.
+- [Motion format](https://kaviri.dev/motion-llm.txt): the whole format for `kaviri motion`,
+  which renders a JSONL timeline of scenes, kinetic type, UI components, micro-interactions
+  and sound to an MP4 with a soundtrack on the same beat grid. Read it before writing one.
+- [Motion prompts](https://kaviri.dev/docs/motion-prompts/): briefs that produce good videos.
 
 ## Ops
 
@@ -24,6 +28,16 @@ first line films the take on a device: `macos`, `windows`, `linux`, `ios`, `andr
 `android-emulator`, `ios-simulator`, and `"style":"recording"` for a phone's own screen
 recording. Every op answers with one JSON line, `{"ok":true,"result":{…}}` or
 `{"ok":false,"error":"…"}`, and a failed op makes the process exit non-zero.
+
+## Motion graphics
+
+`kaviri motion --script reel.jsonl --out reel.mp4` renders a launch video, showreel or ad
+from a JSONL timeline instead of filming an app. Times are musical (`"2b"`, `"1bar"`), scenes
+lie end to end, products are rebuilt from `ui` components (window, phone, input, list, code,
+card, cursor…) so every part animates, and a synthesized score (intro, build, drop, break,
+outro) is written on the same grid, with whooshes, clicks and impacts added where the picture
+implies them. `--check` validates, `--still 2b,4bar` renders frames to look at, `--preview dir`
+writes a live player. Full format: https://kaviri.dev/motion-llm.txt
 
 ## The camera
 

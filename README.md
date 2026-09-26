@@ -235,6 +235,38 @@ stamps every frame in page time, and so plays back at normal speed with eight
 times the real frames. Script timings mean the same at any factor; the take
 costs that many times its length to record.
 
+## Motion graphics
+
+`record` films your app. `motion` makes the launch video around it: a showreel, a feed ad,
+a release clip, written as a JSONL timeline and rendered to an MP4 with a soundtrack.
+
+```sh
+kaviri motion --script examples/motion/showreel.jsonl --out showreel.mp4
+```
+
+```jsonl
+{"op":"video","size":[1920,1080],"bpm":120}
+{"op":"music","key":"F#m","sections":[{"bars":2,"part":"build"},{"bars":4,"part":"drop"}]}
+{"op":"scene","id":"hook","dur":"2bar"}
+{"op":"text","scene":"hook","text":"Every tool. [One place.]","size":110,"in":{"fx":"wave","at":"1b"}}
+{"op":"scene","id":"product","dur":"4bar","transition":"flash"}
+{"op":"ui","id":"box","scene":"product","kind":"input","w":900,"in":"rise"}
+{"op":"act","target":"box","do":"type","at":"1b","text":"Summarise this week's tickets"}
+```
+
+Times are written in beats and bars, so every cut lands on the music. Products are rebuilt
+from a component kit (window, phone, input, list, code, cards, a cursor) so each part moves
+on its own. Text enters per letter, logos orbit with light trails, and the camera pushes,
+shakes and zooms. The score is synthesized on the same grid, with an intro, a build, a drop
+and an outro, and whooshes, clicks and impacts wherever the picture implies them. Every frame
+is rendered by seeking, not by recording, so the result is exact and the same every time.
+
+`--check` validates, `--still 2b,4bar` renders frames to look at, and `--preview dir/` writes
+a live player with sound. [`docs/motion.md`](docs/motion.md) is the guide,
+[`docs/motion-llm.md`](docs/motion-llm.md) is the whole format in one file for a model (also
+at [kaviri.dev/motion-llm.txt](https://kaviri.dev/motion-llm.txt)), and
+[`docs/motion-prompts.md`](docs/motion-prompts.md) has prompts that produce good videos.
+
 ## The GitHub Action
 
 A demo video goes stale the moment the UI moves, and nobody re-records it,
@@ -450,7 +482,8 @@ enough.
 
 ## Limitations
 
-- **Video only.** Audio capture is not implemented. `--audio` warns and is
+- **Recorded takes are video only.** Audio capture is not implemented for
+  `record` (`kaviri motion` makes its own soundtrack). `--audio` warns and is
   otherwise ignored. The plan is a dedicated PipeWire or Pulse sink for the
   browser process, muxed against the same clock. For now, add narration in an
   editor afterwards.
@@ -491,6 +524,10 @@ enough.
   dependency-free PNG plate.
 - `src/device.rs` is the device frames: where the window or handset sits, and
   the chrome drawn over it as HTML.
+- `src/motion.rs` compiles a motion script (beats to seconds, scenes end to
+  end, every name checked) and renders it by seeking a page frame by frame in
+  parallel browsers; `src/motion.js` and `src/motion.css` are that page's
+  runtime and component kit, and `src/synth.rs` writes the soundtrack.
 - `src/main.rs` is the CLI.
 
 `cargo test` runs the suite, including two tests that shell out to a real ffmpeg

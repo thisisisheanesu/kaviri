@@ -37,6 +37,12 @@ PAGES = [
      "The GitHub Action, and filming an app the workflow starts itself."),
     ("troubleshooting", "docs/troubleshooting.md", "Troubleshooting",
      "What each error means, starting with the ones that produce a video rather than a failure."),
+    ("motion", "docs/motion.md", "Motion graphics",
+     "kaviri motion: a JSONL timeline rendered to a video with a soundtrack on its beat grid."),
+    ("motion-prompts", "docs/motion-prompts.md", "Motion prompts",
+     "Prompts that get a model to write a good motion script, and the file to give it."),
+    ("motion-llm", "docs/motion-llm.md", "Motion format",
+     "The whole motion format in one page, written to be handed to a model."),
     ("agents", "AGENTS.md", "For agents",
      "The whole protocol for something that has been asked for a video and has a shell."),
 ]
@@ -70,6 +76,7 @@ SHELL = """<!doctype html>
     <ul>
       <li><a href="/llms.txt">llms.txt</a></li>
       <li><a href="/llms-full.txt">llms-full.txt</a></li>
+      <li><a href="/motion-llm.txt" download>motion-llm.txt</a></li>
     </ul>
   </nav>
   <main class="docs-main">
@@ -146,6 +153,14 @@ def build():
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         open(dest, "w", encoding="utf-8").write(page)
         written.append((slug, len(page)))
+
+    # The motion format as plain text, to download or hand a model by URL. Copied rather than
+    # rendered: a model reads Markdown better than it reads our HTML.
+    llm = os.path.join(ROOT, "docs", "motion-llm.md")
+    if os.path.exists(llm):
+        dest = os.path.join(ROOT, "site", "motion-llm.txt")
+        open(dest, "w", encoding="utf-8").write(open(llm, encoding="utf-8").read())
+        print(f"  /motion-llm.txt  {os.path.getsize(dest):6} bytes")
 
     for slug, n in written:
         print(f"  /docs/{'' if slug == 'index' else slug + '/'}  {n:6} bytes")

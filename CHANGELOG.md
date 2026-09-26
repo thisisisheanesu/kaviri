@@ -43,6 +43,22 @@ dated `[0.1.0]` heading, when the tag is cut.
 
 ### Added
 
+- **`kaviri motion`: motion graphics from a JSONL timeline.** A script of scenes, layers,
+  animations, micro-interactions and sounds renders to an MP4 with a synthesized soundtrack on
+  the same beat grid. Times take seconds, beats (`"2b"`) and bars (`"1bar"`); scenes lie end
+  to end with eleven transitions; text animates per letter, word or line with 26 entrances
+  and 18 exits; layers take keyframes with 27 eases, beat-synced loops, 3D, glows and trails;
+  groups lay out as rows, grids, rings and 3D orbits; a component kit (window, phone, card,
+  input, list, code, message, field, cursor, stat, rating and more) answers acts such as
+  `type`, `click`, `toggle`, `select`, `count` and `strike`; particles cover stars, bursts,
+  hyperspace rays, shockwaves and confetti. The score is built from a key, a progression and
+  sections (`intro`, `build`, `drop`, `break`, `outro`) in three styles, or taken from a file,
+  with whooshes, impacts, clicks and typing added where the picture implies them. Frames are
+  rendered by seeking a deterministic page in parallel browsers (`--jobs`). `--check`,
+  `--still`, `--preview`, `--from`/`--to`, `--audio-out`. Documented in `docs/motion.md`,
+  with the whole format for a model in `docs/motion-llm.md` (published as
+  `kaviri.dev/motion-llm.txt`) and prompts in `docs/motion-prompts.md`. Examples in
+  `examples/motion/`.
 - **Device frames.** `--frame macos|windows|linux|android|ios|android-emulator|ios-simulator`
   draws the take inside that system's window or handset. Desktop frames default to a browser
   window carrying the page's own favicon, title and URL (`--frame-style app` for a bare title

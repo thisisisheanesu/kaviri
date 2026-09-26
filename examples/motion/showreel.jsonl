@@ -1,0 +1,115 @@
+# kaviri introduces itself: a 32 second showreel, 16 bars at 120bpm, one scene every two bars.
+#   kaviri motion --script examples/motion/showreel.jsonl --out showreel.mp4
+{"op":"video","size":[1920,1080],"fps":30,"bpm":120,"grain":0.05,"vignette":0.6,"pulse":0.014}
+{"op":"theme","bg":"#0b0b0c","surface":"#141415","surface2":"#1b1b1d","accent":"#ff6b3d","accent2":"#ff9a6b","text":"#f5f4f2","text2":"#cfcdc8","muted":"#8f8d88","faint":"#5f5d59"}
+{"op":"music","key":"F#m","progression":["i","VI","III","VII"],"sections":[{"bars":2,"part":"intro"},{"bars":2,"part":"build"},{"bars":8,"part":"drop"},{"bars":2,"part":"break"},{"bars":2,"part":"outro"}]}
+{"op":"background","kind":"nebula","base":"#0b0b0c","colors":["#3b1408","#1d1d24","#2a1208"],"stars":90,"intensity":0.7}
+
+# 1. Write the script. The JSONL types itself in, the camera leans in.
+{"op":"scene","id":"script","dur":"2bar","push":0.06}
+{"op":"text","id":"s1t","scene":"script","text":"Write the script.","size":44,"weight":600,"color":"#8f8d88","y":"22%","in":{"fx":"wave","at":"0.5b","dur":"1b"},"out":{"fx":"blur","at":"6.5b","dur":"1b"}}
+{"op":"ui","id":"jsonl","scene":"script","kind":"code","title":"demo.jsonl","lang":"json","size":24,"w":1180,"y":"56%","ry":-14,"rx":6,"keys":[{"t":"7b","ry":0,"rx":0,"ease":"inOutCubic"}],"code":"{\"op\":\"navigate\",\"url\":\"http://localhost:3000\"}\n{\"op\":\"click\",\"selector\":\"#new-invoice\"}\n{\"op\":\"type\",\"selector\":\"#amount\",\"text\":\"1450.00\"}\n{\"op\":\"click\",\"selector\":\"#save\"}\n{\"op\":\"wait\",\"ms\":1600}","in":{"fx":"fly","at":"0b","dur":"1.5b"},"out":{"fx":"zoom","at":"7b","dur":"1b"}}
+{"op":"act","target":"jsonl","do":"type","at":"1b","dur":"5b"}
+
+# 2. The thesis, on the build: riser, snare roll, hyperspace, flash into the drop.
+{"op":"scene","id":"thesis","dur":"2bar","transition":{"kind":"blur","dur":"1b"}}
+{"op":"text","scene":"thesis","text":"Your demo video is","size":64,"weight":600,"y":"38%","in":{"fx":"wave","at":"0b","dur":"1b"},"out":{"fx":"zoom","at":"7b","dur":"1b"}}
+{"op":"text","scene":"thesis","text":"[a build artifact.]","size":132,"weight":700,"y":"52%","glow":0,"loop":{"fx":"glow","amp":18,"every":"1b"},"in":{"fx":"converge","at":"1.5b","dur":"1.5b","stagger":"0.06b"},"out":{"fx":"zoom","at":"7b","dur":"1b"}}
+{"op":"group","id":"steps","scene":"thesis","y":"72%","layout":{"kind":"row","gap":20},"cascade":{"fx":"pop","at":"3b","stagger":"1b","sfx":"pop"},"out":{"fx":"fade","at":"7b","dur":"0.5b"}}
+{"op":"ui","parent":"steps","kind":"chip","label":"record","icon":"✓","size":28}
+{"op":"ui","parent":"steps","kind":"chip","label":"render","icon":"✓","size":28}
+{"op":"ui","parent":"steps","kind":"chip","label":"ship","icon":"✓","size":28}
+{"op":"particles","scene":"thesis","kind":"rays","at":"5b","dur":"3b","count":180,"speed":1.6,"colors":["#ffffff","#ff6b3d","#ffb08f"]}
+{"op":"sfx","kind":"pop","scene":"thesis","at":"4b","pitch":1.2,"gain":0.5}
+{"op":"sfx","kind":"pop","scene":"thesis","at":"5b","pitch":1.45,"gain":0.5}
+
+# 3. The drop. Everything orbits the mark, then collapses into it.
+{"op":"scene","id":"orbit","dur":"2bar","transition":{"kind":"flash","dur":"0.5b"}}
+{"op":"shake","scene":"orbit","at":0,"dur":"1b","amp":16}
+{"op":"particles","scene":"orbit","kind":"shockwave","at":0,"dur":"2b","rings":3,"width":14}
+{"op":"particles","scene":"orbit","kind":"burst","at":0,"count":110,"speed":1300,"colors":["#ff6b3d","#ffffff","#ffb08f"]}
+{"op":"group","id":"ring","scene":"orbit","y":"44%","layout":{"kind":"orbit","rx":600,"ry":170,"period":7,"depth":0.45,"tilt":-6},"trail":{"len":0.6,"width":6,"color":"#ff6b3d","opacity":0.7},"cascade":{"fx":"pop","at":"0.5b","stagger":"0.25b"},"keys":[{"t":"6b","orbit_rx":600,"orbit_ry":170},{"t":"7.5b","orbit_rx":0,"orbit_ry":0,"orbit_angle":220,"ease":"inExpo"}],"out":{"fx":"shrink","at":"7.2b","dur":"0.6b"}}
+{"op":"icon","parent":"ring","name":"browser","size":104}
+{"op":"icon","parent":"ring","name":"terminal","size":104}
+{"op":"icon","parent":"ring","name":"code","size":104}
+{"op":"icon","parent":"ring","name":"chat","size":104}
+{"op":"icon","parent":"ring","name":"video","size":104}
+{"op":"icon","parent":"ring","name":"ai","size":104}
+{"op":"icon","parent":"ring","name":"photos","size":104}
+{"op":"icon","parent":"ring","name":"store","size":104}
+{"op":"svg","id":"mark3","scene":"orbit","y":"44%","w":190,"h":190,"svg":"<svg viewBox='0 0 33 33'><rect x='2' y='2' width='18' height='18' rx='2' fill='#f5f4f2'/><rect x='11.5' y='11.5' width='18' height='18' rx='2' fill='none' stroke='#ff6b3d' stroke-width='3'/></svg>","glow":10,"glow_color":"#ff6b3d","in":{"fx":"elastic","at":0,"dur":"2b"},"loop":{"fx":"pulse","amp":0.08},"keys":[{"t":"7.5b","scale":1},{"t":"8b","scale":1.5,"ease":"outExpo"}]}
+{"op":"text","scene":"orbit","text":"Every product. [Filmed by script.]","size":76,"y":"82%","in":{"fx":"wave","at":"2b","dur":"1b"},"out":{"fx":"scatter","at":"6.5b","dur":"1b"}}
+{"op":"particles","scene":"orbit","kind":"burst","at":"7.5b","count":90,"speed":1100,"colors":["#ff6b3d","#ffffff"],"oy":"44%"}
+
+# 4. The camera follows the caret: a window, a cursor, a zoom that finds the field.
+{"op":"scene","id":"zoom","dur":"2bar","transition":{"kind":"zoom","dur":"1b"},"camera":{"keys":[{"t":"1.5b","zoom":1,"x":0,"y":0},{"t":"2.5b","zoom":1.55,"x":-40,"y":-60,"ease":"inOutExpo"},{"t":"5b","zoom":1.55,"x":-40,"y":-60},{"t":"5.6b","zoom":1.4,"x":-40,"y":40,"ease":"inOutCubic"},{"t":"7b","zoom":1,"x":0,"y":0,"ease":"inOutExpo"}]}}
+{"op":"ui","id":"win","scene":"zoom","kind":"window","url":"localhost:3000/invoices/new","w":1100,"h":640,"x":"60%","y":"52%","sidebar":["# Billing",{"label":"Invoices","icon":"▤","active":true},{"label":"Customers","icon":"◉"},{"label":"Payments","icon":"◈"},{"label":"Reports","icon":"▦"}],"sidebar_width":210,"in":{"fx":"fly","at":0,"dur":"1.5b"}}
+{"op":"text","scene":"zoom","parent":"win","text":"New invoice","size":30,"weight":650,"align":"left","anchor":[0,0.5],"x":60,"y":70,"in":{"fx":"fade","at":"0.5b"}}
+{"op":"ui","id":"amount","parent":"win","kind":"field","label":"Amount","placeholder":"0.00","w":520,"x":320,"y":190,"in":{"fx":"rise","at":"0.8b"}}
+{"op":"ui","id":"cust","parent":"win","kind":"field","label":"Customer","value":"Analytical Engines Ltd","w":520,"x":320,"y":290,"in":{"fx":"rise","at":"1b"}}
+{"op":"ui","id":"save","parent":"win","kind":"button","label":"Create invoice","x":170,"y":400,"in":{"fx":"pop","at":"1.2b"}}
+{"op":"ui","id":"done","parent":"win","kind":"card","title":"Invoice #1042 created","subtitle":"1,450.00 · due in 14 days","icon":"✓","icon_bg":"#34c77b","w":400,"x":700,"y":400,"in":{"fx":"pop","at":"6b","sfx":"chime"}}
+{"op":"ui","id":"cur","parent":"win","kind":"cursor","x":620,"y":560,"in":{"fx":"fade","at":"1b"},"keys":[{"t":"2.3b","x":200,"y":204,"ease":"inOutCubic"},{"at":"5b","dur":"0.6b","x":150,"y":404,"ease":"inOutCubic"}]}
+{"op":"act","target":"cur","do":"click","at":"2.4b"}
+{"op":"act","target":"amount","do":"type","at":"2.6b","text":"1450.00","cps":10}
+{"op":"act","target":"amount","do":"check","at":"4.4b"}
+{"op":"act","target":"cur","do":"click","at":"5.6b"}
+{"op":"act","target":"save","do":"click","at":"5.6b"}
+{"op":"text","scene":"zoom","fixed":true,"text":"The camera\n[follows the caret.]","size":58,"align":"left","anchor":[0,0.5],"x":90,"y":"20%","in":{"fx":"rise","at":"0.5b","split":"word","stagger":"0.25b"}}
+
+# 5. Change the UI, and the build films it again.
+{"op":"scene","id":"ci","dur":"2bar","transition":{"kind":"whip","dur":"1b"}}
+{"op":"text","scene":"ci","text":"Change the UI.","size":84,"align":"left","anchor":[0,0.5],"x":120,"y":"26%","in":{"fx":"mask","at":"0b","split":"word","stagger":"0.3b"}}
+{"op":"text","scene":"ci","text":"[The build re-films it.]","size":84,"align":"left","anchor":[0,0.5],"x":120,"y":"37%","in":{"fx":"mask","at":"2b","split":"word","stagger":"0.3b"}}
+{"op":"ui","id":"term","scene":"ci","kind":"code","title":"ci · demo.yml","lang":"sh","size":18,"w":900,"x":"27%","y":"70%","code":"$ kaviri record --script demo.jsonl --out demo.mp4\n  navigate  localhost:3000         ok\n  click     #new-invoice           ok\n  type      #amount                ok\n  rendered  demo.mp4  14.6s  4 zooms","in":{"fx":"rise","at":"0.5b"}}
+{"op":"act","target":"term","do":"type","at":"1b","dur":"4b"}
+{"op":"ui","id":"checks","scene":"ci","kind":"list","title":"Checks","w":520,"x":"76%","y":"55%","scale":1.3,"items":[{"label":"lint","icon":"✓","color":"#2a2a2b","check":false},{"label":"unit tests","icon":"✓","color":"#2a2a2b","check":false},{"label":"demo video","icon":"▶","color":"#ff6b3d","badge":"re-filmed","check":false}],"in":{"fx":"left","at":"1b"},"ry":-10}
+{"op":"act","target":"checks","do":"check","index":0,"at":"3b"}
+{"op":"act","target":"checks","do":"check","index":1,"at":"4b"}
+{"op":"act","target":"checks","do":"select","index":2,"at":"5b"}
+{"op":"act","target":"checks","do":"check","index":2,"at":"5.5b"}
+
+# 6. A wall of takes, tilted in 3D and scrolling.
+{"op":"scene","id":"wall","dur":"2bar","transition":{"kind":"slide","dur":"1b"},"push":0.08}
+{"op":"group","id":"grid","scene":"wall","y":"56%","rotate":-14,"rx":38,"layout":{"kind":"grid","cols":5,"gap":36,"cell":[360,220]},"loop":{"fx":"drift","vy":-60},"cascade":{"fx":"fly","at":0,"stagger":"0.1b","dur":"1.5b"},"opacity":0.75}
+{"op":"ui","parent":"grid","kind":"window","title":"checkout","w":360,"h":220}
+{"op":"ui","parent":"grid","kind":"card","title":"Onboarding","lines":3,"w":360,"h":220}
+{"op":"ui","parent":"grid","kind":"window","title":"dashboard","w":360,"h":220,"sidebar":["Home","Runs","Takes"],"sidebar_width":110}
+{"op":"ui","parent":"grid","kind":"card","title":"Settings","lines":4,"w":360,"h":220}
+{"op":"ui","parent":"grid","kind":"window","title":"invoices","w":360,"h":220}
+{"op":"ui","parent":"grid","kind":"card","title":"Search","lines":3,"w":360,"h":220,"button":"Run"}
+{"op":"ui","parent":"grid","kind":"window","title":"editor","w":360,"h":220,"sidebar":["Files","Git"],"sidebar_width":100}
+{"op":"ui","parent":"grid","kind":"card","title":"Pricing","lines":2,"w":360,"h":220,"badge":"new"}
+{"op":"ui","parent":"grid","kind":"window","title":"analytics","w":360,"h":220}
+{"op":"ui","parent":"grid","kind":"card","title":"Profile","lines":3,"w":360,"h":220}
+{"op":"ui","parent":"grid","kind":"window","title":"inbox","w":360,"h":220,"sidebar":["All","Unread"],"sidebar_width":100}
+{"op":"ui","parent":"grid","kind":"card","title":"Reports","lines":4,"w":360,"h":220}
+{"op":"ui","parent":"grid","kind":"window","title":"store","w":360,"h":220}
+{"op":"ui","parent":"grid","kind":"card","title":"Team","lines":3,"w":360,"h":220}
+{"op":"ui","parent":"grid","kind":"window","title":"docs","w":360,"h":220}
+{"op":"shape","scene":"wall","fixed":true,"kind":"glow","d":1700,"color":"#050505","intensity":1,"blend":"normal","y":"48%"}
+{"op":"text","scene":"wall","fixed":true,"text":"One binary.","size":110,"y":"42%","shadow":true,"in":{"fx":"wave","at":"1b","dur":"1b"}}
+{"op":"text","scene":"wall","fixed":true,"text":"[No account. Nothing phones home.]","size":54,"weight":600,"y":"55%","shadow":true,"in":{"fx":"blur","at":"3b","dur":"1b"}}
+
+# 7. The break: what it is not.
+{"op":"scene","id":"not","dur":"2bar","transition":{"kind":"glitch","dur":"0.5b"}}
+{"op":"text","id":"nosr","scene":"not","text":"No ~screen recorder~.","size":92,"y":"30%","color":"#8f8d88","in":{"fx":"wave","at":"0b","dur":"1b"}}
+{"op":"act","target":"nosr","do":"strike","at":"2b","dur":"0.5b"}
+{"op":"sfx","kind":"swell","scene":"not","at":"1b","dur":"1b","gain":0.4}
+{"op":"text","scene":"not","text":"[No human in the loop.]","size":92,"y":"44%","in":{"fx":"converge","at":"2.5b","dur":"1.2b"}}
+{"op":"group","id":"stats","scene":"not","y":"72%","layout":{"kind":"row","gap":140},"cascade":{"fx":"rise","at":"4b","stagger":"0.35b"}}
+{"op":"ui","id":"st1","parent":"stats","kind":"stat","size":96,"value":0,"suffix":"s","label":"to your first take"}
+{"op":"ui","id":"st2","parent":"stats","kind":"stat","size":96,"value":0,"label":"device frames"}
+{"op":"ui","id":"st3","parent":"stats","kind":"stat","size":96,"value":0,"suffix":"%","label":"reproducible"}
+{"op":"act","target":"st1","do":"count","at":"4b","to":30,"dur":"2b"}
+{"op":"act","target":"st2","do":"count","at":"4.35b","to":7,"dur":"2b"}
+{"op":"act","target":"st3","do":"count","at":"4.7b","to":100,"dur":"2b"}
+
+# 8. The mark draws itself; the name lands on the outro's impact.
+{"op":"scene","id":"end","dur":"2bar","transition":{"kind":"flash","dur":"0.5b"},"push":0.03}
+{"op":"particles","scene":"end","kind":"shockwave","at":0,"dur":"2.5b","rings":2,"width":10,"oy":"42%"}
+{"op":"particles","scene":"end","kind":"dust","count":50,"colors":["#ff6b3d","#ffb08f"]}
+{"op":"svg","id":"mark","scene":"end","x":"36%","y":"42%","w":150,"h":150,"svg":"<svg viewBox='0 0 33 33'><rect x='2' y='2' width='18' height='18' rx='2' fill='#f5f4f2'/><rect x='11.5' y='11.5' width='18' height='18' rx='2' fill='none' stroke='#ff6b3d' stroke-width='3'/></svg>","in":{"fx":"spin","at":0,"dur":"1.5b"},"glow":8,"glow_color":"#ff6b3d"}
+{"op":"text","scene":"end","text":"kaviri","size":170,"weight":600,"tracking":-0.045,"anchor":[0,0.5],"align":"left","x":"43%","y":"41%","in":{"fx":"rise","at":"0.75b","dur":"1b","stagger":"0.08b"}}
+{"op":"text","scene":"end","text":"Your demo video is a [build artifact.]","size":34,"weight":500,"color":"#cfcdc8","y":"60%","in":{"fx":"blur","at":"2.5b","dur":"1b"}}
+{"op":"ui","scene":"end","kind":"chip","label":"kaviri.dev","icon":"↗","size":26,"y":"70%","in":{"fx":"pop","at":"3.5b","sfx":"pop"},"loop":{"fx":"shine","period":"4b","phase":"4b"},"shine":true}
