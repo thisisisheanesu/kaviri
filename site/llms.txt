@@ -15,6 +15,8 @@ kaviri is ChiShona for "twice, a second time", pronounced ka-VEE-ree.
 - [Agent guide](https://kaviri.dev/llms-full.txt): the whole op protocol in one file, written
   for an AI agent that has been asked for a video and has a shell.
 - [Landing page](https://kaviri.dev/): what it is and the shape of a script.
+- [Motion, the simple way](https://kaviri.dev/motion-simple.txt): a brand line, one line per
+  beat and an end card make a finished video with music. Start here for any product video.
 - [Motion format](https://kaviri.dev/motion-llm.txt): the whole format for `kaviri motion`,
   which renders a JSONL timeline of scenes, kinetic type, UI components, micro-interactions
   and sound to an MP4 with a soundtrack on the same beat grid. Read it before writing one.

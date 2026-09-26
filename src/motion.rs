@@ -33,6 +33,9 @@ const RUNTIME_CSS: &str = include_str!("motion.css");
 
 /// Every op a motion script may contain.
 pub const OPS: &[&str] = &[
+    "brand",
+    "beat",
+    "end",
     "video",
     "theme",
     "font",
@@ -616,7 +619,14 @@ pub fn script_grid(path: &str) -> Result<Grid, String> {
 
 /// Compile a script. `base` is the directory relative asset paths resolve against.
 pub fn compile(body: &str, name: &str, base: &Path) -> Result<Compiled, String> {
-    let mut lines = read_lines(body, name)?;
+    let lines = read_lines(body, name)?;
+    // brand, beat and end are shorthand: they expand into the ops below before anything else.
+    let mut lines: Vec<Line> =
+        crate::story::expand(lines.into_iter().map(|l| (l.no, l.op)).collect())
+            .map_err(|e| format!("{name}: {e}"))?
+            .into_iter()
+            .map(|(no, op)| Line { no, op })
+            .collect();
     let at = |l: &Line| format!("{name}:{}", l.no);
     let mut warnings = Vec::new();
 

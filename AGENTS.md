@@ -140,8 +140,10 @@ want the address bar to show.
 ## Making a video that is not a recording
 
 If you were asked for a launch video, a showreel or an ad rather than a take of an app, use
-`kaviri motion`. Read `docs/motion-llm.md` (or https://kaviri.dev/motion-llm.txt) first: it is
-the whole format in one file. Then work in a loop: write the `.jsonl`, run
+`kaviri motion`. For a standard product video, read `docs/motion-simple.md`
+(https://kaviri.dev/motion-simple.txt): a `brand` line, one `beat` line per idea and an `end`
+line, and kaviri does the rest, music included. For full control, read `docs/motion-llm.md`
+(or https://kaviri.dev/motion-llm.txt): the whole format in one file. Then work in a loop: write the `.jsonl`, run
 `kaviri motion --script reel.jsonl --check`, render the frames that matter with
 `--still 1b,2bar,4bar+2b --out look.png` and look at them, fix what is wrong, and only then
 render with `--out reel.mp4`. The checker names the line and the real options for every

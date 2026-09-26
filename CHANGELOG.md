@@ -43,6 +43,11 @@ dated `[0.1.0]` heading, when the tag is cut.
 
 ### Added
 
+- **The simple way to write a motion video.** `brand`, `beat` and `end` ops: a headline per
+  beat and at most one `show` (image, type, code, list, stats, icons, chips, strike), expanded
+  into scenes with rotating entrances and transitions, a drop on the third beat and a score
+  whose sections are fitted to the beats. `docs/motion-simple.md`, published as
+  `kaviri.dev/motion-simple.txt`, is short enough for any model to follow.
 - **`kaviri motion`: motion graphics from a JSONL timeline.** A script of scenes, layers,
   animations, micro-interactions and sounds renders to an MP4 with a synthesized soundtrack on
   the same beat grid. Times take seconds, beats (`"2b"`) and bars (`"1bar"`); scenes lie end

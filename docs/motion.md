@@ -14,6 +14,10 @@ the script lives in the repo, and when the product changes you change a line and
 instead of reopening an editor. And because the script is plain JSON lines, a model can write
 one.
 
+- **The simple way**: [`motion-simple.md`](motion-simple.md). A brand, one line per beat and
+  an end card; kaviri picks the motion, transitions and music. Published as
+  [kaviri.dev/motion-simple.txt](https://kaviri.dev/motion-simple.txt), short enough for any
+  model to follow.
 - **For a model**: [`motion-llm.md`](motion-llm.md) is the complete format in one file, written
   to be pasted into a prompt or attached to a chat. It is published as
   [kaviri.dev/motion-llm.txt](https://kaviri.dev/motion-llm.txt).
@@ -23,6 +27,29 @@ one.
   `examples/motion/kaviri-dev.jsonl` (kaviri.dev as a launch video: the site's copy, real
   screenshots of its sections in `examples/motion/site/`, and its Parcel demo rebuilt as an
   `html` layer whose input types and whose button is pressed).
+
+## The simple way
+
+```jsonl
+{"op":"brand","name":"kaviri","accent":"#c7361a","theme":"light","url":"kaviri.dev","logo":"../../brand/logomark.svg"}
+{"op":"beat","text":"Demos go [stale.]","sub":"The UI moves. The video does not."}
+{"op":"beat","text":"Nobody [re-records] it.","show":{"strike":["Block out an afternoon.","Find a quiet room."]}}
+{"op":"beat","text":"Your demo video is a [build artifact.]","show":{"image":"site/hero.png"}}
+{"op":"beat","text":"The recorder is [free.]","show":{"chips":["Apache 2.0","No account"]}}
+{"op":"end","tagline":"Your demo video is a [build artifact.]"}
+```
+
+That is a finished video with music. Each `beat` is a two-bar scene: a headline sized to fit,
+and optionally one `show` (a screenshot in a browser window, a chat box that types, a code
+block that types, a checklist that ticks, stats that count, an orbit of icons, chips, lines
+that get crossed out). Entrances and transitions rotate so no two beats move alike. The third
+beat is the drop, with a flash, a shake and a shockwave, and the beat before it builds with
+rays. The music is written to fit: intro, build, drop, a break before the end if there are
+five beats or more, and an outro under the end card. `examples/motion/simple.jsonl` is the
+whole of kaviri.dev this way, in eight lines.
+
+`brand`, `beat` and `end` expand into the ops described below, so anything in the full format
+can be added on extra lines when the simple way is not enough.
 
 ## The shape of a script
 

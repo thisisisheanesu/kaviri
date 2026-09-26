@@ -261,6 +261,11 @@ shakes and zooms. The score is synthesized on the same grid, with an intro, a bu
 and an outro, and whooshes, clicks and impacts wherever the picture implies them. Every frame
 is rendered by seeking, not by recording, so the result is exact and the same every time.
 
+There is a simple way too, for people and small models alike: a `brand` line, one `beat`
+line per idea (`{"op":"beat","text":"Meet [Acme.]","show":{"image":"shot.png"}}`) and an `end`
+line. kaviri picks the motion and the transitions, puts the drop on the third beat and writes
+the music to fit. [`docs/motion-simple.md`](docs/motion-simple.md) is the whole of it.
+
 `--check` validates, `--still 2b,4bar` renders frames to look at, and `--preview dir/` writes
 a live player with sound. [`docs/motion.md`](docs/motion.md) is the guide,
 [`docs/motion-llm.md`](docs/motion-llm.md) is the whole format in one file for a model (also

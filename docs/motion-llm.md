@@ -3,6 +3,37 @@
 You are writing a `.jsonl` file that `kaviri motion` turns into a finished MP4 with music.
 This file is everything you need. Read it once, then write the script.
 
+**Short on time, or asked for a standard product video? Use the simple way** (below, and in
+full at https://kaviri.dev/motion-simple.txt): a `brand` line, one `beat` line per idea and an
+`end` line. kaviri chooses every effect, transition, camera move and the music. Use the rest of
+this file only when you need control the simple way does not give.
+
+## The simple way
+
+```jsonl
+{"op":"brand","name":"Acme","accent":"#5b8cff","theme":"dark","url":"acme.dev","music":"energetic"}
+{"op":"beat","text":"The problem, in [four words.]","sub":"A smaller second line."}
+{"op":"beat","text":"What people put up with.","show":{"strike":["First chore.","Second chore."]}}
+{"op":"beat","text":"Meet [Acme.]","show":{"image":"screenshot.png"}}
+{"op":"beat","text":"Ask for [anything.]","show":{"type":"Summarise this week's tickets","chips":["GPT","Claude"]}}
+{"op":"beat","text":"Loved by [teams.]","show":{"stats":[["20,641+","customers"],["4.9","rating"]]}}
+{"op":"end","tagline":"One line about [Acme.]"}
+```
+
+- `brand`: `name`, `accent` (hex), `theme` (`dark`/`light`), `url`, `logo` (an image file),
+  `font`, `music` (`energetic`, `cinematic`, `calm`, `none`).
+- `beat`: `text` (2 to 8 words, key words in `[ ]`), `sub`, `bars` (2), and at most one `show`:
+  `{"image":…,"frame":"none","url":…}`, `{"type":…,"chips":[…],"placeholder":…}`,
+  `{"code":…,"title":…,"lang":…}`, `{"list":[…]}`, `{"stats":[["20,641+","label"],…]}`,
+  `{"icons":[names]}`, `{"chips":[…]}`, `{"strike":[…]}`.
+- `end`: `tagline`, and `name`, `url`, `logo`, `bars` if they differ from the brand.
+
+Each beat becomes a scene with its own entrance and transition; the third beat is the drop
+(flash, shake, shockwave), the one before it builds with rays, and the music's intro, build,
+drop, break and outro are written to fit. Lines in the full format below can be mixed in:
+they are kept as written, and a `music` line of your own replaces the generated one (give it
+`"mood"` and leave out `sections` to keep the fitted arrangement).
+
 ```sh
 kaviri motion --script reel.jsonl --check                 # validate, print the timeline
 kaviri motion --script reel.jsonl --still 2b,1bar+2b,9.5 --out look.png   # look at frames

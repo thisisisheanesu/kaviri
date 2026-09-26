@@ -12,6 +12,7 @@ mod env;
 mod icons;
 mod motion;
 mod ops;
+mod story;
 mod synth;
 mod zoom;
 

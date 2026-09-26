@@ -1,0 +1,11 @@
+# The simple way: a brand, one line per beat, an end card. kaviri chooses the motion,
+# the transitions and the music, and puts the drop on the third beat.
+#   kaviri motion --script examples/motion/simple.jsonl --out simple.mp4
+{"op":"brand","name":"kaviri","accent":"#c7361a","theme":"light","url":"kaviri.dev","logo":"../../brand/logomark.svg","music":"energetic"}
+{"op":"beat","text":"Demos go [stale.]","sub":"The UI moves. The video does not."}
+{"op":"beat","text":"Nobody [re-records] it.","show":{"strike":["Block out an afternoon.","Find a quiet room.","Get the mouse path right on the fourth take."]}}
+{"op":"beat","text":"Your demo video is a [build artifact.]","show":{"image":"site/hero.png"}}
+{"op":"beat","text":"Write the take down. [Run it in CI.]","show":{"code":"{\"op\":\"navigate\",\"url\":\"http://127.0.0.1:8099/\"}\n{\"op\":\"type\",\"selector\":\"#q\",\"text\":\"14 Rue Lafayette, Paris\"}\n{\"op\":\"click\",\"selector\":\"#go\"}\n{\"op\":\"wait\",\"selector\":\"li\"}","title":"examples/demo.jsonl","lang":"json"}}
+{"op":"beat","text":"The build fails if the take [filmed nothing.]","show":{"list":["Record demo.jsonl","Render demo.mp4","Compare first and last frame"]}}
+{"op":"beat","text":"The recorder is [free.]","show":{"chips":["Apache 2.0","No account","Nothing phones home"]}}
+{"op":"end","tagline":"Your demo video is a [build artifact.]"}

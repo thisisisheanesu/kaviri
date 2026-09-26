@@ -9,6 +9,22 @@ The loop is the same every time: the model writes the `.jsonl`, runs `--check`, 
 `--still` frames of the moments that matter, fixes what it sees, and renders. A model with a
 shell does all of that itself. A model without one writes the script and you run the commands.
 
+## The easiest prompt: any model, any size
+
+Give it [`motion-simple.txt`](https://kaviri.dev/motion-simple.txt) (attach it, paste it, or
+give it the URL) and say:
+
+```text
+Using the attached kaviri motion simple format, write video.jsonl for <product> (<url>).
+Brand colour <#hex>, <dark or light> theme. 6 beats: the problem, what people put up with,
+the product (show the screenshot <file.png>), how it works, proof, and an end card.
+Output only the file.
+```
+
+That is enough for a small model to make a scored, animated video: it only chooses words and,
+per beat, one thing to show. Everything else is decided by kaviri. Use the prompts below with
+the full format when you want more control.
+
 ## The one-line setup
 
 For an agent with a shell (Claude Code, Codex, Cursor and the like):

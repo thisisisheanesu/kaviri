@@ -39,6 +39,8 @@ PAGES = [
      "What each error means, starting with the ones that produce a video rather than a failure."),
     ("motion", "docs/motion.md", "Motion graphics",
      "kaviri motion: a JSONL timeline rendered to a video with a soundtrack on its beat grid."),
+    ("motion-simple", "docs/motion-simple.md", "Motion, the simple way",
+     "A brand, one line per beat and an end card: kaviri picks the motion and the music."),
     ("motion-prompts", "docs/motion-prompts.md", "Motion prompts",
      "Prompts that get a model to write a good motion script, and the file to give it."),
     ("motion-llm", "docs/motion-llm.md", "Motion format",
@@ -76,6 +78,7 @@ SHELL = """<!doctype html>
     <ul>
       <li><a href="/llms.txt">llms.txt</a></li>
       <li><a href="/llms-full.txt">llms-full.txt</a></li>
+      <li><a href="/motion-simple.txt" download>motion-simple.txt</a></li>
       <li><a href="/motion-llm.txt" download>motion-llm.txt</a></li>
     </ul>
   </nav>
@@ -156,11 +159,12 @@ def build():
 
     # The motion format as plain text, to download or hand a model by URL. Copied rather than
     # rendered: a model reads Markdown better than it reads our HTML.
-    llm = os.path.join(ROOT, "docs", "motion-llm.md")
-    if os.path.exists(llm):
-        dest = os.path.join(ROOT, "site", "motion-llm.txt")
-        open(dest, "w", encoding="utf-8").write(open(llm, encoding="utf-8").read())
-        print(f"  /motion-llm.txt  {os.path.getsize(dest):6} bytes")
+    for doc, txt in (("motion-llm.md", "motion-llm.txt"), ("motion-simple.md", "motion-simple.txt")):
+        src = os.path.join(ROOT, "docs", doc)
+        if os.path.exists(src):
+            dest = os.path.join(ROOT, "site", txt)
+            open(dest, "w", encoding="utf-8").write(open(src, encoding="utf-8").read())
+            print(f"  /{txt}  {os.path.getsize(dest):6} bytes")
 
     for slug, n in written:
         print(f"  /docs/{'' if slug == 'index' else slug + '/'}  {n:6} bytes")
