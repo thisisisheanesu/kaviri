@@ -1,0 +1,97 @@
+# kaviri.dev, as a 32 second launch video: the site's own copy, its brand, its real screenshots
+# (examples/motion/site/, taken from site/index.html) and the Parcel demo rebuilt as live parts.
+#   kaviri motion --script examples/motion/kaviri-dev.jsonl --out kaviri-dev.mp4
+{"op":"video","size":[1920,1080],"fps":30,"bpm":120,"grain":0.03,"vignette":0.08,"pulse":0.01}
+{"op":"theme","bg":"#f7f7f5","bg2":"#f7f7f5","surface":"#ffffff","surface2":"#f7f7f5","border":"#dfdfdb","border_strong":"#c4c4be","hover":"#ededea","text":"#0f0f10","text2":"#3a3a3a","muted":"#5a5a57","faint":"#8a8a85","accent":"#c7361a","accent2":"#ff6b3d","ok":"#16653c","track":"#dfdfdb","radius":10,"font":"Inter, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif","shadow":"0 30px 80px -30px rgba(15,15,16,.35), 0 2px 8px rgba(15,15,16,.06)"}
+{"op":"music","key":"Am","progression":["i","VI","III","VII"],"sections":[{"bars":2,"part":"intro"},{"bars":2,"part":"build"},{"bars":8,"part":"drop"},{"bars":2,"part":"break"},{"bars":2,"part":"outro"}]}
+{"op":"background","kind":"mesh","base":"#f7f7f5","colors":["#f7e9e3","#ededea","#f4efe8","#ecebe6"],"speed":0.5}
+
+# 1. Demos go stale. The site's hero drifts behind, out of focus.
+{"op":"scene","id":"stale","dur":"2bar","push":0.05}
+{"op":"image","scene":"stale","src":"site/hero.png","w":1700,"h":1062,"opacity":0.16,"blur":3,"rotate":-4,"loop":{"fx":"drift","vx":-18,"vs":0.01}}
+{"op":"text","scene":"stale","text":"Demos go [stale.]","size":140,"weight":600,"tracking":-0.04,"y":"46%","in":{"fx":"wave","at":"0.5b","dur":"1b"},"out":{"fx":"blur","at":"3.5b","dur":"0.5b"}}
+{"op":"text","scene":"stale","text":"The UI moves.\nThe video [does not.]","size":96,"weight":600,"tracking":-0.035,"leading":1.12,"y":"50%","in":{"fx":"mask","at":"4b","split":"word","stagger":"0.3b"},"out":{"fx":"zoom","at":"7.3b","dur":"0.7b"}}
+
+# 2. Nobody re-records it: the afternoon it would take, struck out on the beat, into the drop.
+{"op":"scene","id":"nobody","dur":"2bar","transition":{"kind":"blur","dur":"1b"}}
+{"op":"text","scene":"nobody","text":"Nobody [re-records] it.","size":110,"weight":600,"tracking":-0.04,"y":"30%","in":{"fx":"converge","at":0,"dur":"1.2b"},"out":{"fx":"zoom","at":"7.5b","dur":"0.5b"}}
+{"op":"group","id":"chores","scene":"nobody","y":"62%","layout":{"kind":"column","gap":18},"cascade":{"fx":"rise","at":"1.5b","stagger":"0.5b"},"out":{"fx":"fade","at":"7.5b","dur":"0.5b"}}
+{"op":"text","id":"c1","parent":"chores","text":"~Block out an afternoon.~","size":58,"weight":500,"color":"#5a5a57","strike_color":"#c7361a"}
+{"op":"text","id":"c2","parent":"chores","text":"~Find a quiet room.~","size":58,"weight":500,"color":"#5a5a57","strike_color":"#c7361a"}
+{"op":"text","id":"c3","parent":"chores","text":"~Get the mouse path right on the fourth take.~","size":58,"weight":500,"color":"#5a5a57","strike_color":"#c7361a"}
+{"op":"act","target":"c1","do":"strike","at":"4b","dur":"0.4b"}
+{"op":"act","target":"c2","do":"strike","at":"4.5b","dur":"0.4b"}
+{"op":"act","target":"c3","do":"strike","at":"5b","dur":"0.5b"}
+{"op":"sfx","kind":"tick","scene":"nobody","at":"4b"}
+{"op":"sfx","kind":"tick","scene":"nobody","at":"4.5b","pitch":1.2}
+{"op":"sfx","kind":"tick","scene":"nobody","at":"5b","pitch":1.45}
+{"op":"particles","scene":"nobody","kind":"rays","at":"5.5b","dur":"2.5b","count":150,"speed":1.5,"colors":["#c7361a","#0f0f10","#ff6b3d"],"blend":"multiply"}
+
+# 3. The drop: the real kaviri.dev lands, then the camera finds the line that matters.
+{"op":"scene","id":"site","dur":"2bar","transition":{"kind":"flash","dur":"0.5b"},"push":0,"camera":{"keys":[{"t":"2.5b","zoom":1,"x":0,"y":0},{"t":"3.5b","zoom":1.75,"x":-290,"y":-230,"ease":"inOutExpo"},{"t":"6.5b","zoom":1.8,"x":-290,"y":-230},{"t":"7.6b","zoom":1.1,"x":0,"y":0,"ease":"inOutExpo"}]}}
+{"op":"shake","scene":"site","at":0,"dur":"1b","amp":12}
+{"op":"particles","scene":"site","kind":"shockwave","at":0,"dur":"2b","rings":3,"width":8,"colors":["#c7361a","#0f0f10"],"blend":"normal"}
+{"op":"ui","id":"browser","scene":"site","kind":"window","url":"kaviri.dev","w":1280,"h":838,"y":"52%","rx":28,"scale":0.86,"keys":[{"t":"2b","rx":0,"scale":1,"ease":"outExpo"}],"in":{"fx":"fly","at":0,"dur":"1.5b"}}
+{"op":"image","parent":"browser","src":"site/hero.png","w":1280,"h":800,"fit":"cover","anchor":[0,0],"x":0,"y":0}
+
+# 4. Write the take down: the real demo.jsonl types itself.
+{"op":"scene","id":"script","dur":"2bar","transition":{"kind":"zoom","dur":"1b"}}
+{"op":"text","scene":"script","text":"Write the take down.","size":76,"weight":600,"tracking":-0.035,"align":"left","anchor":[0,0.5],"x":110,"y":"38%","in":{"fx":"mask","at":0,"split":"word","stagger":"0.25b"}}
+{"op":"text","scene":"script","text":"[Run it in CI.]","size":76,"weight":600,"tracking":-0.035,"align":"left","anchor":[0,0.5],"x":110,"y":"49%","in":{"fx":"mask","at":"1b","split":"word","stagger":"0.25b"}}
+{"op":"text","scene":"script","text":"It lives in the repo, next to the code it films.","size":26,"weight":500,"color":"#5a5a57","align":"left","anchor":[0,0.5],"x":112,"y":"60%","in":{"fx":"fade","at":"2b"}}
+{"op":"ui","id":"jsonl","scene":"script","kind":"code","title":"examples/demo.jsonl","lang":"json","size":19,"w":860,"x":"72.5%","y":"52%","ry":-16,"keys":[{"t":"6b","ry":-4,"ease":"inOutCubic"}],"in":{"fx":"right","at":0,"dur":"1b"},"code":"{\"op\":\"navigate\",\"url\":\"http://127.0.0.1:8099/\"}\n{\"op\":\"wait\",\"selector\":\"#q\",\"timeout_ms\":30000}\n{\"op\":\"start_recording\"}\n{\"op\":\"type\",\"selector\":\"#q\",\"text\":\"14 Rue Lafayette, Paris\"}\n{\"op\":\"click\",\"selector\":\"#go\"}\n{\"op\":\"wait\",\"selector\":\"li\",\"timeout_ms\":15000}\n{\"op\":\"mark\",\"label\":\"tracked\"}\n{\"op\":\"stop_recording\"}"}
+{"op":"act","target":"jsonl","do":"type","at":"0.5b","dur":"5b"}
+
+# 5. What that script films: the Parcel demo, rebuilt part by part, the camera on the caret.
+{"op":"scene","id":"film","dur":"2bar","transition":{"kind":"whip","dur":"1b"},"camera":{"keys":[{"t":"1b","zoom":1,"x":0,"y":0},{"t":"1.8b","zoom":1.6,"x":-60,"y":-20,"ease":"inOutExpo"},{"t":"4b","zoom":1.6,"x":-60,"y":-20},{"t":"4.5b","zoom":1.6,"x":180,"y":-20,"ease":"inOutCubic"},{"t":"5.2b","zoom":1.6,"x":180,"y":-20},{"t":"6b","zoom":1.25,"x":0,"y":40,"ease":"inOutExpo"}]}}
+{"op":"html","id":"parcel","scene":"film","w":600,"y":"54%","scale":1.35,"in":{"fx":"fly","at":0,"dur":"1b"},"css":".pc{--ink:#16181d;--mute:#6b7280;--line:#e6e8ec;--brand:#4f46e5;--ok:#0f7b52;--okbg:#e7f5ee;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 30px 70px -25px rgba(15,18,25,.3);color:var(--ink);font:15px/1.5 Inter,sans-serif}.pc header{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--line)}.pc .dot{width:26px;height:26px;border-radius:7px;background:var(--brand)}.pc header b{font-size:15px}.pc header i{margin-left:auto;font:11px monospace;color:var(--mute);font-style:normal}.pc .bd{padding:20px}.pc label{display:block;font-size:12px;font-weight:600;color:var(--mute);margin-bottom:6px}.pc .row{display:flex;gap:10px}.pc .in{flex:1;padding:11px 13px;border:1px solid var(--line);border-radius:9px;background:#f4f5f7;min-height:46px}.pc .in.pc-focus{outline:2px solid var(--brand);outline-offset:1px;background:#fff}.pc .kv-ph{color:#9aa0aa}.pc .kv-caret{background:var(--brand)}.pc .go{font-weight:600;font-size:14px;padding:11px 18px;border-radius:9px;background:var(--brand);color:#fff}.pc .res{position:relative;min-height:50px;margin-top:18px}.pc .li{display:flex;align-items:center;gap:12px;padding:12px 2px;border-top:1px solid var(--line)}.pc .id{font:12px monospace;color:var(--mute);width:78px}.pc .where{flex:1}.pc .tag{font-weight:600;font-size:11px;padding:3px 9px;border-radius:999px;background:var(--okbg);color:var(--ok)}.pc .empty{position:absolute;top:0;left:0;right:0;color:var(--mute);font-size:14px;padding:14px 2px;border-top:1px solid var(--line)}","html":"<div class='pc'><header><span class='dot'></span><b>Parcel</b><i>demo</i></header><div class='bd'><label>Track a shipment</label><div class='row'><div class='in'><span class='kv-type'></span><span class='kv-ph'>Tracking number or address</span><span class='kv-caret' style='opacity:0'></span></div><div class='go'>Track</div></div><div class='res'><div class='empty'>Nothing tracked yet.</div><div class='li'><span class='id'>PX-48213</span><span class='where'>14 Rue Lafayette, Paris</span><span class='tag'>In transit</span></div></div></div></div>"}
+{"op":"ui","id":"hand","scene":"film","kind":"cursor","x":"72%","y":"86%","in":{"fx":"fade","at":"0.5b"},"keys":[{"at":"0.6b","dur":"0.8b","x":"42%","y":"50%","ease":"inOutCubic"},{"at":"4b","dur":"0.6b","x":"67%","y":"50%","ease":"inOutCubic"}]}
+{"op":"act","target":"hand","do":"click","at":"1.4b"}
+{"op":"act","target":"parcel","do":"class","name":"pc-focus","sel":".in","at":"1.4b","until":"4.8b"}
+{"op":"act","target":"parcel","do":"type","at":"1.6b","text":"14 Rue Lafayette, Paris","cps":10}
+{"op":"act","target":"hand","do":"click","at":"4.7b"}
+{"op":"act","target":"parcel","do":"click","sel":".go","at":"4.7b","color":"#4f46e5"}
+{"op":"anim","target":"parcel","sel":".empty","out":{"fx":"fade","at":"4.9b","dur":"0.3b"}}
+{"op":"anim","target":"parcel","sel":".li","fx":"drop","at":"4.9b","dur":"0.6b"}
+{"op":"anim","target":"parcel","sel":".tag","fx":"pop","at":"5.3b","dur":"0.6b"}
+{"op":"sfx","kind":"pop","scene":"film","at":"5.3b","pitch":1.3,"gain":0.5}
+{"op":"text","scene":"film","fixed":true,"text":"You describe what happens. [Not the camera.]","size":52,"weight":600,"tracking":-0.03,"y":"11%","in":{"fx":"wave","at":"0.5b","dur":"1b"}}
+
+# 6. The part that matters: the check that turns the job red.
+{"op":"scene","id":"fails","dur":"2bar","transition":{"kind":"slide","dur":"1b"}}
+{"op":"text","scene":"fails","text":"The build fails if the take\n[filmed nothing.]","size":80,"weight":600,"tracking":-0.035,"leading":1.1,"y":"24%","in":{"fx":"wave","at":0,"dur":"1b"}}
+{"op":"ui","id":"steps","scene":"fails","kind":"list","title":"demo.yml · record","w":620,"x":"50%","y":"59%","scale":1.8,"items":[{"label":"Record examples/demo.jsonl","meta":"14.6s","check":false},{"label":"Render demo.mp4","meta":"4 zooms","check":false},{"label":"Compare first and last frame","meta":"psnr","check":false}],"in":{"fx":"rise","at":"0.5b"}}
+{"op":"act","target":"steps","do":"check","index":0,"at":"1.5b"}
+{"op":"act","target":"steps","do":"check","index":1,"at":"2.5b"}
+{"op":"act","target":"steps","do":"select","index":2,"at":"3.5b"}
+{"op":"act","target":"steps","do":"highlight","at":"4.5b","hold":"3b","color":"#c7361a"}
+{"op":"text","scene":"fails","text":"the first and last frames are the same picture; the take filmed nothing","font":"mono","size":30,"weight":500,"color":"#c7361a","y":"83%","in":{"fx":"typewriter","at":"4b","stagger":"0.018s"},"caret_color":"#c7361a"}
+{"op":"shake","scene":"fails","at":"5.5b","dur":"0.8b","amp":9}
+{"op":"sfx","kind":"glitch","scene":"fails","at":"5.5b","dur":"0.25s","gain":0.6}
+{"op":"text","scene":"fails","text":"That line in a pull request is the whole idea.","size":26,"weight":500,"color":"#5a5a57","y":"91%","in":{"fx":"fade","at":"6b"}}
+
+# 7. The break: the real site, all of it, drifting past. The recorder is free.
+{"op":"scene","id":"free","dur":"2bar","transition":{"kind":"push","dur":"1b"},"push":0.06}
+{"op":"group","id":"wall","scene":"free","y":"58%","rotate":-10,"rx":30,"layout":{"kind":"grid","cols":3,"gap":40,"cell":[640,420]},"cascade":{"fx":"fly","at":0,"stagger":"0.12b","dur":"1.5b","order":"center"},"loop":{"fx":"drift","vy":-50}}
+{"op":"image","parent":"wall","src":"site/pricing.png","w":640,"h":420,"fit":"cover","radius":12,"shadow":true,"border":true}
+{"op":"image","parent":"wall","src":"site/hero.png","w":640,"h":420,"fit":"cover","radius":12,"shadow":true,"border":true}
+{"op":"image","parent":"wall","src":"site/ci.png","w":640,"h":420,"fit":"cover","radius":12,"shadow":true,"border":true}
+{"op":"image","parent":"wall","src":"site/how.png","w":640,"h":420,"fit":"cover","radius":12,"shadow":true,"border":true}
+{"op":"image","parent":"wall","src":"site/stale.png","w":640,"h":420,"fit":"cover","radius":12,"shadow":true,"border":true}
+{"op":"image","parent":"wall","src":"site/pricing.png","w":640,"h":420,"fit":"cover","radius":12,"shadow":true,"border":true}
+{"op":"image","parent":"wall","src":"site/ci.png","w":640,"h":420,"fit":"cover","radius":12,"shadow":true,"border":true}
+{"op":"image","parent":"wall","src":"site/hero.png","w":640,"h":420,"fit":"cover","radius":12,"shadow":true,"border":true}
+{"op":"image","parent":"wall","src":"site/how.png","w":640,"h":420,"fit":"cover","radius":12,"shadow":true,"border":true}
+{"op":"shape","scene":"free","fixed":true,"kind":"glow","d":1500,"color":"#f7f7f5","intensity":1,"blend":"normal","y":"47%"}
+{"op":"text","scene":"free","fixed":true,"text":"The recorder is free.","size":104,"weight":600,"tracking":-0.04,"y":"41%","in":{"fx":"wave","at":"1b","dur":"1b"}}
+{"op":"text","scene":"free","fixed":true,"text":"[Apache 2.0. No account. Nothing phones home.]","size":44,"weight":600,"tracking":-0.02,"y":"53%","in":{"fx":"blur","at":"3b","dur":"1b"}}
+
+# 8. The mark: the ink frame, then the second take drawn in ember, on the outro's hit.
+{"op":"scene","id":"end","dur":"2bar","transition":{"kind":"flash","dur":"0.5b"},"push":0.025}
+{"op":"particles","scene":"end","kind":"shockwave","at":0,"dur":"2.5b","rings":2,"width":6,"oy":"42%","colors":["#c7361a"],"blend":"normal"}
+{"op":"svg","scene":"end","x":"35.5%","y":"42%","w":150,"h":150,"svg":"<svg viewBox='0 0 33 33'><rect x='2' y='2' width='18' height='18' rx='2' fill='#0f0f10'/></svg>","in":{"fx":"pop","at":0,"dur":"1b"}}
+{"op":"svg","scene":"end","x":"35.5%","y":"42%","w":150,"h":150,"svg":"<svg viewBox='0 0 33 33'><rect x='11.5' y='11.5' width='18' height='18' rx='2' fill='none' stroke='#c7361a' stroke-width='3'/></svg>","in":{"fx":"draw","at":"0.5b","dur":"1.2b"}}
+{"op":"text","scene":"end","text":"kaviri","size":170,"weight":600,"tracking":-0.045,"anchor":[0,0.5],"align":"left","x":"42.5%","y":"41%","in":{"fx":"rise","at":"1b","dur":"1b","stagger":"0.08b"}}
+{"op":"text","scene":"end","text":"Your demo video is a [build artifact.]","size":38,"weight":600,"tracking":-0.02,"y":"60%","in":{"fx":"blur","at":"2.5b","dur":"1b"}}
+{"op":"text","scene":"end","text":"ka-VEE-ree · ChiShona for twice, a second time","size":20,"weight":500,"color":"#8a8a85","y":"66%","in":{"fx":"fade","at":"3.5b"}}
+{"op":"ui","scene":"end","kind":"button","label":"kaviri.dev","size":22,"y":"76%","in":{"fx":"pop","at":"4b","sfx":"pop"},"shine":true,"loop":{"fx":"shine","period":"4b","phase":"5b"}}

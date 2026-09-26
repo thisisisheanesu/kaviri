@@ -61,7 +61,9 @@ placement). `bg` (fallback background colour).
 
 **`theme`**: colours and type the components use. `bg` `bg2` `surface` `surface2` `border`
 `border_strong` `hover` `text` `text2` `muted` `faint` `accent` `accent2` `ok` `track` `radius`
-(px) `font` `mono` `shadow`. Defaults are a dark UI with a blue accent. For a light look set
+(px) `font` `mono` `shadow`, and `token_k` `token_s` `token_n` `token_c` `token_f` `token_t`
+`token_p` to override code colours (keywords, strings, numbers, comments, functions, types,
+punctuation; they follow the theme's lightness by default). Defaults are a dark UI with a blue accent. For a light look set
 `bg`, `surface`, `surface2`, `text`, `muted`, `border` and `shadow` together.
 
 **`font`** (may repeat): `{"op":"font","family":"Inter","src":"fonts/Inter.woff2","weight":"100 900"}`.

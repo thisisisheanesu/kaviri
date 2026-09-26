@@ -230,6 +230,13 @@ rs.setProperty('--kv-radius', theme.radius + 'px');
 rs.setProperty('--kv-font', theme.font);
 rs.setProperty('--kv-mono', theme.mono);
 rs.setProperty('--kv-shadow', theme.shadow);
+// Syntax colours follow the theme: pastels on a dark surface, deeper inks on a light one.
+const surf = parseColor(theme.surface) || [16, 19, 28, 1];
+const lightTheme = 0.2126 * surf[0] + 0.7152 * surf[1] + 0.0722 * surf[2] > 140;
+const TOKENS = lightTheme
+  ? { k: '#8a2be2', s: '#1f7a3a', n: '#b3470d', c: '#8a8a85', f: '#1d5fd1', t: '#9a6a00', p: '#4a5568' }
+  : { k: '#c792ea', s: '#c3e88d', n: '#f78c6c', c: '#697098', f: '#82aaff', t: '#ffcb6b', p: '#89ddff' };
+for (const k in TOKENS) rs.setProperty('--tk-' + k, T0['token_' + k] || TOKENS[k]);
 
 for (const f of S.fonts || []) {
   const st = document.createElement('style');
@@ -1506,7 +1513,7 @@ const ACTS = {
     const text = String(a.text || '');
     const dur = a.dur !== undefined ? a.dur : text.length / (a.cps || 28);
     const ph = el.parentNode.querySelector('.kv-ph');
-    const caret = n.caret;
+    const caret = n.caret || (a.sel ? null : n.inner.querySelector('.kv-caret'));
     const prior = el.textContent;
     const hold = a.hold !== undefined ? a.hold : 1.2;
     return {

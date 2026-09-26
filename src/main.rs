@@ -328,7 +328,8 @@ fn parse_motion() -> Result<Option<motion::Opts>, String> {
     }
     o.script = script.ok_or_else(|| format!("motion needs --script\n\n{MOTION_USAGE}"))?;
     // A preview on its own is the whole job; with --out it comes as well as the video.
-    if o.out.is_empty() && (o.preview.is_none() || !stills_raw.as_deref().unwrap_or("").is_empty()) {
+    if o.out.is_empty() && (o.preview.is_none() || !stills_raw.as_deref().unwrap_or("").is_empty())
+    {
         o.out = "kaviri-motion.mp4".into();
     }
     /*

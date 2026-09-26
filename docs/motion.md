@@ -18,8 +18,11 @@ one.
   to be pasted into a prompt or attached to a chat. It is published as
   [kaviri.dev/motion-llm.txt](https://kaviri.dev/motion-llm.txt).
 - **Prompts that work**: [`motion-prompts.md`](motion-prompts.md).
-- **Examples**: `examples/motion/showreel.jsonl` (a 32 second 16:9 showreel, dark) and
-  `examples/motion/portraits.jsonl` (a 15 second 4:5 feed ad, light).
+- **Examples**: `examples/motion/showreel.jsonl` (a 32 second 16:9 showreel, dark),
+  `examples/motion/portraits.jsonl` (a 15 second 4:5 feed ad, light) and
+  `examples/motion/kaviri-dev.jsonl` (kaviri.dev as a launch video: the site's copy, real
+  screenshots of its sections in `examples/motion/site/`, and its Parcel demo rebuilt as an
+  `html` layer whose input types and whose button is pressed).
 
 ## The shape of a script
 

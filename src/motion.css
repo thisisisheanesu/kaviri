@@ -98,7 +98,7 @@ canvas.kv-canvas { position: absolute; left: 0; top: 0; pointer-events: none; }
 .kv-code { overflow: hidden; }
 .kv-code-h { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--kv-border); font-size: 12px; color: var(--kv-muted); font-family: var(--kv-mono); }
 .kv-code pre { margin: 0; padding: 16px 18px; font-family: var(--kv-mono); font-size: 14px; line-height: 1.65; white-space: pre; color: var(--kv-text); }
-.kv-tk-k { color: #c792ea; } .kv-tk-s { color: #c3e88d; } .kv-tk-n { color: #f78c6c; } .kv-tk-c { color: #697098; font-style: italic; } .kv-tk-f { color: #82aaff; } .kv-tk-t { color: #ffcb6b; } .kv-tk-p { color: #89ddff; }
+.kv-tk-k { color: var(--tk-k); } .kv-tk-s { color: var(--tk-s); } .kv-tk-n { color: var(--tk-n); } .kv-tk-c { color: var(--tk-c); font-style: italic; } .kv-tk-f { color: var(--tk-f); } .kv-tk-t { color: var(--tk-t); } .kv-tk-p { color: var(--tk-p); }
 
 .kv-msg { display: flex; gap: 12px; padding: 16px 18px; }
 .kv-av { width: 30px; height: 30px; border-radius: 9px; flex: none; display: grid; place-items: center; font-weight: 700; font-size: 14px; color: #fff; overflow: hidden; }
