@@ -6,6 +6,7 @@
 # recorded while debugging should never be committable by accident.
 *.mp4
 !examples/kaviri-readme.mp4
+!site/demo.mp4
 
 # The telemetry sidecar written next to a take. It carries every URL the take
 # visited, including query strings and canonicalised local file:// paths, so

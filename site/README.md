@@ -17,23 +17,31 @@ JavaScript. It is served as Cloudflare Workers static assets.
 
 ## What you have to copy in before deploying
 
-Three files are referenced by the page and are not in this directory, because they are built
-elsewhere. Without them the page still renders, but the video box stays on its poster and the
-link previews have no image.
+One file is referenced by the page and is not in this directory, because it is made by hand.
+Without it the page still renders, but link previews have no image.
 
 | put it here | copy it from | notes |
 |---|---|---|
-| `site/demo.mp4` | `examples/kaviri-readme.mp4` | the `readme` preset take, 1100x620. It autoplays muted and loops, so keep it under about 15 seconds and a couple of megabytes. Re-encode a bigger take rather than shipping it whole |
-| `site/demo-poster.jpg` | first frame of the same take | `ffmpeg -ss 0.5 -i examples/kaviri-readme.mp4 -frames:v 1 site/demo-poster.jpg` |
 | `site/og.png` | made by hand, 1200x630 | the Open Graph and Twitter card image |
 
-The motion hero, "Screen Studio for your AI agent", is `examples/motion/hero.jsonl`: kaviri's own
-takes of the Parcel demo in five device frames, cut together with kaviri motion. From the repo
-root, `sh examples/motion/hero-takes.sh` films the takes and renders `hero.mp4`; copy it to
-`site/demo.mp4` (re-encode it smaller for the page, it runs about 40 seconds).
+## The demo video
 
-The `demo.mp4` path is deliberate: the page asks for `/demo.mp4`, so whatever you drop at
-`site/demo.mp4` is what the world sees.
+`site/demo.mp4` and `site/demo-poster.jpg` are committed. The video is the motion hero,
+"Screen Studio for your AI agent": `examples/motion/hero.jsonl`, kaviri's own takes of the
+Parcel demo in five device frames, cut together with kaviri motion. To make it again, from the
+repo root:
+
+```sh
+sh examples/motion/hero-takes.sh            # films the takes, renders hero.mp4
+ffmpeg -i hero.mp4 -vf scale=1280:720:flags=lanczos -c:v libx264 -preset slow -crf 25 \
+  -maxrate 1200k -bufsize 2400k -pix_fmt yuv420p -movflags +faststart \
+  -c:a aac -b:a 96k site/demo.mp4
+ffmpeg -ss 12 -i site/demo.mp4 -frames:v 1 -q:v 4 site/demo-poster.jpg
+```
+
+The page autoplays it muted and loops it, with controls so a visitor can turn the music on.
+Keep it around 2.5MB. The `demo.mp4` path is deliberate: the page asks for `/demo.mp4`, so
+whatever is at `site/demo.mp4` is what the world sees.
 
 ## Deploy
 
