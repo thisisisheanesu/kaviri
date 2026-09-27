@@ -51,8 +51,11 @@ whole of kaviri.dev this way, in eight lines.
 `"style"` on the brand picks the look: `bold` (the default: kinetic type, starfield, a flash
 and a shockwave on the drop), `minimal` (quiet fades on a light ground, calm music), `neon`
 (glitch type on a glowing grid), `editorial` (serif, slow reveals, an iris on the drop),
-`playful` (bouncy pops, soft colour, confetti) or `cinematic` (wide capitals, aurora light,
-letterbox bars). Each sets the entrances, transitions, background, type, drop and music, and
+`playful` (bouncy pops, soft colour, confetti), `cinematic` (wide capitals, aurora light,
+letterbox bars), `brutalist` (huge black capitals on white, hard cuts), `luxury` (spaced serif
+capitals and slow dissolves on near black), `terminal` (monospace that types and scrambles
+in), `hype` (italic capitals, whip pans), `corporate` (clean rises and pushes) or `retro`
+(cream paper, film grain, bouncing serif). `kaviri motion --styles` lists them. Each sets the entrances, transitions, background, type, drop and music, and
 `theme`, `background` and `music` override a style's choice.
 
 `brand`, `beat` and `end` expand into the ops described below, so anything in the full format

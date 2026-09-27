@@ -259,6 +259,7 @@ OPTIONS:
   --out <path>        the MP4 to write (default kaviri-motion.mp4), or a .png
                       with --still
   --check             validate and print the timeline, render nothing
+  --styles            list the looks a brand line can ask for with \"style\"
   --still <t,...>     write PNG stills at these times (seconds, or 4bar, 2b)
                       instead of a video. The quickest way to look at a frame
   --preview <dir>     write a self-contained player (index.html + music.wav)
@@ -322,6 +323,13 @@ fn parse_motion() -> Result<Option<motion::Opts>, String> {
             "--keep-temp" => o.keep_temp = true,
             "--help" | "-h" => {
                 println!("{MOTION_USAGE}");
+                return Ok(None);
+            }
+            "--styles" => {
+                println!(
+                    "Styles for {{\"op\":\"brand\",\"style\":\"…\"}}:\n{}",
+                    story::style_help()
+                );
                 return Ok(None);
             }
             other => return Err(format!("unknown flag: {other}\n\n{MOTION_USAGE}")),

@@ -49,6 +49,13 @@ struct Style {
     mood: &'static str,
     pulse: f64,
     letterbox: f64,
+    /// One line for `kaviri motion --styles`.
+    about: &'static str,
+    italic: bool,
+    /// The ground colour, when the style has its own (cream, pure white, near black).
+    paper: Option<&'static str>,
+    grain: Option<f64>,
+    vignette: Option<f64>,
 }
 
 /// The looks a brand can ask for with `"style"`. The first is the default.
@@ -74,6 +81,11 @@ const STYLES: &[Style] = &[
         mood: "energetic",
         pulse: 0.012,
         letterbox: 0.0,
+        about: "big kinetic type, starfield, flash and shockwave on the drop. Dark, energetic",
+        italic: false,
+        paper: None,
+        grain: None,
+        vignette: None,
     },
     Style {
         name: "minimal",
@@ -94,6 +106,11 @@ const STYLES: &[Style] = &[
         mood: "calm",
         pulse: 0.0,
         letterbox: 0.0,
+        about: "quiet fades and slides on a clean light ground, no effects. Light, calm",
+        italic: false,
+        paper: None,
+        grain: None,
+        vignette: None,
     },
     Style {
         name: "neon",
@@ -114,6 +131,11 @@ const STYLES: &[Style] = &[
         mood: "energetic",
         pulse: 0.018,
         letterbox: 0.0,
+        about: "glitch and scramble type on a glowing synthwave grid. Dark, energetic",
+        italic: false,
+        paper: None,
+        grain: None,
+        vignette: None,
     },
     Style {
         name: "editorial",
@@ -134,6 +156,11 @@ const STYLES: &[Style] = &[
         mood: "cinematic",
         pulse: 0.0,
         letterbox: 0.0,
+        about: "serif type, slow reveals, an iris on the drop, magazine calm. Light, cinematic",
+        italic: false,
+        paper: None,
+        grain: None,
+        vignette: None,
     },
     Style {
         name: "playful",
@@ -154,6 +181,11 @@ const STYLES: &[Style] = &[
         mood: "energetic",
         pulse: 0.02,
         letterbox: 0.0,
+        about: "bouncy pops, soft colour ground, confetti. Light, energetic",
+        italic: false,
+        paper: None,
+        grain: None,
+        vignette: None,
     },
     Style {
         name: "cinematic",
@@ -174,12 +206,176 @@ const STYLES: &[Style] = &[
         mood: "cinematic",
         pulse: 0.006,
         letterbox: 0.1,
+        about: "wide capitals, aurora light, letterbox bars, slow blur cuts. Dark, cinematic",
+        italic: false,
+        paper: None,
+        grain: None,
+        vignette: None,
+    },
+    Style {
+        name: "brutalist",
+        entrances: &["mask", "stretch", "left", "drop"],
+        transitions: &["cut", "push", "cut", "slide"],
+        drop: "cut",
+        shake: true,
+        burst: false,
+        confetti: false,
+        rays: false,
+        light: true,
+        background: "flat",
+        font: Some("'Helvetica Neue', Helvetica, Arial, 'Liberation Sans', sans-serif"),
+        weight: 800,
+        tracking: -0.04,
+        upper: true,
+        glow: false,
+        mood: "energetic",
+        pulse: 0.0,
+        letterbox: 0.0,
+        about: "huge black capitals on pure white, hard cuts, no decoration. Light, energetic",
+        italic: false,
+        paper: Some("#ffffff"),
+        grain: Some(0.0),
+        vignette: Some(0.0),
+    },
+    Style {
+        name: "luxury",
+        entrances: &["blur", "fade", "mask", "blur"],
+        transitions: &["dissolve", "blur", "dissolve", "zoom"],
+        drop: "blur",
+        shake: false,
+        burst: false,
+        confetti: false,
+        rays: false,
+        light: false,
+        background: "gradient",
+        font: Some("Didot, 'Bodoni 72', Georgia, 'DejaVu Serif', serif"),
+        weight: 400,
+        tracking: 0.08,
+        upper: true,
+        glow: true,
+        mood: "cinematic",
+        pulse: 0.0,
+        letterbox: 0.0,
+        about: "spaced serif capitals, slow dissolves, a soft glow on near black. Dark, cinematic (try a gold accent)",
+        italic: false,
+        paper: Some("#070608"),
+        grain: Some(0.04),
+        vignette: Some(0.7),
+    },
+    Style {
+        name: "terminal",
+        entrances: &["typewriter", "scramble", "typewriter", "glitch"],
+        transitions: &["cut", "glitch", "cut", "slide"],
+        drop: "glitch",
+        shake: true,
+        burst: false,
+        confetti: false,
+        rays: false,
+        light: false,
+        background: "flat",
+        font: Some("'JetBrains Mono', 'SF Mono', Menlo, 'DejaVu Sans Mono', monospace"),
+        weight: 500,
+        tracking: 0.0,
+        upper: false,
+        glow: true,
+        mood: "energetic",
+        pulse: 0.008,
+        letterbox: 0.0,
+        about: "monospace type that types and scrambles in, glitch cuts, a black screen. Dark, energetic (try a green accent)",
+        italic: false,
+        paper: Some("#050705"),
+        grain: Some(0.05),
+        vignette: Some(0.6),
+    },
+    Style {
+        name: "hype",
+        entrances: &["zoom", "left", "right", "stretch", "pop"],
+        transitions: &["whip", "zoom", "whip", "spin", "push"],
+        drop: "flash",
+        shake: true,
+        burst: true,
+        confetti: false,
+        rays: true,
+        light: false,
+        background: "nebula",
+        font: None,
+        weight: 800,
+        tracking: -0.02,
+        upper: true,
+        glow: true,
+        mood: "energetic",
+        pulse: 0.025,
+        letterbox: 0.0,
+        about: "italic capitals that slam in, whip pans, a hard-hitting beat. Dark, energetic",
+        italic: true,
+        paper: None,
+        grain: None,
+        vignette: None,
+    },
+    Style {
+        name: "corporate",
+        entrances: &["rise", "fade", "mask", "rise"],
+        transitions: &["push", "slide", "dissolve", "push"],
+        drop: "zoom",
+        shake: false,
+        burst: false,
+        confetti: false,
+        rays: false,
+        light: true,
+        background: "gradient",
+        font: None,
+        weight: 600,
+        tracking: -0.025,
+        upper: false,
+        glow: false,
+        mood: "calm",
+        pulse: 0.0,
+        letterbox: 0.0,
+        about: "clean, confident and trustworthy: gentle rises, tidy pushes. Light, calm",
+        italic: false,
+        paper: Some("#f6f8fb"),
+        grain: Some(0.0),
+        vignette: Some(0.0),
+    },
+    Style {
+        name: "retro",
+        entrances: &["drop", "bounce", "rise", "swing"],
+        transitions: &["iris", "slide", "dissolve", "iris"],
+        drop: "iris",
+        shake: false,
+        burst: false,
+        confetti: false,
+        rays: false,
+        light: true,
+        background: "flat",
+        font: Some("Georgia, 'DejaVu Serif', 'Liberation Serif', serif"),
+        weight: 700,
+        tracking: -0.02,
+        upper: false,
+        glow: false,
+        mood: "calm",
+        pulse: 0.0,
+        letterbox: 0.0,
+        about: "warm cream paper, heavy film grain, bouncing serif, iris wipes. Light, calm",
+        italic: false,
+        paper: Some("#f1e6d0"),
+        grain: Some(0.14),
+        vignette: Some(0.4),
     },
 ];
 
 /// The style names, for errors and docs.
 pub fn style_names() -> Vec<&'static str> {
     STYLES.iter().map(|s| s.name).collect()
+}
+
+/// Every style with what it looks like, for `kaviri motion --styles`.
+pub fn style_help() -> String {
+    STYLES
+        .iter()
+        .map(|s| format!("  {:<10} {}", s.name, s.about))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 const MOODS: &[(&str, &str)] = &[
@@ -387,18 +583,21 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
                 "pulse": st.pulse, "letterbox": format!("{}%", st.letterbox * 100.0 / 2.0)}),
         );
     }
+    let paper = st
+        .paper
+        .unwrap_or(if light { "#f7f7f5" } else { "#0b0b0e" });
     if !has_theme {
         let mut t = json!({"accent": accent, "accent2": mix(&accent, (255.0, 255.0, 255.0), 0.3)});
         if light {
             t = json!({
-                "bg": "#f7f7f5", "bg2": "#f7f7f5", "surface": "#ffffff", "surface2": "#f7f7f5",
+                "bg": paper, "bg2": paper, "surface": "#ffffff", "surface2": paper,
                 "border": "#dfdfdb", "border_strong": "#c4c4be", "hover": "#ededea",
                 "text": ink, "text2": "#3a3a3a", "muted": muted, "faint": "#8a8a85",
                 "accent": accent, "ok": "#16653c", "track": "#dfdfdb",
                 "shadow": "0 30px 80px -30px rgba(15,15,16,.35), 0 2px 8px rgba(15,15,16,.06)",
             });
         } else {
-            t["bg"] = json!("#0b0b0e");
+            t["bg"] = json!(paper);
         }
         if let Some(f) = brand.get("font") {
             t["font"] = f.clone();
@@ -409,13 +608,13 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
         out.push(brand_line, t);
     }
     if !has_bg {
-        let paper = if light { "#f7f7f5" } else { "#0b0b0e" };
         let (ar, ag, ab) = hex(&accent).unwrap_or((91.0, 140.0, 255.0));
         let bg = match (brand["background"].as_str().unwrap_or(st.background), light) {
             ("solid", _) => {
                 json!({"op": "background", "kind": "gradient", "angle": 160, "spin": 1.5,
                 "colors": [paper, if light { mix(&accent, (255.0, 255.0, 255.0), 0.93) } else { mix(&accent, (0.0, 0.0, 0.0), 0.88) }, paper]})
             }
+            ("flat", _) => json!({"op": "background", "kind": "solid", "color": paper}),
             ("grid", _) => {
                 json!({"op": "background", "kind": "grid", "base": "#07060d", "color": mix(&accent, (0.0, 0.0, 0.0), 0.35),
                 "glow": accent, "stars": 60, "speed": 70})
@@ -427,11 +626,11 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
                            mix(&to_hex(ab, ar, ag), (255.0, 255.0, 255.0), 0.75), "#fff4d6"], "speed": 0.9}),
             ("gradient", _) => {
                 json!({"op": "background", "kind": "gradient", "angle": 135, "spin": 6,
-                "colors": [paper, mix(&accent, (0.0, 0.0, 0.0), if light { 0.0 } else { 0.6 }), paper]})
+                "colors": [paper, if light { mix(&accent, (255.0, 255.0, 255.0), 0.86) } else { mix(&accent, (0.0, 0.0, 0.0), 0.6) }, paper]})
             }
             (kind, _) if kind != "nebula" && kind != "mesh" => {
                 return Err(format!(
-                "brand.background is nebula, mesh, grid, aurora, solid or gradient, got \"{kind}\""
+                "brand.background is nebula, mesh, grid, aurora, solid, gradient or flat, got \"{kind}\""
             ))
             }
             _ => json!({}),
@@ -449,10 +648,18 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
         out.push(brand_line, bg);
     }
     // Grain and vignette suit a dark frame; on paper they read as dirt.
-    if !has_video && light {
+    if !has_video {
         if let Some((_, v)) = out.ops.iter_mut().find(|(_, v)| v["op"] == "video") {
-            v["grain"] = json!(0.03);
-            v["vignette"] = json!(0.08);
+            if light {
+                v["grain"] = json!(0.03);
+                v["vignette"] = json!(0.08);
+            }
+            if let Some(g) = st.grain {
+                v["grain"] = json!(g);
+            }
+            if let Some(g) = st.vignette {
+                v["vignette"] = json!(g);
+            }
         }
     }
 
@@ -597,7 +804,7 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
         if show.is_none() {
             let size = fit_size_em(&text, w, k, 140.0, head_em);
             out.push(no, json!({"op": "text", "id": format!("{id}_t"), "scene": id, "text": text, "size": size,
-                "weight": st.weight, "tracking": st.tracking, "upper": st.upper, "leading": 1.1, "y": if sub.is_some() { "44%" } else { "50%" },
+                "weight": st.weight, "tracking": st.tracking, "upper": st.upper, "italic": st.italic, "leading": 1.1, "y": if sub.is_some() { "44%" } else { "50%" },
                 "in": inn, "loop": {"fx": "glow", "amp": if light || !st.glow { 0 } else { 14 }}}));
             if let Some(s) = sub {
                 out.push(no, json!({"op": "text", "scene": id, "text": s, "size": fit_size(s, w, k, 44.0),
@@ -627,7 +834,7 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
         out.push(
             no,
             json!({"op": "text", "id": format!("{id}_t"), "scene": id, "fixed": true, "text": text,
-            "size": size, "weight": st.weight, "tracking": st.tracking, "upper": st.upper, "leading": 1.1,
+            "size": size, "weight": st.weight, "tracking": st.tracking, "upper": st.upper, "italic": st.italic, "leading": 1.1,
             "y": if vertical { "12%" } else { "15%" }, "in": inn}),
         );
         let mut body_y = if vertical { 52.0 } else { 58.0 };

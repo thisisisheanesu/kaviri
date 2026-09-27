@@ -36,7 +36,7 @@ kaviri motion --script video.jsonl --out video.mp4
 | `url` | the website, shown at the end | |
 | `logo` | a logo image file, shown at the end | a letter tile |
 | `music` | `"energetic"`, `"cinematic"`, `"calm"` or `"none"` | the style's |
-| `background` | `"nebula"`, `"mesh"`, `"grid"`, `"aurora"`, `"solid"` or `"gradient"` | the style's |
+| `background` | `"nebula"`, `"mesh"`, `"grid"`, `"aurora"`, `"solid"`, `"gradient"` or `"flat"` | the style's |
 
 **`beat`**, one per idea, in order. Each beat is 4 seconds.
 
@@ -61,6 +61,14 @@ Pick the one that fits the product. Everything else stays the same.
 | `"editorial"` | serif type, slow reveals, magazine calm, an iris on the drop | light | cinematic |
 | `"playful"` | bouncy pops, soft colour background, confetti | light | energetic |
 | `"cinematic"` | wide capitals, aurora light, letterbox bars, slow blur cuts | dark | cinematic |
+| `"brutalist"` | huge black capitals on pure white, hard cuts, no decoration | light | energetic |
+| `"luxury"` | spaced serif capitals, slow dissolves, a soft glow; use a gold accent | dark | cinematic |
+| `"terminal"` | monospace text that types and scrambles in, glitch cuts; use a green accent | dark | energetic |
+| `"hype"` | italic capitals that slam in, whip pans, a hard-hitting beat | dark | energetic |
+| `"corporate"` | clean and trustworthy: gentle rises, tidy pushes | light | calm |
+| `"retro"` | warm cream paper, heavy film grain, bouncing serif, iris wipes | light | calm |
+
+`kaviri motion --styles` prints this list.
 
 ## What a beat can show
 
