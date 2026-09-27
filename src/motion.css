@@ -19,7 +19,7 @@ canvas.kv-canvas { position: absolute; left: 0; top: 0; pointer-events: none; }
 .kv-w { display: inline-block; white-space: pre; }
 .kv-w.kv-mask { overflow: hidden; vertical-align: bottom; padding: 0 0.04em 0.12em; margin: 0 -0.04em -0.12em; }
 .kv-c { display: inline-block; transform-origin: 50% 70%; white-space: pre; }
-.kv-accent { color: var(--acc); }
+.kv-accent { color: var(--acc); font-family: var(--acc-font, inherit); font-style: var(--acc-style, inherit); font-weight: var(--acc-weight, inherit); }
 .kv-muted { color: var(--kv-muted); }
 .kv-strike-line { position: absolute; height: 0.075em; border-radius: 0.04em; background: currentColor; transform-origin: 0 50%; transform: scaleX(0); }
 .kv-caret { display: inline-block; width: 0.07em; min-width: 2px; height: 1em; background: var(--kv-accent); vertical-align: -0.12em; margin-left: 0.04em; border-radius: 1px; }

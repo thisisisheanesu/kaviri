@@ -41,6 +41,8 @@ PAGES = [
      "kaviri motion: a JSONL timeline rendered to a video with a soundtrack on its beat grid."),
     ("motion-simple", "docs/motion-simple.md", "Motion, the simple way",
      "A brand, one line per beat and an end card: kaviri picks the motion and the music."),
+    ("motion-walkthroughs", "docs/motion-walkthroughs.md", "Motion walkthroughs",
+     "Four motion videos built a step at a time, with a frame of every step."),
     ("motion-prompts", "docs/motion-prompts.md", "Motion prompts",
      "Prompts that get a model to write a good motion script, and the file to give it."),
     ("motion-llm", "docs/motion-llm.md", "Motion format",
@@ -136,7 +138,7 @@ def build():
             continue
         text = open(src, encoding="utf-8").read()
         md.reset()
-        body = rewrite_links(md.convert(text))
+        body = rewrite_links(md.convert(text)).replace('src="walkthroughs/', 'src="/docs/walkthroughs/')
 
         side = "".join(
             f'<li{" class=here" if s == slug else ""}><a href="{"/docs/" if s == "index" else "/docs/" + s + "/"}">{html.escape(t)}</a></li>'
@@ -165,6 +167,15 @@ def build():
             dest = os.path.join(ROOT, "site", txt)
             open(dest, "w", encoding="utf-8").write(open(src, encoding="utf-8").read())
             print(f"  /{txt}  {os.path.getsize(dest):6} bytes")
+
+    # The walkthrough pictures, beside the pages that show them.
+    pics = os.path.join(ROOT, "docs", "walkthroughs")
+    if os.path.isdir(pics):
+        dest = os.path.join(OUT, "walkthroughs")
+        os.makedirs(dest, exist_ok=True)
+        for f in sorted(os.listdir(pics)):
+            with open(os.path.join(pics, f), "rb") as src, open(os.path.join(dest, f), "wb") as out:
+                out.write(src.read())
 
     for slug, n in written:
         print(f"  /docs/{'' if slug == 'index' else slug + '/'}  {n:6} bytes")

@@ -14,6 +14,9 @@ the script lives in the repo, and when the product changes you change a line and
 instead of reopening an editor. And because the script is plain JSON lines, a model can write
 one.
 
+- **Walkthroughs**: [`motion-walkthroughs.md`](motion-walkthroughs.md). Four step-by-step
+  builds with a frame of every step: the simple way, mixing styles and shows, an announcement
+  film, and a video made by hand in the full format.
 - **The simple way**: [`motion-simple.md`](motion-simple.md). A brand, one line per beat and
   an end card; kaviri picks the motion, transitions and music. Published as
   [kaviri.dev/motion-simple.txt](https://kaviri.dev/motion-simple.txt), short enough for any
@@ -55,7 +58,13 @@ and a shockwave on the drop), `minimal` (quiet fades on a light ground, calm mus
 letterbox bars), `brutalist` (huge black capitals on white, hard cuts), `luxury` (spaced serif
 capitals and slow dissolves on near black), `terminal` (monospace that types and scrambles
 in), `hype` (italic capitals, whip pans), `corporate` (clean rises and pushes) or `retro`
-(cream paper, film grain, bouncing serif). `kaviri motion --styles` lists them. Each sets the entrances, transitions, background, type, drop and music, and
+(cream paper, film grain, bouncing serif) or `announcement` (cream and forest scenes in turn,
+italic serif accent words, huge counting numbers). `kaviri motion --styles` lists them.
+
+Beats mix and match: a beat can take its own `"style"` and `"theme"`, and `show` can be a list
+of two things side by side. Besides screenshots, typing, code, checklists, stats, icons, chips
+and struck lines, a beat can show a huge counting `number`, a `roll` that settles like a slot
+machine, a full-bleed `photo` and a fanned `stack` of photos. Each sets the entrances, transitions, background, type, drop and music, and
 `theme`, `background` and `music` override a style's choice.
 
 `brand`, `beat` and `end` expand into the ops described below, so anything in the full format

@@ -44,7 +44,9 @@ kaviri motion --script video.jsonl --out video.mp4
 |---|---|
 | `text` | the headline, **2 to 8 words**. Put the key words in square brackets to colour them: `"Every model. [One app.]"` |
 | `sub` | optional: a smaller second line under the headline |
-| `show` | optional: **one** thing to show under the headline, from the list below |
+| `show` | optional: **one** thing to show under the headline, from the list below, or a list of **two** to show side by side |
+| `style` | optional: a different style for this beat only |
+| `theme` | optional: `"light"` or `"dark"` for this beat only |
 
 **`end`**, once, last. `tagline` is one short line. It shows the logo, the name, the
 tagline and the url.
@@ -67,6 +69,7 @@ Pick the one that fits the product. Everything else stays the same.
 | `"hype"` | italic capitals that slam in, whip pans, a hard-hitting beat | dark | energetic |
 | `"corporate"` | clean and trustworthy: gentle rises, tidy pushes | light | calm |
 | `"retro"` | warm cream paper, heavy film grain, bouncing serif, iris wipes | light | calm |
+| `"announcement"` | cream and forest-green scenes in turn, italic serif accent words, huge numbers; use a mint accent | both | energetic |
 
 `kaviri motion --styles` prints this list.
 
@@ -84,6 +87,20 @@ Pick one per beat. Leave `show` out for a big headline on its own.
 | `{"icons":["chat","code","ai","mail","terminal"]}` | icons orbiting in 3D with light trails. Names: `files browser mail chat music photos calendar notes settings terminal code camera video maps store ai game wallet device`; any other word becomes a tile of its first letter, and an emoji (`"🌙"`, `"🎧"`) becomes a tile of that emoji, so any product can have icons |
 | `{"chips":["Fast","Private","Free"]}` | labels that pop in one by one |
 | `{"strike":["Old way one.","Old way two."]}` | lines that get crossed out |
+| `{"number":"$400M","label":"Series F"}` | one huge number counting up to its value |
+| `{"roll":["Seed","Series A","Series F"]}` | a list that rolls up like a slot machine and stops on the last line |
+| `{"photo":"landscape.jpg"}` | a photo filling the whole frame, the headline in white on it |
+| `{"stack":["a.jpg","b.jpg","c.jpg"]}` | photo cards fanned out, rising one by one |
+
+## Mix and match
+
+- **Two things side by side:** make `show` a list of two, `"show":[{"stack":[…]},{"number":"$400M"}]`.
+  Good pairs: `stack` + `number`, `roll` + `photo`, `type` + `stats`, `code` + `list`.
+- **A different look for one beat:** add `"style":"terminal"` (any style) to that beat.
+- **The other ground for one beat:** add `"theme":"light"` or `"theme":"dark"` to that beat.
+
+Walkthroughs with pictures of every step: `docs/motion-walkthroughs.md`
+(https://kaviri.dev/docs/motion-walkthroughs/).
 
 ## Rules that make it good
 

@@ -1,0 +1,10 @@
+{"op":"video","size":[1920,1080],"bpm":120}
+{"op":"scene","id":"hook","dur":"2bar"}
+{"op":"text","scene":"hook","text":"Ship the [demo.]","size":140,"in":{"fx":"wave","at":"1b","dur":"1b"}}
+{"op":"background","kind":"nebula"}
+{"op":"music","key":"F#m","sections":[{"bars":2,"part":"build"},{"bars":2,"part":"drop"}]}
+{"op":"particles","scene":"hook","kind":"rays","at":"5b","dur":"3b"}
+{"op":"scene","id":"product","dur":"2bar","transition":"flash"}
+{"op":"ui","id":"box","scene":"product","kind":"input","w":900,"chips":["GPT","Claude"],"in":{"fx":"rise","at":0}}
+{"op":"act","target":"box","do":"type","at":"1b","text":"Record the checkout flow"}
+{"op":"act","target":"box","do":"click","sel":".kv-send","at":"6b"}

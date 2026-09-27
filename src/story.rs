@@ -25,7 +25,8 @@ pub const STORY_OPS: &[&str] = &["brand", "beat", "end"];
 
 /// The things a beat can show under its headline.
 pub const SHOWS: &[&str] = &[
-    "image", "code", "type", "list", "stats", "icons", "chips", "strike",
+    "image", "photo", "code", "type", "list", "stats", "number", "roll", "icons", "chips",
+    "strike", "stack",
 ];
 
 /// A look: how every beat moves, what it sits on, and what the music defaults to.
@@ -56,6 +57,14 @@ struct Style {
     paper: Option<&'static str>,
     grain: Option<f64>,
     vignette: Option<f64>,
+    /// Beats take turns on the light and the dark ground.
+    alternate: bool,
+    /// The two grounds when a style alternates or a beat asks for the other theme.
+    paper_light: Option<&'static str>,
+    paper_dark: Option<&'static str>,
+    /// A second face for the [accent] words: italic serif inside a sans headline.
+    accent_font: Option<&'static str>,
+    accent_italic: bool,
 }
 
 /// The looks a brand can ask for with `"style"`. The first is the default.
@@ -86,6 +95,11 @@ const STYLES: &[Style] = &[
         paper: None,
         grain: None,
         vignette: None,
+        alternate: false,
+        paper_light: None,
+        paper_dark: None,
+        accent_font: None,
+        accent_italic: false,
     },
     Style {
         name: "minimal",
@@ -111,6 +125,11 @@ const STYLES: &[Style] = &[
         paper: None,
         grain: None,
         vignette: None,
+        alternate: false,
+        paper_light: None,
+        paper_dark: None,
+        accent_font: None,
+        accent_italic: false,
     },
     Style {
         name: "neon",
@@ -136,6 +155,11 @@ const STYLES: &[Style] = &[
         paper: None,
         grain: None,
         vignette: None,
+        alternate: false,
+        paper_light: None,
+        paper_dark: None,
+        accent_font: None,
+        accent_italic: false,
     },
     Style {
         name: "editorial",
@@ -161,6 +185,11 @@ const STYLES: &[Style] = &[
         paper: None,
         grain: None,
         vignette: None,
+        alternate: false,
+        paper_light: None,
+        paper_dark: None,
+        accent_font: None,
+        accent_italic: false,
     },
     Style {
         name: "playful",
@@ -186,6 +215,11 @@ const STYLES: &[Style] = &[
         paper: None,
         grain: None,
         vignette: None,
+        alternate: false,
+        paper_light: None,
+        paper_dark: None,
+        accent_font: None,
+        accent_italic: false,
     },
     Style {
         name: "cinematic",
@@ -211,6 +245,11 @@ const STYLES: &[Style] = &[
         paper: None,
         grain: None,
         vignette: None,
+        alternate: false,
+        paper_light: None,
+        paper_dark: None,
+        accent_font: None,
+        accent_italic: false,
     },
     Style {
         name: "brutalist",
@@ -236,6 +275,11 @@ const STYLES: &[Style] = &[
         paper: Some("#ffffff"),
         grain: Some(0.0),
         vignette: Some(0.0),
+        alternate: false,
+        paper_light: None,
+        paper_dark: None,
+        accent_font: None,
+        accent_italic: false,
     },
     Style {
         name: "luxury",
@@ -261,6 +305,11 @@ const STYLES: &[Style] = &[
         paper: Some("#070608"),
         grain: Some(0.04),
         vignette: Some(0.7),
+        alternate: false,
+        paper_light: None,
+        paper_dark: None,
+        accent_font: None,
+        accent_italic: false,
     },
     Style {
         name: "terminal",
@@ -286,6 +335,11 @@ const STYLES: &[Style] = &[
         paper: Some("#050705"),
         grain: Some(0.05),
         vignette: Some(0.6),
+        alternate: false,
+        paper_light: None,
+        paper_dark: None,
+        accent_font: None,
+        accent_italic: false,
     },
     Style {
         name: "hype",
@@ -311,6 +365,11 @@ const STYLES: &[Style] = &[
         paper: None,
         grain: None,
         vignette: None,
+        alternate: false,
+        paper_light: None,
+        paper_dark: None,
+        accent_font: None,
+        accent_italic: false,
     },
     Style {
         name: "corporate",
@@ -336,6 +395,11 @@ const STYLES: &[Style] = &[
         paper: Some("#f6f8fb"),
         grain: Some(0.0),
         vignette: Some(0.0),
+        alternate: false,
+        paper_light: None,
+        paper_dark: None,
+        accent_font: None,
+        accent_italic: false,
     },
     Style {
         name: "retro",
@@ -361,6 +425,41 @@ const STYLES: &[Style] = &[
         paper: Some("#f1e6d0"),
         grain: Some(0.14),
         vignette: Some(0.4),
+        alternate: false,
+        paper_light: None,
+        paper_dark: None,
+        accent_font: None,
+        accent_italic: false,
+    },
+    Style {
+        name: "announcement",
+        entrances: &["rise", "blur", "mask", "dots", "rise"],
+        transitions: &["slide", "push", "dissolve", "slide", "push"],
+        drop: "push",
+        shake: false,
+        burst: false,
+        confetti: false,
+        rays: false,
+        light: true,
+        background: "flat",
+        font: None,
+        weight: 500,
+        tracking: -0.035,
+        upper: false,
+        glow: false,
+        mood: "energetic",
+        pulse: 0.0,
+        letterbox: 0.0,
+        about: "cream and forest-green scenes in turn, italic serif accent words, huge counting numbers. Light and dark, energetic (try a mint accent)",
+        italic: false,
+        paper: Some("#f2efe8"),
+        grain: Some(0.02),
+        vignette: Some(0.0),
+        alternate: true,
+        paper_light: Some("#f2efe8"),
+        paper_dark: Some("#06170f"),
+        accent_font: Some("Georgia, 'DejaVu Serif', 'Times New Roman', serif"),
+        accent_italic: true,
     },
 ];
 
@@ -660,6 +759,12 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
             if let Some(g) = st.vignette {
                 v["vignette"] = json!(g);
             }
+            // Light and dark beats in one video: a heavy vignette muddies the light ones.
+            let mixed = st.alternate || beats.iter().any(|(_, b)| b.get("theme").is_some());
+            if mixed {
+                let cur = v["vignette"].as_f64().unwrap_or(0.55);
+                v["vignette"] = json!(cur.min(0.15));
+            }
         }
     }
 
@@ -741,9 +846,6 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
     }
 
     // The beats.
-    let head_em = 0.53 + if st.upper { 0.16 } else { 0.0 } + st.tracking.max(0.0);
-    let entrances = st.entrances;
-    let transitions = st.transitions;
     let mut t_i = 0usize;
     for (i, (no, b)) in beats.iter().enumerate() {
         let no = *no;
@@ -754,45 +856,125 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
             .as_str()
             .ok_or_else(|| format!("line {no}: a beat needs \"text\", its headline"))?
             .to_string();
+        // A beat may borrow another style's motion, and sit on the other ground.
+        let bst = match b["style"].as_str() {
+            Some(name) => STYLES.iter().find(|s| s.name == name).ok_or_else(|| {
+                format!(
+                    "line {no}: style is one of {}, got \"{name}\"",
+                    style_names().join(", ")
+                )
+            })?,
+            None => st,
+        };
+        let beat_light = match b["theme"].as_str() {
+            Some("light") => true,
+            Some("dark") => false,
+            Some(other) => {
+                return Err(format!(
+                    "line {no}: theme is \"light\" or \"dark\", got \"{other}\""
+                ))
+            }
+            None if st.alternate => {
+                if i % 2 == 0 {
+                    light
+                } else {
+                    !light
+                }
+            }
+            None => light,
+        };
+        let (b_ink, b_muted) = if beat_light {
+            ("#0f0f10", "#5a5a57")
+        } else {
+            ("#f5f5f4", "#9a9a96")
+        };
+        let head_em = 0.53 + if bst.upper { 0.16 } else { 0.0 } + bst.tracking.max(0.0);
         let is_drop = drop_at == Some(i) && n >= 2;
         let is_build = drop_at.is_some_and(|d| d > 0 && i + 1 == d);
         let mut scene = json!({"op": "scene", "id": id, "dur": format!("{bars}bar")});
+        if beat_light != light {
+            scene["bg"] = json!(ground(bst, st, beat_light));
+        }
         if i > 0 {
             if is_drop {
-                scene["transition"] = json!({"kind": st.drop, "dur": if st.drop == "flash" || st.drop == "glitch" { "0.5b" } else { "1b" }});
+                scene["transition"] = json!({"kind": bst.drop, "dur": if bst.drop == "flash" || bst.drop == "glitch" { "0.5b" } else { "1b" }});
             } else {
                 scene["transition"] =
-                    json!({"kind": transitions[t_i % transitions.len()], "dur": "1b"});
+                    json!({"kind": bst.transitions[t_i % bst.transitions.len()], "dur": "1b"});
                 t_i += 1;
             }
         }
         out.push(no, scene);
-        if is_drop && st.confetti {
+        let blend = if beat_light { "normal" } else { "screen" };
+        if is_drop && bst.confetti {
             out.push(no, json!({"op": "particles", "scene": id, "kind": "confetti", "at": "0.25b", "count": 140,
                 "oy": "55%", "colors": [accent, "#ffcf3f", "#ff5d8f", "#34c77b", "#5b8cff"]}));
         }
-        if is_drop && st.shake {
+        if is_drop && bst.shake {
             out.push(
                 no,
                 json!({"op": "shake", "scene": id, "at": 0, "dur": "1b", "amp": 12}),
             );
         }
-        if is_drop && st.burst {
-            out.push(no, json!({"op": "particles", "scene": id, "kind": "shockwave", "at": 0, "dur": "2b",
-                "rings": 3, "width": 10, "colors": [accent, ink], "blend": if light { "normal" } else { "screen" }}));
-            out.push(no, json!({"op": "particles", "scene": id, "kind": "burst", "at": 0, "count": 90,
-                "speed": 1100, "colors": [accent, ink], "blend": if light { "normal" } else { "screen" }}));
+        if is_drop && bst.burst {
+            out.push(
+                no,
+                json!({"op": "particles", "scene": id, "kind": "shockwave", "at": 0, "dur": "2b",
+                "rings": 3, "width": 10, "colors": [accent, b_ink], "blend": blend}),
+            );
+            out.push(
+                no,
+                json!({"op": "particles", "scene": id, "kind": "burst", "at": 0, "count": 90,
+                "speed": 1100, "colors": [accent, b_ink], "blend": blend}),
+            );
         }
-        if is_build && st.rays {
+        if is_build && bst.rays {
             out.push(no, json!({"op": "particles", "scene": id, "kind": "rays", "at": format!("{}b", (beats_long * 0.6).round()),
                 "dur": format!("{}b", beats_long - (beats_long * 0.6).round()), "count": 150, "speed": 1.5,
-                "colors": [accent, ink], "blend": if light { "multiply" } else { "screen" }}));
+                "colors": [accent, b_ink], "blend": if beat_light { "multiply" } else { "screen" }}));
         }
 
-        let show = b.get("show");
-        let fx = entrances[i % entrances.len()];
+        // What the beat shows: nothing, one thing, or two side by side.
+        let shows: Vec<&Value> = match b.get("show") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Array(a)) => a.iter().collect(),
+            Some(one) => vec![one],
+        };
+        if shows.len() > 2 {
+            return Err(format!(
+                "line {no}: a beat shows at most two things side by side, got {}",
+                shows.len()
+            ));
+        }
+        let mut kinds = Vec::new();
+        for sh in &shows {
+            let ks: Vec<&str> = SHOWS
+                .iter()
+                .copied()
+                .filter(|s| sh.get(*s).is_some())
+                .collect();
+            // A typed prompt may carry chips (the models it is sent to); they are its option, not a second show.
+            let ks: Vec<&str> = if ks.contains(&"type") {
+                vec!["type"]
+            } else {
+                ks
+            };
+            if ks.len() != 1 {
+                return Err(format!(
+                    "line {no}: each show holds exactly one of: {} (for example {{\"image\":\"shot.png\"}}); for two things use a list: \"show\":[{{…}},{{…}}]",
+                    SHOWS.join(", ")
+                ));
+            }
+            kinds.push(ks[0]);
+        }
+        // A photo on its own fills the frame, and the headline sits on it.
+        let full_photo = shows.len() == 1 && kinds[0] == "photo";
+
+        let fx = bst.entrances[i % bst.entrances.len()];
         let split = if fx == "mask" || fx == "rise" {
             "word"
+        } else if SPLIT_WHOLE.contains(&fx) {
+            "none"
         } else {
             "char"
         };
@@ -800,220 +982,103 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
         if split == "word" {
             inn["stagger"] = json!("0.25b");
         }
+        let head = |size: f64, y: &str, fixed: bool, color: &str| -> Value {
+            let mut t = json!({"op": "text", "id": format!("{id}_t"), "scene": id, "text": text, "size": size,
+                "weight": bst.weight, "tracking": bst.tracking, "upper": bst.upper, "italic": bst.italic,
+                "leading": 1.1, "y": y, "in": inn, "color": color});
+            if fixed {
+                t["fixed"] = json!(true);
+            }
+            // A borrowed style brings its typeface with it.
+            if !std::ptr::eq(bst, st) {
+                if let Some(f) = bst.font {
+                    t["font"] = json!(f);
+                }
+            }
+            if let Some(f) = bst.accent_font.or(st.accent_font) {
+                t["accent_font"] = json!(f);
+                t["accent_italic"] = json!(bst.accent_italic || st.accent_italic);
+            }
+            t
+        };
         let sub = b["sub"].as_str();
-        if show.is_none() {
-            let size = fit_size_em(&text, w, k, 140.0, head_em);
-            out.push(no, json!({"op": "text", "id": format!("{id}_t"), "scene": id, "text": text, "size": size,
-                "weight": st.weight, "tracking": st.tracking, "upper": st.upper, "italic": st.italic, "leading": 1.1, "y": if sub.is_some() { "44%" } else { "50%" },
-                "in": inn, "loop": {"fx": "glow", "amp": if light || !st.glow { 0 } else { 14 }}}));
+        if shows.is_empty() || full_photo {
+            if full_photo {
+                let src = shows[0]["photo"]
+                    .as_str()
+                    .ok_or_else(|| format!("line {no}: show.photo is a file path"))?;
+                out.push(no, json!({"op": "image", "scene": id, "src": src, "w": w, "h": h, "fit": "cover",
+                    "scale": 1.12, "keys": [{"t": format!("{bars}bar"), "scale": 1.0, "ease": "outCubic"}],
+                    "in": {"fx": "fade", "at": 0, "dur": "0.5b"}}));
+                out.push(
+                    no,
+                    json!({"op": "shape", "scene": id, "kind": "rect", "w": w, "h": h, "radius": 0,
+                    "fill": ["rgba(0,0,0,.05)", "rgba(0,0,0,.45)"], "angle": 180}),
+                );
+            }
+            let color = if full_photo { "#ffffff" } else { b_ink };
+            let mut t = head(
+                fit_size_em(&text, w, k, 140.0, head_em),
+                if sub.is_some() { "44%" } else { "50%" },
+                false,
+                color,
+            );
+            t["loop"] = json!({"fx": "glow", "amp": if beat_light || !bst.glow || full_photo { 0 } else { 14 }});
+            if full_photo {
+                t["shadow"] = json!(true);
+            }
+            out.push(no, t);
             if let Some(s) = sub {
                 out.push(no, json!({"op": "text", "scene": id, "text": s, "size": fit_size(s, w, k, 44.0),
-                    "weight": 500, "color": muted, "y": "60%", "in": {"fx": "blur", "at": "2b", "dur": "1b"}}));
+                    "weight": 500, "color": if full_photo { "rgba(255,255,255,.85)" } else { b_muted }, "y": "60%",
+                    "in": {"fx": "blur", "at": "2b", "dur": "1b"}}));
             }
             continue;
         }
-        let show = show.unwrap();
-        let kinds: Vec<&str> = SHOWS
-            .iter()
-            .copied()
-            .filter(|s| show.get(*s).is_some())
-            .collect();
-        // A typed prompt may carry chips (the models it is sent to); they are its option, not a second show.
-        let kinds: Vec<&str> = if kinds.contains(&"type") {
-            vec!["type"]
-        } else {
-            kinds
-        };
-        if kinds.len() != 1 {
-            return Err(format!(
-                "line {no}: \"show\" holds exactly one of: {} (for example {{\"image\":\"shot.png\"}})",
-                SHOWS.join(", ")
-            ));
-        }
-        let size = fit_size_em(&text, w, k, 84.0, head_em);
         out.push(
             no,
-            json!({"op": "text", "id": format!("{id}_t"), "scene": id, "fixed": true, "text": text,
-            "size": size, "weight": st.weight, "tracking": st.tracking, "upper": st.upper, "italic": st.italic, "leading": 1.1,
-            "y": if vertical { "12%" } else { "15%" }, "in": inn}),
+            head(
+                fit_size_em(&text, w, k, 84.0, head_em),
+                if vertical { "12%" } else { "15%" },
+                true,
+                b_ink,
+            ),
         );
         let mut body_y = if vertical { 52.0 } else { 58.0 };
         if let Some(s) = sub {
             out.push(no, json!({"op": "text", "scene": id, "fixed": true, "text": s, "size": fit_size(s, w, k, 30.0),
-                "weight": 500, "color": muted, "y": if vertical { "17.5%" } else { "24%" },
+                "weight": 500, "color": b_muted, "y": if vertical { "17.5%" } else { "24%" },
                 "in": {"fx": "fade", "at": "1b"}}));
             body_y += 2.0;
         }
-        let y = format!("{body_y}%");
-        let end_b = format!("{}b", (beats_long - 1.5).max(1.0));
-        match kinds[0] {
-            "image" => {
-                let src = show["image"]
-                    .as_str()
-                    .ok_or_else(|| format!("line {no}: show.image is a file path"))?;
-                let fw = if vertical { w * 0.86 } else { w * 0.6 };
-                let fh = show["height"].as_f64().map(|x| x * k).unwrap_or(fw * 0.62);
-                let frame = show["frame"].as_str().unwrap_or("browser");
-                if frame == "none" {
-                    out.push(no, json!({"op": "image", "id": format!("{id}_s"), "scene": id, "src": src, "w": fw, "h": fh,
-                        "fit": "cover", "radius": 14, "shadow": true, "y": y, "rx": 24, "scale": 0.9,
-                        "keys": [{"t": "2b", "rx": 0, "scale": 1, "ease": "outExpo"}],
-                        "in": {"fx": "fly", "at": 0, "dur": "1.5b"}, "loop": {"fx": "float", "amp": 6, "period": 4}}));
-                } else {
-                    let mut win = json!({"op": "ui", "id": format!("{id}_s"), "scene": id, "kind": "window",
-                        "w": fw, "h": fh + 38.0, "y": y, "rx": 24, "scale": 0.9,
-                        "keys": [{"t": "2b", "rx": 0, "scale": 1, "ease": "outExpo"}],
-                        "in": {"fx": "fly", "at": 0, "dur": "1.5b"}, "loop": {"fx": "float", "amp": 6, "period": 4}});
-                    win["url"] = json!(show["url"]
-                        .as_str()
-                        .map(str::to_string)
-                        .or_else(|| url.clone())
-                        .unwrap_or_default());
-                    out.push(no, win);
-                    out.push(no, json!({"op": "image", "parent": format!("{id}_s"), "src": src, "w": fw, "h": fh,
-                        "fit": "cover", "anchor": [0, 0], "x": 0, "y": 0}));
-                }
-            }
-            "code" => {
-                let code = show["code"]
-                    .as_str()
-                    .ok_or_else(|| format!("line {no}: show.code is the code, as text"))?;
-                let cw = if vertical { w * 0.9 } else { w * 0.62 };
-                out.push(no, json!({"op": "ui", "id": format!("{id}_s"), "scene": id, "kind": "code", "code": code,
-                    "title": show["title"].as_str().unwrap_or("terminal"), "lang": show["lang"].as_str().unwrap_or("sh"),
-                    "size": (23.0 * k).round(), "w": cw, "y": y, "ry": if vertical { 0 } else { -10 },
-                    "keys": [{"t": end_b, "ry": 0}], "in": {"fx": "rise", "at": 0, "dur": "1b"}}));
-                out.push(
-                    no,
-                    json!({"op": "act", "target": format!("{id}_s"), "do": "type", "at": "0.5b",
-                    "dur": format!("{}b", (beats_long - 2.5).max(1.0))}),
-                );
-            }
-            "type" => {
-                let typed = show["type"]
-                    .as_str()
-                    .ok_or_else(|| format!("line {no}: show.type is the text to type"))?;
-                let iw = if vertical { w * 0.7 } else { w * 0.42 };
-                let mut input = json!({"op": "ui", "id": format!("{id}_s"), "scene": id, "kind": "input", "w": iw,
-                    "y": y, "scale": 1.7 * k, "in": {"fx": "rise", "at": 0, "dur": "1b"},
-                    "placeholder": show["placeholder"].as_str().unwrap_or("Ask anything…")});
-                if let Some(c) = show.get("chips") {
-                    input["chips"] = c.clone();
-                }
-                out.push(no, input);
-                let n_chars = typed.chars().count() as f64;
-                let room = ((beats_long - 3.0) * 0.5 * 120.0 / 120.0).max(0.8);
-                out.push(
-                    no,
-                    json!({"op": "act", "target": format!("{id}_s"), "do": "type", "at": "1b",
-                    "text": typed, "cps": (n_chars / room).max(12.0)}),
-                );
-                out.push(no, json!({"op": "act", "target": format!("{id}_s"), "do": "click", "sel": ".kv-send", "at": end_b}));
-            }
-            "list" => {
-                let items: Vec<String> = show["list"]
-                    .as_array()
-                    .ok_or_else(|| format!("line {no}: show.list is a list of lines"))?
-                    .iter()
-                    .filter_map(|x| x.as_str().map(str::to_string))
-                    .collect();
-                let rows: Vec<Value> = items
-                    .iter()
-                    .map(|l| json!({"label": l, "check": false}))
-                    .collect();
-                out.push(no, json!({"op": "ui", "id": format!("{id}_s"), "scene": id, "kind": "list", "items": rows,
-                    "w": if vertical { w * 0.5 } else { w * 0.26 }, "y": y, "scale": 2.1 * k,
-                    "in": {"fx": "rise", "at": 0, "dur": "1b"}}));
-                for (j, _) in items.iter().enumerate() {
-                    out.push(no, json!({"op": "act", "target": format!("{id}_s"), "do": "check", "index": j,
-                        "at": format!("{}b", 1.5 + j as f64 * ((beats_long - 3.0) / items.len().max(1) as f64).min(1.0))}));
-                }
-            }
-            "stats" => {
-                let stats = show["stats"].as_array().ok_or_else(|| format!("line {no}: show.stats is a list of [\"20,641+\", \"happy customers\"] pairs"))?;
-                out.push(
-                    no,
-                    json!({"op": "group", "id": format!("{id}_s"), "scene": id, "y": y,
-                    "layout": {"kind": if vertical { "column" } else { "row" }, "gap": 110.0 * k},
-                    "cascade": {"fx": "rise", "at": "0.5b", "stagger": "0.35b"}}),
-                );
-                for (j, s) in stats.iter().enumerate() {
-                    let (big, label) = match s {
-                        Value::Array(a) => (
-                            a.first().and_then(Value::as_str).unwrap_or("0"),
-                            a.get(1).and_then(Value::as_str).unwrap_or(""),
-                        ),
-                        Value::String(x) => (x.as_str(), ""),
-                        _ => return Err(format!("line {no}: each stat is [\"value\", \"label\"]")),
-                    };
-                    let (prefix, value, suffix, decimals) = parse_stat(big);
-                    let sid = format!("{id}_s{j}");
-                    out.push(no, json!({"op": "ui", "id": sid, "parent": format!("{id}_s"), "kind": "stat", "value": 0,
-                        "prefix": prefix, "suffix": suffix, "decimals": decimals, "label": label,
-                        "size": (104.0 * k).round(), "w": (if vertical { w * 0.8 } else { w * 0.8 / stats.len().max(1) as f64 }).round(), "color": if j == 0 { accent.clone() } else { ink.to_string() }}));
-                    out.push(
-                        no,
-                        json!({"op": "act", "target": sid, "do": "count", "to": value,
-                        "at": format!("{}b", 0.8 + j as f64 * 0.35), "dur": "2.5b"}),
-                    );
-                }
-            }
-            "icons" => {
-                let names = show["icons"]
-                    .as_array()
-                    .ok_or_else(|| format!("line {no}: show.icons is a list of icon names"))?;
-                let r = if vertical { w * 0.38 } else { w * 0.27 };
-                out.push(no, json!({"op": "group", "id": format!("{id}_s"), "scene": id, "y": y,
-                    "layout": {"kind": "orbit", "rx": r, "ry": r * 0.3, "period": 7, "depth": 0.45, "tilt": -6},
-                    "trail": {"len": 0.5, "width": 5, "color": accent, "opacity": 0.6},
-                    "cascade": {"fx": "pop", "at": "0.25b", "stagger": "0.2b"}}));
-                for nm in names.iter().filter_map(Value::as_str) {
-                    if crate::icons::art(nm).is_some() {
-                        out.push(no, json!({"op": "icon", "parent": format!("{id}_s"), "name": nm, "size": (100.0 * k).round()}));
-                    } else {
-                        let glyph: String = nm.chars().take(1).collect::<String>().to_uppercase();
-                        out.push(no, json!({"op": "ui", "parent": format!("{id}_s"), "kind": "tile", "glyph": glyph,
-                            "size": (96.0 * k).round(), "bg": [accent, mix(&accent, (0.0, 0.0, 0.0), 0.35)]}));
-                    }
-                }
-            }
-            "chips" => {
-                let chips = show["chips"]
-                    .as_array()
-                    .ok_or_else(|| format!("line {no}: show.chips is a list of short labels"))?;
-                out.push(
-                    no,
-                    json!({"op": "group", "id": format!("{id}_s"), "scene": id, "y": y,
-                    "layout": {"kind": if vertical { "column" } else { "row" }, "gap": 22.0 * k},
-                    "cascade": {"fx": "pop", "at": "1b", "stagger": "0.5b", "sfx": "pop"}}),
-                );
-                for c in chips.iter().filter_map(Value::as_str) {
-                    out.push(
-                        no,
-                        json!({"op": "ui", "parent": format!("{id}_s"), "kind": "chip", "label": c,
-                        "icon": "✓", "color": accent, "size": (40.0 * k).round()}),
-                    );
-                }
-            }
-            "strike" => {
-                let items = show["strike"].as_array().ok_or_else(|| {
-                    format!("line {no}: show.strike is a list of lines to cross out")
-                })?;
-                out.push(no, json!({"op": "group", "id": format!("{id}_s"), "scene": id, "y": y,
-                    "layout": {"kind": "column", "gap": 20.0 * k}, "cascade": {"fx": "rise", "at": "0.5b", "stagger": "0.4b"}}));
-                for (j, s) in items.iter().filter_map(Value::as_str).enumerate() {
-                    let sid = format!("{id}_x{j}");
-                    out.push(no, json!({"op": "text", "id": sid, "parent": format!("{id}_s"), "text": format!("~{s}~"),
-                        "size": fit_size(s, w, k, 56.0), "weight": 500, "color": muted, "strike_color": accent}));
-                    out.push(
-                        no,
-                        json!({"op": "act", "target": sid, "do": "strike",
-                        "at": format!("{}b", 2.5 + j as f64 * 0.5), "dur": "0.4b"}),
-                    );
-                    out.push(no, json!({"op": "sfx", "kind": "tick", "scene": id, "at": format!("{}b", 2.5 + j as f64 * 0.5), "pitch": 1.0 + j as f64 * 0.2}));
-                }
-            }
-            _ => unreachable!(),
+        for (j, sh) in shows.iter().enumerate() {
+            let two = shows.len() == 2;
+            let (cx, span, y) = match (two, vertical) {
+                (false, _) => (0.5, 1.0, body_y),
+                (true, false) => (if j == 0 { 0.27 } else { 0.73 }, 0.46, body_y),
+                (true, true) => (0.5, 1.0, if j == 0 { 40.0 } else { 72.0 }),
+            };
+            let slot = Slot {
+                no,
+                id: if two { format!("{id}_{j}") } else { id.clone() },
+                scene: id.clone(),
+                x: format!("{}%", cx * 100.0),
+                y: format!("{y}%"),
+                span: w * span,
+                w,
+                h,
+                k,
+                vertical,
+                beats_long,
+                accent: accent.clone(),
+                ink: b_ink,
+                muted: b_muted,
+                url: url.clone(),
+                delay: if two && j == 1 { 0.5 } else { 0.0 },
+                compact: two,
+                ground: ground(bst, st, beat_light),
+            };
+            build_show(&mut out, &slot, kinds[j], sh)?;
         }
     }
 
@@ -1049,6 +1114,7 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
         if !light {
             out.push(no, json!({"op": "particles", "scene": id, "kind": "dust", "count": 45, "colors": [accent, "#ffffff"]}));
         }
+        let head_em = 0.53 + if st.upper { 0.16 } else { 0.0 } + st.tracking.max(0.0);
         let name_size = fit_size_em(&title, w * 0.7, k, 170.0, head_em);
         out.push(
             no,
@@ -1071,8 +1137,13 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
         out.push(no, json!({"op": "text", "parent": "end_lockup", "text": title, "size": name_size, "weight": st.weight.max(600),
             "tracking": if st.upper { 0.02 } else { -0.045 }, "upper": st.upper, "in": {"fx": "rise", "at": "0.75b", "dur": "1b", "stagger": "0.08b"}}));
         if let Some(t) = e["tagline"].as_str().or_else(|| brand["tagline"].as_str()) {
-            out.push(no, json!({"op": "text", "scene": id, "text": t, "size": fit_size(t, w, k, 40.0), "weight": 600,
-                "tracking": -0.02, "y": "61%", "in": {"fx": "blur", "at": "2.5b", "dur": "1b"}}));
+            let mut tl = json!({"op": "text", "scene": id, "text": t, "size": fit_size(t, w, k, 44.0), "weight": 600,
+                "tracking": -0.02, "y": "61%", "in": {"fx": "blur", "at": "2.5b", "dur": "1b"}});
+            if let Some(f) = st.accent_font {
+                tl["accent_font"] = json!(f);
+                tl["accent_italic"] = json!(st.accent_italic);
+            }
+            out.push(no, tl);
         }
         if let Some(u) = e["url"].as_str().map(str::to_string).or(url) {
             out.push(no, json!({"op": "ui", "scene": id, "kind": "button", "label": u, "size": (24.0 * k).round(),
@@ -1081,6 +1152,370 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
         }
     }
     Ok(out.ops)
+}
+
+/// Entrances that animate a headline as one block rather than letter by letter.
+const SPLIT_WHOLE: &[&str] = &["dots", "fade", "zoom", "fly"];
+
+/// Where one show goes: its scene, its centre, how much width it has, and the look around it.
+struct Slot {
+    no: usize,
+    /// A prefix for the ids this show creates.
+    id: String,
+    scene: String,
+    x: String,
+    y: String,
+    span: f64,
+    w: f64,
+    h: f64,
+    k: f64,
+    vertical: bool,
+    beats_long: f64,
+    accent: String,
+    ink: &'static str,
+    muted: &'static str,
+    url: Option<String>,
+    /// Beats to wait, so the second of two shows lands after the first.
+    delay: f64,
+    /// Half the frame: smaller type, fewer columns.
+    compact: bool,
+    /// The colour behind this show, for fades that have to match it.
+    ground: String,
+}
+
+impl Slot {
+    fn at(&self, beats: f64) -> String {
+        format!("{}b", beats + self.delay)
+    }
+}
+
+fn strings(v: &Value, what: &str, no: usize) -> Result<Vec<String>, String> {
+    Ok(v.as_array()
+        .ok_or_else(|| format!("line {no}: show.{what} is a list"))?
+        .iter()
+        .filter_map(|x| x.as_str().map(str::to_string))
+        .collect())
+}
+
+fn build_show(out: &mut Out, sl: &Slot, kind: &str, show: &Value) -> Result<(), String> {
+    let no = sl.no;
+    let id = &sl.id;
+    let scene = &sl.scene;
+    let k = sl.k;
+    let span = sl.span;
+    let beats_long = sl.beats_long;
+    let end_b = format!("{}b", (beats_long - 1.5).max(1.0));
+    let scale_c = if sl.compact { 0.72 } else { 1.0 };
+    match kind {
+        "image" | "photo" => {
+            let src = show[kind]
+                .as_str()
+                .ok_or_else(|| format!("line {no}: show.{kind} is a file path"))?;
+            let fw = if sl.vertical {
+                span * 0.86
+            } else if sl.compact {
+                span * 0.92
+            } else {
+                span * 0.6
+            };
+            let fh = show["height"]
+                .as_f64()
+                .map(|x| x * k)
+                .unwrap_or(fw * if kind == "photo" { 0.66 } else { 0.62 });
+            let frame = if kind == "photo" {
+                "none"
+            } else {
+                show["frame"].as_str().unwrap_or("browser")
+            };
+            if frame == "none" {
+                out.push(no, json!({"op": "image", "id": format!("{id}_s"), "scene": scene, "src": src, "w": fw, "h": fh,
+                    "fit": "cover", "radius": 14, "shadow": true, "x": sl.x, "y": sl.y, "rx": 24, "scale": 0.9,
+                    "keys": [{"t": sl.at(2.0), "rx": 0, "scale": 1, "ease": "outExpo"}],
+                    "in": {"fx": "fly", "at": sl.at(0.0), "dur": "1.5b"}, "loop": {"fx": "float", "amp": 6, "period": 4}}));
+            } else {
+                let mut win = json!({"op": "ui", "id": format!("{id}_s"), "scene": scene, "kind": "window",
+                    "w": fw, "h": fh + 38.0, "x": sl.x, "y": sl.y, "rx": 24, "scale": 0.9,
+                    "keys": [{"t": sl.at(2.0), "rx": 0, "scale": 1, "ease": "outExpo"}],
+                    "in": {"fx": "fly", "at": sl.at(0.0), "dur": "1.5b"}, "loop": {"fx": "float", "amp": 6, "period": 4}});
+                win["url"] = json!(show["url"]
+                    .as_str()
+                    .map(str::to_string)
+                    .or_else(|| sl.url.clone())
+                    .unwrap_or_default());
+                out.push(no, win);
+                out.push(
+                    no,
+                    json!({"op": "image", "parent": format!("{id}_s"), "src": src, "w": fw, "h": fh,
+                    "fit": "cover", "anchor": [0, 0], "x": 0, "y": 0}),
+                );
+            }
+        }
+        "code" => {
+            let code = show["code"]
+                .as_str()
+                .ok_or_else(|| format!("line {no}: show.code is the code, as text"))?;
+            let cw = if sl.vertical {
+                span * 0.9
+            } else if sl.compact {
+                span * 0.94
+            } else {
+                span * 0.62
+            };
+            out.push(no, json!({"op": "ui", "id": format!("{id}_s"), "scene": scene, "kind": "code", "code": code,
+                "title": show["title"].as_str().unwrap_or("terminal"), "lang": show["lang"].as_str().unwrap_or("sh"),
+                "size": (23.0 * k * scale_c).round(), "w": cw, "x": sl.x, "y": sl.y, "ry": if sl.vertical || sl.compact { 0 } else { -10 },
+                "keys": [{"t": end_b, "ry": 0}], "in": {"fx": "rise", "at": sl.at(0.0), "dur": "1b"}}));
+            out.push(
+                no,
+                json!({"op": "act", "target": format!("{id}_s"), "do": "type", "at": sl.at(0.5),
+                "dur": format!("{}b", (beats_long - 2.5 - sl.delay).max(1.0))}),
+            );
+        }
+        "type" => {
+            let typed = show["type"]
+                .as_str()
+                .ok_or_else(|| format!("line {no}: show.type is the text to type"))?;
+            let iw = if sl.vertical {
+                span * 0.7
+            } else if sl.compact {
+                span * 0.62
+            } else {
+                span * 0.42
+            };
+            let mut input = json!({"op": "ui", "id": format!("{id}_s"), "scene": scene, "kind": "input", "w": iw,
+                "x": sl.x, "y": sl.y, "scale": 1.7 * k * scale_c, "in": {"fx": "rise", "at": sl.at(0.0), "dur": "1b"},
+                "placeholder": show["placeholder"].as_str().unwrap_or("Ask anything…")});
+            if let Some(c) = show.get("chips") {
+                input["chips"] = c.clone();
+            }
+            out.push(no, input);
+            let n_chars = typed.chars().count() as f64;
+            let room = ((beats_long - 3.0 - sl.delay) * 0.5).max(0.8);
+            out.push(
+                no,
+                json!({"op": "act", "target": format!("{id}_s"), "do": "type", "at": sl.at(1.0),
+                "text": typed, "cps": (n_chars / room).max(12.0)}),
+            );
+            out.push(no, json!({"op": "act", "target": format!("{id}_s"), "do": "click", "sel": ".kv-send", "at": end_b}));
+        }
+        "list" => {
+            let items = strings(&show["list"], "list", no)?;
+            let rows: Vec<Value> = items
+                .iter()
+                .map(|l| json!({"label": l, "check": false}))
+                .collect();
+            out.push(no, json!({"op": "ui", "id": format!("{id}_s"), "scene": scene, "kind": "list", "items": rows,
+                "w": if sl.vertical || sl.compact { span * 0.5 } else { span * 0.26 },
+                "x": sl.x, "y": sl.y, "scale": 2.1 * k * scale_c, "in": {"fx": "rise", "at": sl.at(0.0), "dur": "1b"}}));
+            for (j, _) in items.iter().enumerate() {
+                out.push(no, json!({"op": "act", "target": format!("{id}_s"), "do": "check", "index": j,
+                    "at": sl.at(1.5 + j as f64 * ((beats_long - 3.0) / items.len().max(1) as f64).min(1.0))}));
+            }
+        }
+        "stats" => {
+            let stats = show["stats"].as_array().ok_or_else(|| {
+                format!(
+                    "line {no}: show.stats is a list of [\"20,641+\", \"happy customers\"] pairs"
+                )
+            })?;
+            let column = sl.vertical || sl.compact;
+            out.push(no, json!({"op": "group", "id": format!("{id}_s"), "scene": scene, "x": sl.x, "y": sl.y,
+                "layout": {"kind": if column { "column" } else { "row" }, "gap": if column { 30.0 * k } else { 110.0 * k }},
+                "cascade": {"fx": "rise", "at": sl.at(0.5), "stagger": "0.35b"}}));
+            for (j, st) in stats.iter().enumerate() {
+                let (big, label) = match st {
+                    Value::Array(a) => (
+                        a.first().and_then(Value::as_str).unwrap_or("0"),
+                        a.get(1).and_then(Value::as_str).unwrap_or(""),
+                    ),
+                    Value::String(x) => (x.as_str(), ""),
+                    _ => return Err(format!("line {no}: each stat is [\"value\", \"label\"]")),
+                };
+                let (prefix, value, suffix, decimals) = parse_stat(big);
+                let sid = format!("{id}_s{j}");
+                out.push(no, json!({"op": "ui", "id": sid, "parent": format!("{id}_s"), "kind": "stat", "value": 0,
+                    "prefix": prefix, "suffix": suffix, "decimals": decimals, "label": label,
+                    "size": (104.0 * k * if column && sl.compact { 0.75 } else { 1.0 }).round(),
+                    "w": (if column { span * 0.8 } else { span * 0.8 / stats.len().max(1) as f64 }).round(),
+                    "color": if j == 0 { sl.accent.clone() } else { sl.ink.to_string() }}));
+                out.push(
+                    no,
+                    json!({"op": "act", "target": sid, "do": "count", "to": value,
+                    "at": sl.at(0.8 + j as f64 * 0.35), "dur": "2.5b"}),
+                );
+            }
+        }
+        "icons" => {
+            let names = show["icons"]
+                .as_array()
+                .ok_or_else(|| format!("line {no}: show.icons is a list of icon names"))?;
+            let r = if sl.vertical {
+                span * 0.38
+            } else if sl.compact {
+                span * 0.36
+            } else {
+                span * 0.27
+            };
+            out.push(no, json!({"op": "group", "id": format!("{id}_s"), "scene": scene, "x": sl.x, "y": sl.y,
+                "layout": {"kind": "orbit", "rx": r, "ry": r * 0.3, "period": 7, "depth": 0.45, "tilt": -6},
+                "trail": {"len": 0.5, "width": 5, "color": sl.accent, "opacity": 0.6},
+                "cascade": {"fx": "pop", "at": sl.at(0.25), "stagger": "0.2b"}}));
+            for nm in names.iter().filter_map(Value::as_str) {
+                if crate::icons::art(nm).is_some() {
+                    out.push(no, json!({"op": "icon", "parent": format!("{id}_s"), "name": nm, "size": (100.0 * k * scale_c).round()}));
+                } else {
+                    let glyph: String = nm.chars().take(1).collect::<String>().to_uppercase();
+                    out.push(no, json!({"op": "ui", "parent": format!("{id}_s"), "kind": "tile", "glyph": glyph,
+                        "size": (96.0 * k * scale_c).round(), "bg": [sl.accent, mix(&sl.accent, (0.0, 0.0, 0.0), 0.35)]}));
+                }
+            }
+        }
+        "chips" => {
+            let chips = strings(&show["chips"], "chips", no)?;
+            let column = sl.vertical || sl.compact;
+            out.push(
+                no,
+                json!({"op": "group", "id": format!("{id}_s"), "scene": scene, "x": sl.x, "y": sl.y,
+                "layout": {"kind": if column { "column" } else { "row" }, "gap": 22.0 * k},
+                "cascade": {"fx": "pop", "at": sl.at(1.0), "stagger": "0.5b", "sfx": "pop"}}),
+            );
+            for c in chips {
+                out.push(
+                    no,
+                    json!({"op": "ui", "parent": format!("{id}_s"), "kind": "chip", "label": c,
+                    "icon": "✓", "color": sl.accent, "size": (40.0 * k * scale_c).round()}),
+                );
+            }
+        }
+        "strike" => {
+            let items = strings(&show["strike"], "strike", no)?;
+            out.push(no, json!({"op": "group", "id": format!("{id}_s"), "scene": scene, "x": sl.x, "y": sl.y,
+                "layout": {"kind": "column", "gap": 20.0 * k}, "cascade": {"fx": "rise", "at": sl.at(0.5), "stagger": "0.4b"}}));
+            for (j, s) in items.iter().enumerate() {
+                let sid = format!("{id}_x{j}");
+                out.push(no, json!({"op": "text", "id": sid, "parent": format!("{id}_s"), "text": format!("~{s}~"),
+                    "size": fit_size(s, span, k, 56.0 * scale_c), "weight": 500, "color": sl.muted, "strike_color": sl.accent}));
+                out.push(no, json!({"op": "act", "target": sid, "do": "strike", "at": sl.at(2.5 + j as f64 * 0.5), "dur": "0.4b"}));
+                out.push(no, json!({"op": "sfx", "kind": "tick", "scene": scene, "at": sl.at(2.5 + j as f64 * 0.5), "pitch": 1.0 + j as f64 * 0.2}));
+            }
+        }
+        // A number too big for the frame's comfort, counting up to where it lands.
+        "number" => {
+            let big = show["number"]
+                .as_str()
+                .ok_or_else(|| format!("line {no}: show.number is text like \"$400M\""))?;
+            let (prefix, value, suffix, decimals) = parse_stat(big);
+            let chars = big.chars().count().max(1) as f64;
+            // Heavy figures run wider than text: about 0.66em each.
+            let size = (span * 0.86 / (chars * 0.66)).min(sl.h * 0.42).round();
+            let from = show["from"].as_f64().unwrap_or(value * 0.6);
+            out.push(no, json!({"op": "ui", "id": format!("{id}_s"), "scene": scene, "kind": "stat", "value": from,
+                "prefix": prefix, "suffix": suffix, "decimals": decimals, "size": size, "x": sl.x, "y": sl.y,
+                "color": sl.ink, "w": span * 0.95, "style": "letter-spacing:-0.04em",
+                "in": {"fx": "blur", "at": sl.at(0.0), "dur": "1b"}}));
+            out.push(no, json!({"op": "act", "target": format!("{id}_s"), "do": "count", "to": value, "from": from,
+                "at": sl.at(0.25), "dur": format!("{}b", (beats_long * 0.55).max(2.0)), "ease": "outExpo"}));
+            if let Some(label) = show["label"].as_str() {
+                out.push(no, json!({"op": "ui", "scene": scene, "kind": "chip", "label": label, "icon": "●", "color": sl.accent,
+                    "size": (32.0 * k).round(), "x": sl.x, "y": offset(&sl.y, size * 0.66),
+                    "in": {"fx": "rise", "at": sl.at(2.0)}}));
+            }
+        }
+        // A drum of lines rolling past a centre line, one per beat, like a slot machine settling.
+        "roll" => {
+            let items = strings(&show["roll"], "roll", no)?;
+            if items.is_empty() {
+                return Err(format!("line {no}: show.roll needs at least one line"));
+            }
+            let longest = items.iter().map(|s| s.chars().count()).max().unwrap_or(1) as f64;
+            let size = (span * 0.9 / (longest * 0.55))
+                .clamp(40.0 * k, 110.0 * k * scale_c)
+                .round();
+            let gap = size * 0.28;
+            let row = size * 1.1 + gap;
+            let n = items.len() as f64;
+            let gid = format!("{id}_s");
+            // The column starts centred on its first line and steps up one line a beat.
+            let first = (n - 1.0) / 2.0 * row;
+            let mut keys = Vec::new();
+            let steps = (n - 1.0).max(0.0) as usize;
+            let every = ((beats_long - 2.0) / steps.max(1) as f64).clamp(0.5, 1.0);
+            for step in 0..=steps {
+                let t = 0.75 + step as f64 * every;
+                keys.push(json!({"t": format!("{}b", t + sl.delay), "y": offset(&sl.y, first - step as f64 * row), "ease": "snap"}));
+            }
+            out.push(
+                no,
+                json!({"op": "group", "id": gid, "scene": scene, "x": sl.x,
+                "y": offset(&sl.y, first),
+                "layout": {"kind": "column", "gap": gap}, "keys": keys,
+                "cascade": {"fx": "rise", "at": sl.at(0.0), "stagger": "0.08b"}}),
+            );
+            for (j, line) in items.iter().enumerate() {
+                let sid = format!("{id}_r{j}");
+                out.push(no, json!({"op": "text", "id": sid, "parent": gid, "text": line, "size": size, "weight": 600,
+                    "tracking": -0.03, "color": sl.ink}));
+                // Each line is dim except while it sits on the centre line.
+                let on = 0.75 + j as f64 * every;
+                out.push(no, json!({"op": "anim", "target": sid, "keys": [
+                    {"t": "0b", "opacity": if j == 0 { 1.0 } else { 0.22 }},
+                    {"t": format!("{}b", on + sl.delay - 0.01), "opacity": if j == 0 { 1.0 } else { 0.22 }},
+                    {"t": format!("{}b", on + sl.delay + 0.3), "opacity": 1.0},
+                    {"t": format!("{}b", on + every + sl.delay), "opacity": if j + 1 == items.len() { 1.0 } else { 0.22 }}]}));
+            }
+            if !sl.compact {
+                // Soft fades top and bottom, so the drum reads as a window onto a longer list.
+                let (r, g, b0) = hex(&sl.ground).unwrap_or((11.0, 11.0, 14.0));
+                let ground = format!("rgba({},{},{}", r as u8, g as u8, b0 as u8);
+                // Solid over the headline, fading towards the centre line.
+                for (y0, a, m, b) in [("19%", 1.0, 1.0, 0.0), ("90%", 0.0, 1.0, 1.0)] {
+                    out.push(no, json!({"op": "shape", "scene": scene, "kind": "rect", "w": sl.w, "h": sl.h * 0.38, "radius": 0,
+                        "fill": [format!("{ground},{a})"), format!("{ground},{m})"), format!("{ground},{m})"), format!("{ground},{b})")], "angle": 180, "y": y0, "layer": 5}));
+                }
+            }
+        }
+        // Photo cards stacked and fanned, rising into place one after another.
+        "stack" => {
+            let srcs = strings(&show["stack"], "stack", no)?;
+            let cw = if sl.compact { span * 0.5 } else { span * 0.3 };
+            let ch = cw * 0.66;
+            let gid = format!("{id}_s");
+            out.push(
+                no,
+                json!({"op": "group", "id": gid, "scene": scene, "x": sl.x, "y": sl.y}),
+            );
+            let n = srcs.len() as f64;
+            for (j, src) in srcs.iter().enumerate() {
+                let o = j as f64 - (n - 1.0) / 2.0;
+                out.push(no, json!({"op": "image", "parent": gid, "src": src, "w": cw, "h": ch, "fit": "cover",
+                    "radius": 14, "shadow": true, "x": o * cw * 0.16, "y": o * ch * 0.12, "rotate": o * 4.0,
+                    "in": {"fx": "rise", "at": sl.at(0.3 + j as f64 * 0.35), "dur": "1b"},
+                    "loop": {"fx": "float", "amp": 5, "period": 3.5 + j as f64 * 0.4}}));
+            }
+        }
+        _ => unreachable!(),
+    }
+    Ok(())
+}
+
+/// A percentage position moved by some pixels, in the form the runtime reads: "58%+120".
+fn offset(pct: &str, px: f64) -> String {
+    format!("{pct}{:+}", px.round())
+}
+
+/// The ground a beat sits on when it is not the brand's: cream or near black.
+fn ground(bst: &Style, st: &Style, light: bool) -> String {
+    let pick = |s: &Style| {
+        if light {
+            s.paper_light.or(if s.light { s.paper } else { None })
+        } else {
+            s.paper_dark.or(if s.light { None } else { s.paper })
+        }
+    };
+    pick(bst)
+        .or_else(|| pick(st))
+        .unwrap_or(if light { "#f7f7f5" } else { "#0b0b0e" })
+        .to_string()
 }
 
 #[cfg(test)]
@@ -1146,6 +1581,46 @@ mod tests {
         .err()
         .unwrap();
         assert!(e.contains("editorial") && e.contains("grunge"), "{e}");
+    }
+
+    #[test]
+    fn beats_mix_two_shows_and_their_own_style_and_ground() {
+        let ops = run(r##"{"op":"brand","name":"a","style":"bold"}
+{"op":"beat","text":"x","style":"terminal","theme":"light","show":[{"roll":["a","b"]},{"number":"$4.2M"}]}
+{"op":"end"}"##)
+        .unwrap();
+        let t = ops.iter().find(|o| o["id"] == "beat1_t").unwrap();
+        assert!(t["font"].as_str().unwrap().contains("Mono"), "{t}");
+        let scene = ops
+            .iter()
+            .find(|o| o["op"] == "scene" && o["id"] == "beat1")
+            .unwrap();
+        assert!(
+            scene["bg"].is_string(),
+            "a light beat in a dark video gets its own ground"
+        );
+        assert!(ops.iter().any(|o| o["id"] == "beat1_0_s"));
+        assert!(ops
+            .iter()
+            .any(|o| o["id"] == "beat1_1_s" && o["kind"] == "stat"));
+        let e = run(r##"{"op":"beat","text":"x","show":[{"chips":["a"]},{"chips":["b"]},{"chips":["c"]}]}"##)
+            .err()
+            .unwrap();
+        assert!(e.contains("at most two"), "{e}");
+    }
+
+    #[test]
+    fn announcement_takes_turns_on_the_two_grounds() {
+        let ops = run(r##"{"op":"brand","name":"a","style":"announcement"}
+{"op":"beat","text":"one"}
+{"op":"beat","text":"two"}
+{"op":"beat","text":"three"}"##)
+        .unwrap();
+        let scenes: Vec<&Value> = ops.iter().filter(|o| o["op"] == "scene").collect();
+        assert!(scenes[0]["bg"].is_null() && scenes[2]["bg"].is_null());
+        assert_eq!(scenes[1]["bg"], "#06170f");
+        let t = ops.iter().find(|o| o["id"] == "beat1_t").unwrap();
+        assert_eq!(t["accent_italic"], true);
     }
 
     #[test]

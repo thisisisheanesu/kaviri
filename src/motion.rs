@@ -95,6 +95,7 @@ pub const IN_FX: &[&str] = &[
     "wipe-up",
     "wipe-down",
     "iris",
+    "dots",
     "draw",
     "stretch",
     "fly",
@@ -758,6 +759,8 @@ pub fn compile(body: &str, name: &str, base: &Path) -> Result<Compiled, String> 
     let mut node_scene: HashMap<String, Option<String>> = HashMap::new();
     let mut n_auto = 0usize;
     let mut icon_n = 0usize;
+    // Each inlined SVG gets its own id prefix; a beat line expands into many images.
+    let mut svg_n = 0usize;
     for l in lines.iter_mut() {
         let kind = l.op["op"].as_str().unwrap_or("").to_string();
         if !NODE_OPS.contains(&kind.as_str()) {
@@ -899,7 +902,10 @@ pub fn compile(body: &str, name: &str, base: &Path) -> Result<Compiled, String> 
                     if p.extension().and_then(|e| e.to_str()) == Some("svg") {
                         let text = std::fs::read_to_string(&p)
                             .map_err(|e| format!("{here}: {}: {e}", p.display()))?;
-                        l.op["svg"] = json!(scope_svg_ids(&text, &format!("s{}-", l.no)));
+                        l.op["svg"] = json!(scope_svg_ids(&text, &{
+                            svg_n += 1;
+                            format!("s{svg_n}-")
+                        }));
                     } else {
                         l.op["src"] = json!(data_uri(&p).map_err(|e| format!("{here}: {e}"))?);
                     }
@@ -914,10 +920,10 @@ pub fn compile(body: &str, name: &str, base: &Path) -> Result<Compiled, String> 
                         .map_err(|e| format!("{here}: {}: {e}", p.display()))?;
                     l.op["svg"] = json!(text);
                 }
-                let scoped = scope_svg_ids(
-                    str_field(&l.op, "svg").unwrap_or(""),
-                    &format!("s{}-", l.no),
-                );
+                let scoped = scope_svg_ids(str_field(&l.op, "svg").unwrap_or(""), &{
+                    svg_n += 1;
+                    format!("s{svg_n}-")
+                });
                 l.op["svg"] = json!(scoped);
             }
             "html" => {

@@ -26,10 +26,14 @@ this file only when you need control the simple way does not give.
   `kaviri motion --styles` describes them), `theme` (`dark`/`light`), `background` (`nebula`, `mesh`,
   `grid`, `aurora`, `solid`, `gradient`, `flat`), `url`, `logo` (an image file), `font`, `music`
   (`energetic`, `cinematic`, `calm`, `none`). The last five default to the style's.
-- `beat`: `text` (2 to 8 words, key words in `[ ]`), `sub`, `bars` (2), and at most one `show`:
+- `beat`: `text` (2 to 8 words, key words in `[ ]`), `sub`, `bars` (2), `style` and `theme` for
+  this beat only, and a `show` (one, or a list of two side by side):
   `{"image":…,"frame":"none","url":…}`, `{"type":…,"chips":[…],"placeholder":…}`,
   `{"code":…,"title":…,"lang":…}`, `{"list":[…]}`, `{"stats":[["20,641+","label"],…]}`,
-  `{"icons":[names]}`, `{"chips":[…]}`, `{"strike":[…]}`.
+  `{"icons":[names]}`, `{"chips":[…]}`, `{"strike":[…]}`, `{"number":"$400M","label":…,"from":…}`,
+  `{"roll":[lines]}`, `{"photo":…}` (full bleed alone, a card in a pair), `{"stack":[images]}`.
+- The `announcement` style alternates light and dark grounds by itself, and sets the `[accent]`
+  words in italic serif. Walkthroughs of all of this: `docs/motion-walkthroughs.md`.
 - `end`: `tagline`, and `name`, `url`, `logo`, `bars` if they differ from the brand.
 
 Each beat becomes a scene with its own entrance and transition; the third beat is the drop
@@ -188,7 +192,8 @@ Fields every layer takes:
 `color` `accent` `font` (`"mono"` or a CSS family) `tracking` (em, default -0.02) `leading`
 `align` (`center`, `left`, `right`) `italic` `upper` `shadow` (true or CSS) `gradient` (a list of
 colours, fills the letters) `gradient_angle` `caret` (show a text caret) `caret_color`
-`caret_hold` `strike_color` `split`.
+`caret_hold` `strike_color` `split`, and `accent_font` (a CSS family, or `"mono"`), `accent_italic` and
+`accent_weight` to set the `[accent]` words in a second face, like italic serif inside sans.
 
 Text entrances run per character by default, staggered: `wave`, `rise`, `pop`, `flip`,
 `typewriter`, `scramble`, `converge`, `mask` and the rest. `split`: `char`, `word`, `line` or
@@ -299,7 +304,8 @@ instead. A layer is invisible before its `in` starts and after its `out` ends.
 Entrances: `fade` `rise` `drop` `left` `right` `pop` `zoom` (from big and blurred) `blur`
 `wave` (per letter, the showreel favourite) `flip` (3D) `spin` `swing` `converge` (letters fly
 in from everywhere) `typewriter` (with a caret) `scramble` (random glyphs resolve) `mask`
-(letters rise from behind a line) `wipe` `wipe-up` `wipe-down` `iris` (circle reveal) `draw`
+(letters rise from behind a line) `wipe` `wipe-up` `wipe-down` `iris` (circle reveal) `dots` (resolves out of a dot matrix)
+`draw`
 (strokes draw on) `stretch` `fly` (from deep in z) `glitch` `elastic` `bounce` `none`.
 
 Exits: `fade` `fall` `rise` `left` `right` `pop` `zoom` (through the camera) `blur` `wave`

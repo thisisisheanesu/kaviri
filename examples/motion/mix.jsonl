@@ -1,0 +1,8 @@
+# Mix and match: a bold video with one beat borrowing the terminal style, and one on the light
+# ground in the editorial style showing two things side by side.
+#   kaviri motion --script examples/motion/mix.jsonl --out mix.mp4
+{"op":"brand","name":"Relay","accent":"#e0457b","style":"bold","url":"relay.chat"}
+{"op":"beat","text":"Support is [drowning.]"}
+{"op":"beat","text":"Your queue, [decoded.]","style":"terminal","show":{"code":"relay triage --inbox support\n✓ 1,204 tickets sorted in 3.1s","title":"relay"}}
+{"op":"beat","text":"Meet [Relay.]","theme":"light","style":"editorial","show":[{"type":"Summarise this week's tickets"},{"stats":[["92%","auto-resolved"],["8s","first reply"]]}]}
+{"op":"end","tagline":"Support that [keeps up.]"}

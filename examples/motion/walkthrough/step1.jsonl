@@ -1,0 +1,3 @@
+{"op":"video","size":[1920,1080],"bpm":120}
+{"op":"scene","id":"hook","dur":"2bar"}
+{"op":"text","scene":"hook","text":"Ship the [demo.]","size":140,"in":{"fx":"wave","at":"1b","dur":"1b"}}

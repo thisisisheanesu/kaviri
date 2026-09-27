@@ -1,0 +1,11 @@
+# A funding announcement in the "announcement" style: cream and forest scenes in turn, italic
+# serif accent words, a number that counts to where it lands, a rolling list, full-bleed photos.
+# Beats mix and match: two shows side by side, and any beat may take its own style or theme.
+#   kaviri motion --script examples/motion/announcement.jsonl --out announcement.mp4
+{"op":"brand","name":"Fieldstone","accent":"#3fd39a","style":"announcement","url":"fieldstone.io"}
+{"op":"beat","text":"Fieldstone is [announcing]","show":[{"stack":["landscapes/l1.svg","landscapes/l2.svg","landscapes/l3.svg"]},{"number":"$400M","label":"Series F"}]}
+{"op":"beat","text":"The road to [Series F]","show":{"roll":["Seed","Series A","Series B","Series C","Series F"]}}
+{"op":"beat","text":"Valued at [$6.4B]","sub":"Up from $1.5B two years ago."}
+{"op":"beat","text":"The [future] of work\nis on Fieldstone","show":{"photo":"landscapes/l5.svg"}}
+{"op":"beat","text":"Trusted by [the largest]","show":[{"roll":["16 of the largest manufacturers","12 of the largest retailers","10 of the largest banks","9 of the largest airlines"]},{"photo":"landscapes/l4.svg"}]}
+{"op":"end","tagline":"The [calm] control plane for busy teams."}

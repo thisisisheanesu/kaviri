@@ -49,8 +49,11 @@ dated `[0.1.0]` heading, when the tag is cut.
   whose sections are fitted to the beats. `docs/motion-simple.md`, published as
   `kaviri.dev/motion-simple.txt`, is short enough for any model to follow. Twelve styles set
   the whole look in one word: `bold`, `minimal`, `neon`, `editorial`, `playful`, `cinematic`,
-  `brutalist`, `luxury`, `terminal`, `hype`, `corporate`, `retro`; `kaviri motion --styles`
-  lists them.
+  `brutalist`, `luxury`, `terminal`, `hype`, `corporate`, `retro`, `announcement`;
+  `kaviri motion --styles` lists them. Beats mix and match: a `style` and `theme` per beat, and
+  two shows side by side. New shows: `number`, `roll`, `photo` and `stack`. Text takes
+  `accent_font` and `accent_italic` for italic serif accent words, and there is a `dots`
+  entrance. `docs/motion-walkthroughs.md` walks through four builds with a frame of each step.
 - **`kaviri motion`: motion graphics from a JSONL timeline.** A script of scenes, layers,
   animations, micro-interactions and sounds renders to an MP4 with a synthesized soundtrack on
   the same beat grid. Times take seconds, beats (`"2b"`) and bars (`"1bar"`); scenes lie end

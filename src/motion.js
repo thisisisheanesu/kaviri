@@ -543,6 +543,8 @@ const IN_FX = {
   'wipe-down': { ease: 'inOutQuart', f: (p) => ({ clip: `inset(-5% -5% ${((1 - p) * 100).toFixed(2)}% -5%)` }) },
   'wipe-up': { ease: 'inOutQuart', f: (p) => ({ clip: `inset(${((1 - p) * 100).toFixed(2)}% -5% -5% -5%)` }) },
   iris: { ease: 'inOutCubic', f: (p) => ({ clip: `circle(${(p * 75).toFixed(2)}% at 50% 50%)` }) },
+  // A dot-matrix that fills in: the layer seen through a grid of dots that grow until they touch.
+  dots: { ease: 'inOutCubic', f: (p) => ({ dots: p, o: clamp(p * 4, 0, 1) }) },
   draw: { ease: 'inOutCubic', f: (p) => ({ draw: p }) },
   stretch: { ease: 'outBack', f: (p) => ({ sy: Math.max(0, p), sx: 1 + (1 - p) * 0.6, o: clamp(p * 3, 0, 1) }) },
   fly: { ease: 'outExpo', f: (p, c) => ({ z: -(1 - p) * 1800, ry: (1 - p) * 35 * (c.r[0] < 0 ? -1 : 1), o: clamp(p * 1.5, 0, 1), b: (1 - p) * 10 }) },
@@ -657,8 +659,9 @@ function addMods(m, d) {
   if (d.vis === 0) m.vis = 0;
   if (d.shine !== undefined) m.shine = d.shine;
   if (d.yem) m.yem = true;
+  if (d.dots !== undefined) m.dots = Math.min(m.dots, d.dots);
 }
-function mods() { return { x: 0, y: 0, z: 0, s: 1, sx: 1, sy: 1, r: 0, rx: 0, ry: 0, o: 1, b: 0, hb: 0, glow: 0, rgb: 0, clip: null, draw: 1, scr: 0, vis: 1, shine: null, yem: false }; }
+function mods() { return { dots: 1, x: 0, y: 0, z: 0, s: 1, sx: 1, sy: 1, r: 0, rx: 0, ry: 0, o: 1, b: 0, hb: 0, glow: 0, rgb: 0, clip: null, draw: 1, scr: 0, vis: 1, shine: null, yem: false }; }
 
 // A generic tween from explicit offsets, for "in": {"from": {...}} and "out": {"to": {...}}.
 function fromTo(obj, p) {
@@ -849,6 +852,10 @@ function applyTextStyle(el, sp) {
   if (sp.leading) el.style.setProperty('--lh', sp.leading);
   el.style.textAlign = sp.align || 'center';
   if (sp.italic) el.style.fontStyle = 'italic';
+  // A second face for the [accent] words, the italic-serif-inside-sans look.
+  if (sp.accent_font) el.style.setProperty('--acc-font', sp.accent_font === 'mono' ? theme.mono : sp.accent_font);
+  if (sp.accent_italic) el.style.setProperty('--acc-style', 'italic');
+  if (sp.accent_weight) el.style.setProperty('--acc-weight', sp.accent_weight);
   if (sp.upper) { el.style.textTransform = 'uppercase'; }
   if (sp.shadow) el.style.textShadow = sp.shadow === true ? '0 6px 30px rgba(0,0,0,.45)' : sp.shadow;
   if (sp.gradient) {
@@ -878,7 +885,7 @@ function parseMarkup(s) {
 }
 
 const SCRAMBLE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789#%&*+=?<>/';
-const SPLIT_NONE = { fade: 1, zoom: 1, wipe: 1, 'wipe-up': 1, iris: 1, none: 1, fly: 1, blur: 1, left: 1, right: 1, draw: 1 };
+const SPLIT_NONE = { dots: 1, fade: 1, zoom: 1, wipe: 1, 'wipe-up': 1, iris: 1, none: 1, fly: 1, blur: 1, left: 1, right: 1, draw: 1 };
 
 const BUILD = {
   text(n, sp) {
@@ -2089,6 +2096,14 @@ function renderNode(n, t) {
   setStyle(n.el, 'opacity', (m.vis === 0 ? 0 : clamp(p.opacity * m.o, 0, 1)).toFixed(3));
   setStyle(n.el, 'filter', filterOf(p, m, n.spec.glow_color || theme.accent));
   setStyle(n.el, 'clipPath', m.clip || 'none');
+  if (m.dots < 1) {
+    const pitch = clamp(n.unit() * 0.07, 5, 16);
+    const r = pitch * (0.12 + 0.62 * m.dots);
+    setStyle(n.el, 'webkitMaskImage', `radial-gradient(circle at center, #000 ${r.toFixed(2)}px, transparent ${(r + 0.8).toFixed(2)}px)`);
+    setStyle(n.el, 'webkitMaskSize', `${pitch.toFixed(2)}px ${pitch.toFixed(2)}px`);
+  } else if (n.el.__kvs && n.el.__kvs.webkitMaskImage && n.el.__kvs.webkitMaskImage !== 'none') {
+    setStyle(n.el, 'webkitMaskImage', 'none');
+  }
   if (n.parent && n.parent.orbit) setStyle(n.el, 'zIndex', String(orbitOffset(n.parent, n, lt, t).zi));
   if (p.w !== undefined && n.keys.w) setStyle(n.el, 'width', p.w.toFixed(1) + 'px');
   if (p.h !== undefined && n.keys.h) setStyle(n.el, 'height', p.h.toFixed(1) + 'px');
