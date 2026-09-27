@@ -48,6 +48,13 @@ rays. The music is written to fit: intro, build, drop, a break before the end if
 five beats or more, and an outro under the end card. `examples/motion/simple.jsonl` is the
 whole of kaviri.dev this way, in eight lines.
 
+`"style"` on the brand picks the look: `bold` (the default: kinetic type, starfield, a flash
+and a shockwave on the drop), `minimal` (quiet fades on a light ground, calm music), `neon`
+(glitch type on a glowing grid), `editorial` (serif, slow reveals, an iris on the drop),
+`playful` (bouncy pops, soft colour, confetti) or `cinematic` (wide capitals, aurora light,
+letterbox bars). Each sets the entrances, transitions, background, type, drop and music, and
+`theme`, `background` and `music` override a style's choice.
+
 `brand`, `beat` and `end` expand into the ops described below, so anything in the full format
 can be added on extra lines when the simple way is not enough.
 

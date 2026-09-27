@@ -8,7 +8,7 @@ kaviri does the animation, the transitions, the camera and the music. You only w
 Copy this and change the words. Keep every line on one line.
 
 ```jsonl
-{"op":"brand","name":"Acme","accent":"#5b8cff","theme":"dark","url":"acme.dev","music":"energetic"}
+{"op":"brand","name":"Acme","accent":"#5b8cff","style":"bold","url":"acme.dev"}
 {"op":"beat","text":"The problem, in [four words.]"}
 {"op":"beat","text":"What people put up with.","show":{"strike":["The first chore.","The second chore.","The third chore."]}}
 {"op":"beat","text":"Meet [Acme.]","show":{"image":"screenshot.png"}}
@@ -31,10 +31,12 @@ kaviri motion --script video.jsonl --out video.mp4
 |---|---|---|
 | `name` | the product name | |
 | `accent` | one brand colour, as `"#rrggbb"` | `"#5b8cff"` |
-| `theme` | `"dark"` or `"light"` | `"dark"` |
+| `style` | the look, from the table below | `"bold"` |
+| `theme` | `"dark"` or `"light"`, to override the style's | the style's |
 | `url` | the website, shown at the end | |
 | `logo` | a logo image file, shown at the end | a letter tile |
-| `music` | `"energetic"`, `"cinematic"`, `"calm"` or `"none"` | `"energetic"` |
+| `music` | `"energetic"`, `"cinematic"`, `"calm"` or `"none"` | the style's |
+| `background` | `"nebula"`, `"mesh"`, `"grid"`, `"aurora"`, `"solid"` or `"gradient"` | the style's |
 
 **`beat`**, one per idea, in order. Each beat is 4 seconds.
 
@@ -46,6 +48,19 @@ kaviri motion --script video.jsonl --out video.mp4
 
 **`end`**, once, last. `tagline` is one short line. It shows the logo, the name, the
 tagline and the url.
+
+## Styles
+
+Pick the one that fits the product. Everything else stays the same.
+
+| `style` | looks like | theme | music |
+|---|---|---|---|
+| `"bold"` | big kinetic type, starfield, flash and shockwave on the drop | dark | energetic |
+| `"minimal"` | quiet fades and slides on a clean light background, no effects | light | calm |
+| `"neon"` | glitch and scramble text, a glowing synthwave grid | dark | energetic |
+| `"editorial"` | serif type, slow reveals, magazine calm, an iris on the drop | light | cinematic |
+| `"playful"` | bouncy pops, soft colour background, confetti | light | energetic |
+| `"cinematic"` | wide capitals, aurora light, letterbox bars, slow blur cuts | dark | cinematic |
 
 ## What a beat can show
 

@@ -20,8 +20,11 @@ this file only when you need control the simple way does not give.
 {"op":"end","tagline":"One line about [Acme.]"}
 ```
 
-- `brand`: `name`, `accent` (hex), `theme` (`dark`/`light`), `url`, `logo` (an image file),
-  `font`, `music` (`energetic`, `cinematic`, `calm`, `none`).
+- `brand`: `name`, `accent` (hex), `style` (`bold` the default, `minimal`, `neon`,
+  `editorial`, `playful`, `cinematic`: each sets entrances, transitions, the background, the
+  type, the drop and the music), `theme` (`dark`/`light`), `background` (`nebula`, `mesh`,
+  `grid`, `aurora`, `solid`, `gradient`), `url`, `logo` (an image file), `font`, `music`
+  (`energetic`, `cinematic`, `calm`, `none`). The last five default to the style's.
 - `beat`: `text` (2 to 8 words, key words in `[ ]`), `sub`, `bars` (2), and at most one `show`:
   `{"image":…,"frame":"none","url":…}`, `{"type":…,"chips":[…],"placeholder":…}`,
   `{"code":…,"title":…,"lang":…}`, `{"list":[…]}`, `{"stats":[["20,641+","label"],…]}`,

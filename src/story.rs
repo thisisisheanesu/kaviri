@@ -28,6 +28,160 @@ pub const SHOWS: &[&str] = &[
     "image", "code", "type", "list", "stats", "icons", "chips", "strike",
 ];
 
+/// A look: how every beat moves, what it sits on, and what the music defaults to.
+struct Style {
+    name: &'static str,
+    entrances: &'static [&'static str],
+    transitions: &'static [&'static str],
+    /// How the music's drop is cut: its transition, and whether it shakes, bursts or throws confetti.
+    drop: &'static str,
+    shake: bool,
+    burst: bool,
+    confetti: bool,
+    rays: bool,
+    light: bool,
+    background: &'static str,
+    font: Option<&'static str>,
+    weight: u32,
+    tracking: f64,
+    upper: bool,
+    glow: bool,
+    mood: &'static str,
+    pulse: f64,
+    letterbox: f64,
+}
+
+/// The looks a brand can ask for with `"style"`. The first is the default.
+const STYLES: &[Style] = &[
+    Style {
+        name: "bold",
+        entrances: &[
+            "wave", "converge", "mask", "rise", "blur", "wave", "scramble", "mask",
+        ],
+        transitions: &["zoom", "whip", "slide", "blur", "push", "glitch", "spin"],
+        drop: "flash",
+        shake: true,
+        burst: true,
+        confetti: false,
+        rays: true,
+        light: false,
+        background: "nebula",
+        font: None,
+        weight: 600,
+        tracking: -0.035,
+        upper: false,
+        glow: true,
+        mood: "energetic",
+        pulse: 0.012,
+        letterbox: 0.0,
+    },
+    Style {
+        name: "minimal",
+        entrances: &["rise", "fade", "mask", "blur"],
+        transitions: &["dissolve", "blur", "push", "slide"],
+        drop: "blur",
+        shake: false,
+        burst: false,
+        confetti: false,
+        rays: false,
+        light: true,
+        background: "solid",
+        font: None,
+        weight: 500,
+        tracking: -0.03,
+        upper: false,
+        glow: false,
+        mood: "calm",
+        pulse: 0.0,
+        letterbox: 0.0,
+    },
+    Style {
+        name: "neon",
+        entrances: &["glitch", "scramble", "converge", "wave", "flip"],
+        transitions: &["glitch", "whip", "zoom", "spin", "glitch"],
+        drop: "glitch",
+        shake: true,
+        burst: true,
+        confetti: false,
+        rays: true,
+        light: false,
+        background: "grid",
+        font: None,
+        weight: 700,
+        tracking: -0.02,
+        upper: false,
+        glow: true,
+        mood: "energetic",
+        pulse: 0.018,
+        letterbox: 0.0,
+    },
+    Style {
+        name: "editorial",
+        entrances: &["mask", "fade", "rise", "mask"],
+        transitions: &["slide", "push", "dissolve", "slide"],
+        drop: "iris",
+        shake: false,
+        burst: false,
+        confetti: false,
+        rays: false,
+        light: true,
+        background: "solid",
+        font: Some("Georgia, 'DejaVu Serif', 'Liberation Serif', 'Times New Roman', serif"),
+        weight: 500,
+        tracking: -0.02,
+        upper: false,
+        glow: false,
+        mood: "cinematic",
+        pulse: 0.0,
+        letterbox: 0.0,
+    },
+    Style {
+        name: "playful",
+        entrances: &["pop", "bounce", "elastic", "swing", "spin", "wave"],
+        transitions: &["spin", "iris", "zoom", "push", "slide"],
+        drop: "flash",
+        shake: true,
+        burst: false,
+        confetti: true,
+        rays: false,
+        light: true,
+        background: "mesh",
+        font: None,
+        weight: 750,
+        tracking: -0.03,
+        upper: false,
+        glow: false,
+        mood: "energetic",
+        pulse: 0.02,
+        letterbox: 0.0,
+    },
+    Style {
+        name: "cinematic",
+        entrances: &["blur", "mask", "fade", "blur"],
+        transitions: &["dissolve", "blur", "zoom", "dissolve"],
+        drop: "flash",
+        shake: true,
+        burst: false,
+        confetti: false,
+        rays: true,
+        light: false,
+        background: "aurora",
+        font: None,
+        weight: 500,
+        tracking: 0.06,
+        upper: true,
+        glow: true,
+        mood: "cinematic",
+        pulse: 0.006,
+        letterbox: 0.1,
+    },
+];
+
+/// The style names, for errors and docs.
+pub fn style_names() -> Vec<&'static str> {
+    STYLES.iter().map(|s| s.name).collect()
+}
+
 const MOODS: &[(&str, &str)] = &[
     ("energetic", "pulse"),
     ("cinematic", "cinematic"),
@@ -82,9 +236,15 @@ fn longest_line(text: &str) -> usize {
 
 /// A headline size that fits the frame: big for three words, smaller for ten.
 fn fit_size(text: &str, width: f64, k: f64, max: f64) -> f64 {
+    fit_size_em(text, width, k, max, 0.53)
+}
+
+/// As `fit_size`, for type whose average character is `em` wide (capitals and
+/// wide tracking run wider than Inter's half an em).
+fn fit_size_em(text: &str, width: f64, k: f64, max: f64, em: f64) -> f64 {
     let chars = longest_line(text) as f64;
     // Inter at weight 600 averages a little over half an em per character.
-    let fit = width * 0.84 / (chars * 0.53);
+    let fit = width * 0.84 / (chars * em);
     fit.clamp(40.0 * k, max * k).round()
 }
 
@@ -162,7 +322,20 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
             "brand.accent must be a hex colour like \"#c7361a\", got \"{accent}\""
         ));
     }
-    let light = match brand["theme"].as_str().unwrap_or("dark") {
+    let style_name = brand["style"].as_str().unwrap_or("bold");
+    let st = STYLES
+        .iter()
+        .find(|s| s.name == style_name)
+        .ok_or_else(|| {
+            format!(
+                "brand.style is one of {}, got \"{style_name}\"",
+                style_names().join(", ")
+            )
+        })?;
+    let light = match brand["theme"]
+        .as_str()
+        .unwrap_or(if st.light { "light" } else { "dark" })
+    {
         "light" => true,
         "dark" => false,
         other => {
@@ -210,7 +383,8 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
     if !has_video {
         out.push(
             brand_line,
-            json!({"op": "video", "size": [1920, 1080], "fps": 30, "bpm": 120}),
+            json!({"op": "video", "size": [1920, 1080], "fps": 30, "bpm": 120,
+                "pulse": st.pulse, "letterbox": format!("{}%", st.letterbox * 100.0 / 2.0)}),
         );
     }
     if !has_theme {
@@ -228,12 +402,41 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
         }
         if let Some(f) = brand.get("font") {
             t["font"] = f.clone();
+        } else if let Some(f) = st.font {
+            t["font"] = json!(f);
         }
         t["op"] = json!("theme");
         out.push(brand_line, t);
     }
     if !has_bg {
-        let bg = if light {
+        let paper = if light { "#f7f7f5" } else { "#0b0b0e" };
+        let (ar, ag, ab) = hex(&accent).unwrap_or((91.0, 140.0, 255.0));
+        let bg = match (brand["background"].as_str().unwrap_or(st.background), light) {
+            ("solid", _) => {
+                json!({"op": "background", "kind": "gradient", "angle": 160, "spin": 1.5,
+                "colors": [paper, if light { mix(&accent, (255.0, 255.0, 255.0), 0.93) } else { mix(&accent, (0.0, 0.0, 0.0), 0.88) }, paper]})
+            }
+            ("grid", _) => {
+                json!({"op": "background", "kind": "grid", "base": "#07060d", "color": mix(&accent, (0.0, 0.0, 0.0), 0.35),
+                "glow": accent, "stars": 60, "speed": 70})
+            }
+            ("aurora", _) => json!({"op": "background", "kind": "aurora", "base": "#050508",
+                "colors": [accent, mix(&accent, (255.0, 255.0, 255.0), 0.4), mix(&to_hex(ab, ar, ag), (0.0, 0.0, 0.0), 0.5)], "stars": 70}),
+            ("mesh", true) => json!({"op": "background", "kind": "mesh", "base": "#fbfaf7",
+                "colors": [mix(&accent, (255.0, 255.0, 255.0), 0.7), mix(&to_hex(ag, ab, ar), (255.0, 255.0, 255.0), 0.7),
+                           mix(&to_hex(ab, ar, ag), (255.0, 255.0, 255.0), 0.75), "#fff4d6"], "speed": 0.9}),
+            ("gradient", _) => {
+                json!({"op": "background", "kind": "gradient", "angle": 135, "spin": 6,
+                "colors": [paper, mix(&accent, (0.0, 0.0, 0.0), if light { 0.0 } else { 0.6 }), paper]})
+            }
+            (kind, _) if kind != "nebula" && kind != "mesh" => return Err(format!(
+                "brand.background is nebula, mesh, grid, aurora, solid or gradient, got \"{kind}\""
+            )),
+            _ => json!({}),
+        };
+        let bg = if bg.get("op").is_some() {
+            bg
+        } else if light {
             json!({"op": "background", "kind": "mesh", "base": "#f7f7f5",
                    "colors": [mix(&accent, (255.0, 255.0, 255.0), 0.86), "#ededea", "#f4efe8", "#ecebe6"], "speed": 0.5})
         } else {
@@ -310,7 +513,7 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
             out.push(no, m);
         }
         None => {
-            let mood = brand["music"].as_str().unwrap_or("energetic");
+            let mood = brand["music"].as_str().unwrap_or(st.mood);
             if mood != "none" {
                 let style = MOODS
                     .iter()
@@ -329,10 +532,9 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
     }
 
     // The beats.
-    let entrances = [
-        "wave", "converge", "mask", "rise", "blur", "wave", "scramble", "mask",
-    ];
-    let transitions = ["zoom", "whip", "slide", "blur", "push", "glitch", "spin"];
+    let head_em = 0.53 + if st.upper { 0.16 } else { 0.0 } + st.tracking.max(0.0);
+    let entrances = st.entrances;
+    let transitions = st.transitions;
     let mut t_i = 0usize;
     for (i, (no, b)) in beats.iter().enumerate() {
         let no = *no;
@@ -348,7 +550,7 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
         let mut scene = json!({"op": "scene", "id": id, "dur": format!("{bars}bar")});
         if i > 0 {
             if is_drop {
-                scene["transition"] = json!({"kind": "flash", "dur": "0.5b"});
+                scene["transition"] = json!({"kind": st.drop, "dur": if st.drop == "flash" || st.drop == "glitch" { "0.5b" } else { "1b" }});
             } else {
                 scene["transition"] =
                     json!({"kind": transitions[t_i % transitions.len()], "dur": "1b"});
@@ -356,17 +558,23 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
             }
         }
         out.push(no, scene);
-        if is_drop {
+        if is_drop && st.confetti {
+            out.push(no, json!({"op": "particles", "scene": id, "kind": "confetti", "at": "0.25b", "count": 140,
+                "oy": "55%", "colors": [accent, "#ffcf3f", "#ff5d8f", "#34c77b", "#5b8cff"]}));
+        }
+        if is_drop && st.shake {
             out.push(
                 no,
                 json!({"op": "shake", "scene": id, "at": 0, "dur": "1b", "amp": 12}),
             );
+        }
+        if is_drop && st.burst {
             out.push(no, json!({"op": "particles", "scene": id, "kind": "shockwave", "at": 0, "dur": "2b",
                 "rings": 3, "width": 10, "colors": [accent, ink], "blend": if light { "normal" } else { "screen" }}));
             out.push(no, json!({"op": "particles", "scene": id, "kind": "burst", "at": 0, "count": 90,
                 "speed": 1100, "colors": [accent, ink], "blend": if light { "normal" } else { "screen" }}));
         }
-        if is_build {
+        if is_build && st.rays {
             out.push(no, json!({"op": "particles", "scene": id, "kind": "rays", "at": format!("{}b", (beats_long * 0.6).round()),
                 "dur": format!("{}b", beats_long - (beats_long * 0.6).round()), "count": 150, "speed": 1.5,
                 "colors": [accent, ink], "blend": if light { "multiply" } else { "screen" }}));
@@ -385,10 +593,10 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
         }
         let sub = b["sub"].as_str();
         if show.is_none() {
-            let size = fit_size(&text, w, k, 140.0);
+            let size = fit_size_em(&text, w, k, 140.0, head_em);
             out.push(no, json!({"op": "text", "id": format!("{id}_t"), "scene": id, "text": text, "size": size,
-                "weight": 600, "tracking": -0.035, "leading": 1.1, "y": if sub.is_some() { "44%" } else { "50%" },
-                "in": inn, "loop": {"fx": "glow", "amp": if light { 0 } else { 14 }}}));
+                "weight": st.weight, "tracking": st.tracking, "upper": st.upper, "leading": 1.1, "y": if sub.is_some() { "44%" } else { "50%" },
+                "in": inn, "loop": {"fx": "glow", "amp": if light || !st.glow { 0 } else { 14 }}}));
             if let Some(s) = sub {
                 out.push(no, json!({"op": "text", "scene": id, "text": s, "size": fit_size(s, w, k, 44.0),
                     "weight": 500, "color": muted, "y": "60%", "in": {"fx": "blur", "at": "2b", "dur": "1b"}}));
@@ -413,11 +621,11 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
                 SHOWS.join(", ")
             ));
         }
-        let size = fit_size(&text, w, k, 84.0);
+        let size = fit_size_em(&text, w, k, 84.0, head_em);
         out.push(
             no,
             json!({"op": "text", "id": format!("{id}_t"), "scene": id, "fixed": true, "text": text,
-            "size": size, "weight": 600, "tracking": -0.03, "leading": 1.1,
+            "size": size, "weight": st.weight, "tracking": st.tracking, "upper": st.upper, "leading": 1.1,
             "y": if vertical { "12%" } else { "15%" }, "in": inn}),
         );
         let mut body_y = if vertical { 52.0 } else { 58.0 };
@@ -616,14 +824,23 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
         out.push(
             no,
             json!({"op": "scene", "id": id, "dur": format!("{bars}bar"), "push": 0.025,
-            "transition": {"kind": "flash", "dur": "0.5b"}}),
+            "transition": {"kind": st.drop, "dur": if st.drop == "flash" || st.drop == "glitch" { "0.5b" } else { "1b" }}}),
         );
-        out.push(no, json!({"op": "particles", "scene": id, "kind": "shockwave", "at": 0, "dur": "2.5b", "rings": 2,
+        if st.confetti {
+            out.push(
+                no,
+                json!({"op": "particles", "scene": id, "kind": "confetti", "at": "4b", "count": 120,
+                "oy": "73%", "colors": [accent, "#ffcf3f", "#ff5d8f", "#34c77b", "#5b8cff"]}),
+            );
+        }
+        if st.shake || st.burst {
+            out.push(no, json!({"op": "particles", "scene": id, "kind": "shockwave", "at": 0, "dur": "2.5b", "rings": 2,
             "width": 8, "oy": "42%", "colors": [accent], "blend": if light { "normal" } else { "screen" }}));
+        }
         if !light {
             out.push(no, json!({"op": "particles", "scene": id, "kind": "dust", "count": 45, "colors": [accent, "#ffffff"]}));
         }
-        let name_size = fit_size(&title, w * 0.7, k, 170.0);
+        let name_size = fit_size_em(&title, w * 0.7, k, 170.0, head_em);
         out.push(
             no,
             json!({"op": "group", "id": "end_lockup", "scene": id, "y": "42%",
@@ -642,8 +859,8 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
                     "bg": [accent, mix(&accent, (0.0, 0.0, 0.0), 0.35)], "in": {"fx": "pop", "at": 0, "dur": "1b"}}));
             }
         }
-        out.push(no, json!({"op": "text", "parent": "end_lockup", "text": title, "size": name_size, "weight": 600,
-            "tracking": -0.045, "in": {"fx": "rise", "at": "0.75b", "dur": "1b", "stagger": "0.08b"}}));
+        out.push(no, json!({"op": "text", "parent": "end_lockup", "text": title, "size": name_size, "weight": st.weight.max(600),
+            "tracking": if st.upper { 0.02 } else { -0.045 }, "upper": st.upper, "in": {"fx": "rise", "at": "0.75b", "dur": "1b", "stagger": "0.08b"}}));
         if let Some(t) = e["tagline"].as_str().or_else(|| brand["tagline"].as_str()) {
             out.push(no, json!({"op": "text", "scene": id, "text": t, "size": fit_size(t, w, k, 40.0), "weight": 600,
                 "tracking": -0.02, "y": "61%", "in": {"fx": "blur", "at": "2.5b", "dur": "1b"}}));
@@ -704,6 +921,22 @@ mod tests {
         // The drop lands on the third beat, with a flash.
         let third = ops.iter().filter(|o| o["op"] == "scene").nth(2).unwrap();
         assert_eq!(third["transition"]["kind"], "flash");
+    }
+
+    #[test]
+    fn every_style_expands_and_a_wrong_one_lists_them() {
+        for st in style_names() {
+            let src = format!(
+                "{{\"op\":\"brand\",\"name\":\"a\",\"style\":\"{st}\"}}\n{{\"op\":\"beat\",\"text\":\"x\"}}\n{{\"op\":\"beat\",\"text\":\"y\"}}\n{{\"op\":\"end\"}}"
+            );
+            let ops = run(&src).unwrap_or_else(|e| panic!("{st}: {e}"));
+            assert!(ops.iter().any(|o| o["op"] == "background"), "{st}");
+        }
+        let e = run(r#"{"op":"brand","name":"a","style":"grunge"}
+{"op":"beat","text":"x"}"#)
+        .err()
+        .unwrap();
+        assert!(e.contains("editorial") && e.contains("grunge"), "{e}");
     }
 
     #[test]
