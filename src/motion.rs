@@ -1751,15 +1751,29 @@ fn encode(
         cmd.args(["-c:a", "aac", "-b:a", "256k", "-t"])
             .arg(format!("{}", n as f64 / c.fps));
     }
-    cmd.arg(out).stdin(Stdio::null());
+    // Encoded beside the target and renamed into place, so a file at `out` is always a
+    // whole video: something polling for it never opens one ffmpeg is still writing.
+    let partial = partial_path(out);
+    cmd.arg(&partial).stdin(Stdio::null());
     let res = cmd.output().map_err(|e| format!("ffmpeg: {e}"))?;
     if !res.status.success() {
+        let _ = std::fs::remove_file(&partial);
         return Err(format!(
             "ffmpeg failed to encode: {}",
             String::from_utf8_lossy(&res.stderr).trim()
         ));
     }
+    std::fs::rename(&partial, out).map_err(|e| format!("{out}: {e}"))?;
     Ok(())
+}
+
+fn partial_path(out: &str) -> PathBuf {
+    let p = Path::new(out);
+    let name = p
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "out.mp4".into());
+    p.with_file_name(format!(".{name}.partial.mp4"))
 }
 
 #[cfg(test)]
@@ -1914,6 +1928,18 @@ mod tests {
             "{s}"
         );
         assert!(s.contains(r#"data-id="x""#));
+    }
+
+    #[test]
+    fn a_video_is_encoded_beside_its_target_under_a_hidden_name() {
+        assert_eq!(
+            partial_path("out/reel.mp4"),
+            PathBuf::from("out/.reel.mp4.partial.mp4")
+        );
+        assert_eq!(
+            partial_path("reel.mp4"),
+            PathBuf::from(".reel.mp4.partial.mp4")
+        );
     }
 
     #[test]

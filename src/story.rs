@@ -429,9 +429,11 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
                 json!({"op": "background", "kind": "gradient", "angle": 135, "spin": 6,
                 "colors": [paper, mix(&accent, (0.0, 0.0, 0.0), if light { 0.0 } else { 0.6 }), paper]})
             }
-            (kind, _) if kind != "nebula" && kind != "mesh" => return Err(format!(
+            (kind, _) if kind != "nebula" && kind != "mesh" => {
+                return Err(format!(
                 "brand.background is nebula, mesh, grid, aurora, solid or gradient, got \"{kind}\""
-            )),
+            ))
+            }
             _ => json!({}),
         };
         let bg = if bg.get("op").is_some() {

@@ -79,8 +79,10 @@ Pick one per beat. Leave `show` out for a big headline on its own.
 
 ## Rules that make it good
 
-1. **5 to 7 beats.** The third beat is the big moment: the music drops there with a flash.
-   Put the product reveal (usually an `image`) on beat 3.
+1. **5 to 7 beats.** The third `beat` line (not counting `brand`) is the big moment: the
+   music drops there with a flash. Put the product reveal on it: an `image` of the product if
+   you have one; if not, `type` (the product being used) or `icons` (what it works with), or a
+   headline on its own like `"Meet [Acme.]"`.
 2. **Short headlines.** One idea per beat. Colour one to three words with `[ ]`.
 3. **Tell a story**: the problem, what people put up with, the reveal, how it works, proof, then
    the end card.
@@ -89,10 +91,25 @@ Pick one per beat. Leave `show` out for a big headline on its own.
 6. Use `"theme":"light"` for a bright, paper look. Use `"size":"vertical"` for phones by adding
    `{"op":"video","size":"vertical"}` as the first line.
 
+## Checking your file
+
+`--check` prints one JSON line. `ok` is `true` when the file is valid; otherwise the error names
+the line and lists the allowed values, so fix that line and run it again. `duration` is the
+video length in seconds and `scenes` lists each beat as `beat1`, `beat2`… with its start time,
+then `end`.
+
+Fields you set on `brand` (`theme`, `background`, `music`) always win over the style's choice.
+
 ## Optional
 
 - `"bars":1` on a beat makes it 2 seconds; `"bars":4` makes it 8.
 - A full example is `examples/motion/simple.jsonl`.
 - To check a file without rendering: `kaviri motion --script video.jsonl --check`.
-- To look at a moment: `kaviri motion --script video.jsonl --still 9 --out look.png` (9 seconds in).
+- To look at moments: `kaviri motion --script video.jsonl --still 2,10,18 --out look.png` writes
+  one PNG per time (seconds; `look-00-2.00s.png`, …). Each beat starts 4 seconds after the
+  last, so beat 3 is around 9 seconds in. Stills take a few seconds.
+- Rendering the video takes a few minutes: roughly 2 to 10 frames a second depending on the
+  machine, so a 30 second video is about 1 to 7 minutes. It prints progress while it works,
+  and the file only appears when it is complete.
+- To see a style before choosing, change `"style"` and render one still.
 - Everything in the full format (`motion-llm.txt`) can be mixed in on extra lines.
