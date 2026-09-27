@@ -1,0 +1,13 @@
+# The kaviri.dev hero, in the "launch" style: thin type on black, the accent words in a gradient,
+# and kaviri's own recordings of the Parcel demo on every device it frames. Film the takes first:
+#   sh examples/motion/hero-takes.sh        (records takes/, then renders this to hero.mp4)
+{"op":"brand","name":"kaviri","accent":"#ff6b3d","accent2":"#f472b6","style":"launch","url":"kaviri.dev","logo":"kaviri-mark-light.svg"}
+{"op":"beat","text":"Screen Studio for your [AI agent.]","sub":"Your demo video, filmed from a script.","show":{"wall":["site/hero.png","site/how.png","site/ci.png","site/pricing.png","site/stale.png"]}}
+{"op":"beat","text":"Write the take. [kaviri films it.]","show":{"code":"{\"op\":\"navigate\",\"url\":\"http://127.0.0.1:8099/\"}\n{\"op\":\"type\",\"selector\":\"#q\",\"text\":\"14 Rue Lafayette, Paris\"}\n{\"op\":\"click\",\"selector\":\"#go\"}\n{\"op\":\"wait\",\"selector\":\"li\"}\n\n$ kaviri record --script demo.jsonl --frame ios","title":"demo.jsonl","lang":"json"}}
+{"op":"beat","text":"Every [device.]","bars":3,"show":{"devices":["takes/ios.mp4","takes/android.mp4","takes/macos.mp4"],"labels":["iOS","Android","macOS"]}}
+{"op":"beat","text":"Phones, desktops, [screen recordings.]","bars":3,"show":[{"clip":"takes/ios-rec.mp4","label":"iOS screen recording"},{"clip":"takes/windows.mp4","label":"Windows"}]}
+{"op":"beat","text":"The camera [follows the caret.]","bars":3,"sub":"Every zoom comes from what happened. Nobody chose a camera move.","show":{"clip":"takes/macos.mp4"}}
+{"op":"beat","text":"Motion graphics, [from JSONL too.]","show":[{"clip":"takes/showreel.mp4","label":"kaviri motion"},{"clip":"takes/announcement.mp4","label":"13 styles, one word"}]}
+{"op":"beat","text":"The build fails if the take [filmed nothing.]","show":{"list":["Record demo.jsonl","Render demo.mp4","Compare first and last frame"]}}
+{"op":"beat","text":"Made for every","show":{"cycle":["agent.","developer.","CI run."],"around":["site/hero.png","site/ci.png","site/how.png","site/pricing.png"]}}
+{"op":"end","tagline":"Screen Studio for your [AI agent.]"}

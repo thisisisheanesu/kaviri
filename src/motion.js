@@ -858,11 +858,31 @@ function applyTextStyle(el, sp) {
   if (sp.accent_weight) el.style.setProperty('--acc-weight', sp.accent_weight);
   if (sp.upper) { el.style.textTransform = 'uppercase'; }
   if (sp.shadow) el.style.textShadow = sp.shadow === true ? '0 6px 30px rgba(0,0,0,.45)' : sp.shadow;
-  if (sp.gradient) {
-    el.style.backgroundImage = `linear-gradient(${sp.gradient_angle || 90}deg, ${sp.gradient.join(', ')})`;
-    el.style.webkitBackgroundClip = 'text';
-    el.style.backgroundClip = 'text';
-    el.style.color = 'transparent';
+}
+
+// Gradient fills are painted per character, each showing its own slice of one gradient that
+// spans the whole line, so the fill stays continuous while every letter moves on its own.
+function paintGradients(n) {
+  const sp = n.spec;
+  if (!n.chars || !(sp.gradient || sp.accent_gradient)) return;
+  const ang = sp.gradient_angle || 90;
+  const groups = [];
+  if (sp.gradient) groups.push({ cols: sp.gradient, chars: n.chars });
+  if (sp.accent_gradient) groups.push({ cols: sp.accent_gradient, chars: n.chars.filter((c) => c.el.classList.contains('kv-accent')) });
+  for (const g of groups) {
+    if (!g.chars.length) continue;
+    const x0 = Math.min(...g.chars.map((c) => c.bx)), x1 = Math.max(...g.chars.map((c) => c.bx + c.bw));
+    const y0 = Math.min(...g.chars.map((c) => c.by)), y1 = Math.max(...g.chars.map((c) => c.by + c.bh));
+    for (const c of g.chars) {
+      const st = c.el.style;
+      st.backgroundImage = `linear-gradient(${ang}deg, ${g.cols.join(', ')})`;
+      st.backgroundSize = `${(x1 - x0).toFixed(1)}px ${(y1 - y0).toFixed(1)}px`;
+      st.backgroundPosition = `${(x0 - c.bx).toFixed(1)}px ${(y0 - c.by).toFixed(1)}px`;
+      st.backgroundRepeat = 'no-repeat';
+      st.webkitBackgroundClip = 'text';
+      st.backgroundClip = 'text';
+      st.color = 'transparent';
+    }
   }
 }
 
@@ -982,6 +1002,34 @@ const BUILD = {
   group(n, sp) {
     n.slotW = 0; n.slotH = 0;
     if (sp.layout && sp.layout.kind === 'orbit') n.orbit = sp.layout;
+  },
+  // Real video, as frames kaviri extracted beside the page: shown frame-exact, never played.
+  clip(n, sp) {
+    const img = mk('img', 'kv-img', n.el);
+    img.style.objectFit = sp.fit || 'contain';
+    n.inner = img;
+    n.clipImg = img;
+    if (sp.radius !== undefined) { n.el.style.borderRadius = sp.radius + 'px'; n.el.style.overflow = 'hidden'; }
+    if (sp.shadow) n.el.style.boxShadow = sp.shadow === true ? theme.shadow : sp.shadow;
+    if (n.w === undefined && n.h === undefined) n.w = 800;
+    if (sp.clip_w && sp.clip_h) {
+      if (n.w !== undefined && n.h === undefined) n.h = n.w * sp.clip_h / sp.clip_w;
+      if (n.h !== undefined && n.w === undefined) n.w = n.h * sp.clip_w / sp.clip_h;
+      // A landscape take asked for by height can be wider than the room it has.
+      if (sp.max_w && n.w > sp.max_w) { n.h = n.h * sp.max_w / n.w; n.w = sp.max_w; }
+    }
+    // "fill": play the whole take, sped up or slowed down, across this many seconds.
+    const clipSpeed = sp.fill ? ((sp.frames || 1) / FPS) / sp.fill : (sp.speed || 1);
+    const frame = (lt) => {
+      const speed = clipSpeed;
+      let f = Math.floor(((lt - (sp.start || 0)) * speed + (sp.trim || 0)) * FPS + 1e-6);
+      const count = sp.frames || 1;
+      if (sp.loop) f = ((f % count) + count) % count;
+      return clamp(f, 0, count - 1);
+    };
+    if (sp.label) { const l = mk('div', 'kv-label', n.el); l.textContent = sp.label; l.style.fontSize = '18px'; l.style.color = theme.text2; }
+    n.clipSrc = (lt) => `${sp.dir}/f${String(frame(lt) + 1).padStart(5, '0')}.jpg`;
+    img.src = n.clipSrc(0);
   },
   particles(n, sp) {
     PARTICLES[sp.kind](n, sp);
@@ -1250,6 +1298,14 @@ const UI = {
     if (sp.size) d.querySelector('.kv-stat-v').style.fontSize = sp.size + 'px';
     if (sp.size && sp.label) d.querySelector('.kv-stat-l').style.fontSize = Math.max(13, sp.size * 0.2) + 'px';
     if (sp.color) d.querySelector('.kv-stat-v').style.color = sp.color;
+    if (sp.gradient) {
+      const v = d.querySelector('.kv-stat-v').style;
+      v.backgroundImage = `linear-gradient(90deg, ${sp.gradient.join(', ')})`;
+      v.webkitBackgroundClip = 'text';
+      v.backgroundClip = 'text';
+      v.color = 'transparent';
+      v.paddingBottom = '0.08em';
+    }
     n.numEl = d.querySelector('.kv-num');
     n.count = sp.value !== undefined ? sp.value : 0;
   },
@@ -1743,6 +1799,7 @@ function measure() {
         const r = c.el.getBoundingClientRect();
         c.bx = r.left - base.left; c.by = r.top - base.top; c.bw = r.width; c.bh = r.height;
       }
+      paintGradients(n);
       for (const s of n.strikes) {
         const cs = n.chars.filter((c) => c.st === s.run);
         if (!cs.length) continue;
@@ -1966,8 +2023,31 @@ function renderState(n, lt) {
       v = lerp(from, a.to, u);
     }
     const dec = n.spec.decimals || 0;
-    const s = v.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
-    if (n.numEl.textContent !== s) n.numEl.textContent = s;
+    const fmt = (x) => x.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+    const s = fmt(v);
+    if (n.spec.pad) {
+      // An odometer: the final number's shape from the start, the places not reached yet as dim zeros.
+      const top = Math.max(v, ...(n.countActs || []).map((a) => a.to || 0));
+      const tpl = fmt(top);
+      const digits = s.replace(/[^0-9]/g, '');
+      let di = digits.length - 1, out = [], lit = true;
+      for (let i = tpl.length - 1; i >= 0; i--) {
+        const ch = tpl[i];
+        if (/[0-9]/.test(ch)) {
+          if (di >= 0) out.push([digits[di--], true]);
+          else out.push(['0', false]);
+        } else out.push([ch, di >= 0]);
+      }
+      out.reverse();
+      let html = '', dimOpen = false;
+      for (const [ch, on] of out) {
+        if (!on && !dimOpen) { html += '<span class="kv-dim">'; dimOpen = true; }
+        if (on && dimOpen) { html += '</span>'; dimOpen = false; }
+        html += esc(ch);
+      }
+      if (dimOpen) html += '</span>';
+      if (n.numEl.__kvh !== html) { n.numEl.innerHTML = html; n.numEl.__kvh = html; }
+    } else if (n.numEl.textContent !== s) n.numEl.textContent = s;
   }
   if (n.progEl) {
     let v = n.prog;
@@ -2121,6 +2201,14 @@ function renderNode(n, t) {
   for (const a2 of n.acts) if (a2.dom) a2.dom(lt);
   renderState(n, lt);
   if (n.drawParticles) n.drawParticles(lt);
+  if (n.clipImg) {
+    const src = n.clipSrc(lt);
+    if (n.clipImg.__kvsrc !== src) {
+      n.clipImg.__kvsrc = src;
+      n.clipImg.src = src;
+      pending.push(n.clipImg.decode().catch(() => 0));
+    }
+  }
   for (const s of n.subs) {
     const mm = mods();
     const c = { u: s.u, r: s.r };
@@ -2178,7 +2266,10 @@ function renderWorld(t) {
   }
 }
 
+// Image decodes a frame is waiting on, so a photograph never catches a clip mid-load.
+let pending = [];
 function seek(t) {
+  pending = [];
   try {
     if (bgState.draw) bgState.draw(t);
     renderWorld(t);
@@ -2193,6 +2284,7 @@ function seek(t) {
         an.currentTime = t * 1000;
       }
     }
+    if (pending.length) return Promise.all(pending).then(() => '');
     return '';
   } catch (e) {
     return String(e && e.stack ? e.stack : e);

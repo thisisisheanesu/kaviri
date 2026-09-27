@@ -58,8 +58,10 @@ and a shockwave on the drop), `minimal` (quiet fades on a light ground, calm mus
 letterbox bars), `brutalist` (huge black capitals on white, hard cuts), `luxury` (spaced serif
 capitals and slow dissolves on near black), `terminal` (monospace that types and scrambles
 in), `hype` (italic capitals, whip pans), `corporate` (clean rises and pushes) or `retro`
-(cream paper, film grain, bouncing serif) or `announcement` (cream and forest scenes in turn,
-italic serif accent words, huge counting numbers). `kaviri motion --styles` lists them.
+(cream paper, film grain, bouncing serif), `announcement` (cream and forest scenes in turn,
+italic serif accent words, huge counting numbers), `launch` (pure black, thin type, gradient
+accent words, odometer numbers, sparkles) or `gallery` (soft pastel light, floating screenshots,
+a camera gliding over the product). `kaviri motion --styles` lists them.
 
 Beats mix and match: a beat can take its own `"style"` and `"theme"`, and `show` can be a list
 of two things side by side. Besides screenshots, typing, code, checklists, stats, icons, chips
@@ -104,6 +106,37 @@ inside it, and `act`s, the micro-interactions. Text entrances run per letter or 
 
 The complete list of every op, field, effect and ease is in [`motion-llm.md`](motion-llm.md).
 It is one page on purpose.
+
+## Real recordings inside a motion video
+
+A `clip` layer (or a `clip` or `devices` show) puts a video in the frame: most usefully a
+`kaviri record` take of your own product, filmed in an iOS, Android, macOS or Windows frame. The
+frames are extracted with ffmpeg and shown frame-exact, so a clip is as deterministic as
+everything else. `examples/motion/hero.jsonl` is the kaviri.dev hero made this way, and
+`examples/motion/hero-takes.sh` films its takes and renders it.
+
+## Launch videos as templates
+
+For a team that ships often, one script can be every launch video:
+
+```jsonl
+{"op":"vars","product":"Relay","team":"Support Tools","color":"#e0457b"}
+{"op":"brand","name":"{{product}}","accent":"{{color}}","style":{"$pick":["gallery","launch","bold"]}}
+{"op":"beat","text":{"$pick":["Meet [{{product}}.]","Introducing [{{product}}.]"]},"sub":"From {{team}}."}
+{"op":"beat","$maybe":0.6,"text":"Try it [today.]","show":{"list":["Open go/relay","Ask a question"]}}
+```
+
+- `{{name}}` fills from a `vars` line, or from `--var name=value` on the command line.
+- `{"$pick":[…]}` chooses one of several values (with optional `"$weights"`), anywhere: a word,
+  a style, a whole `show`.
+- `"$maybe":p` keeps a line with probability p.
+- `--seed n` chooses the variant; the same seed always makes the same video, and each choice
+  depends only on its own line, so editing one line never reshuffles the others.
+- `--variants n` renders variants 1 to n side by side (`launch-v1.mp4` …), or with `--still`
+  just their frames, so a team picks the one it likes and renders that seed.
+
+`--check` prints the seed and every choice it made. `examples/motion/internal-launch.jsonl` is a
+full template.
 
 ## The soundtrack
 

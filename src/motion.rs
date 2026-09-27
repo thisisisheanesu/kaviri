@@ -33,6 +33,7 @@ const RUNTIME_CSS: &str = include_str!("motion.css");
 
 /// Every op a motion script may contain.
 pub const OPS: &[&str] = &[
+    "vars",
     "brand",
     "beat",
     "end",
@@ -55,6 +56,7 @@ pub const OPS: &[&str] = &[
     "ui",
     "group",
     "particles",
+    "clip",
     "anim",
     "act",
 ];
@@ -70,6 +72,7 @@ const NODE_OPS: &[&str] = &[
     "ui",
     "group",
     "particles",
+    "clip",
 ];
 
 /// Entrances. Each name is implemented in `IN_FX` in motion.js, and the test at
@@ -195,7 +198,7 @@ pub const EASES: &[&str] = &[
 /// beats and bars; a number anywhere else is whatever that field says it is.
 const TIME_KEYS: &[&str] = &[
     "at", "dur", "t", "stagger", "every", "period", "delay", "len", "hold", "offset", "duration",
-    "fade_out", "blink", "from", "until",
+    "fade_out", "blink", "from", "until", "start", "trim", "fill",
 ];
 
 /// The beat grid every musical time is measured on.
@@ -337,14 +340,201 @@ struct Line {
     op: Value,
 }
 
+/// What makes one render of a script different from another: the seed its `$pick`s and
+/// `$maybe`s draw on, and the values its `{{variables}}` take.
+#[derive(Clone, Debug, Default)]
+pub struct Variation {
+    pub seed: u64,
+    pub vars: Vec<(String, String)>,
+}
+
+/// A number in 0..1 that depends only on the seed, the line and where in the line it is asked
+/// for, so editing one line never reshuffles the choices made on another.
+fn draw(seed: u64, line: usize, path: &str) -> f64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325 ^ seed.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    for b in (line as u64).to_le_bytes().iter().chain(path.as_bytes()) {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    // splitmix64, to spread the hash over the whole range.
+    h = h.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    let mut z = h;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    (z >> 11) as f64 / (1u64 << 53) as f64
+}
+
+/// Resolve every `{"$pick": [...]}` in a value, recording what was chosen.
+fn resolve_picks(
+    v: &mut Value,
+    seed: u64,
+    line: usize,
+    path: &str,
+    log: &mut Vec<Value>,
+) -> Result<(), String> {
+    if let Value::Object(m) = v {
+        if let Some(options) = m.get("$pick") {
+            let opts = options
+                .as_array()
+                .filter(|a| !a.is_empty())
+                .ok_or_else(|| format!("{path}: $pick is a non-empty list of choices"))?
+                .clone();
+            let weights: Vec<f64> = match m.get("$weights") {
+                Some(Value::Array(w)) if w.len() == opts.len() => w
+                    .iter()
+                    .map(|x| x.as_f64().unwrap_or(0.0).max(0.0))
+                    .collect(),
+                Some(_) => return Err(format!("{path}: $weights needs one number per choice")),
+                None => vec![1.0; opts.len()],
+            };
+            let total: f64 = weights.iter().sum();
+            if total <= 0.0 {
+                return Err(format!("{path}: $weights add up to nothing"));
+            }
+            let mut r = draw(seed, line, path) * total;
+            let mut pick = opts.len() - 1;
+            for (i, w) in weights.iter().enumerate() {
+                if r < *w {
+                    pick = i;
+                    break;
+                }
+                r -= w;
+            }
+            log.push(json!({"line": line, "at": if path.is_empty() { "line" } else { path }, "chose": pick, "of": opts.len()}));
+            *v = opts[pick].clone();
+            return resolve_picks(v, seed, line, path, log);
+        }
+        for (k, val) in m.iter_mut() {
+            let here = if path.is_empty() {
+                k.clone()
+            } else {
+                format!("{path}.{k}")
+            };
+            resolve_picks(val, seed, line, &here, log)?;
+        }
+    } else if let Value::Array(a) = v {
+        for (i, val) in a.iter_mut().enumerate() {
+            resolve_picks(val, seed, line, &format!("{path}[{i}]"), log)?;
+        }
+    }
+    Ok(())
+}
+
+/// Put `{{name}}` values into every string.
+fn fill_vars(v: &mut Value, vars: &HashMap<String, String>, line: usize) -> Result<(), String> {
+    match v {
+        Value::String(s) if s.contains("{{") => {
+            let mut out = String::new();
+            let mut rest = s.as_str();
+            while let Some(i) = rest.find("{{") {
+                out.push_str(&rest[..i]);
+                let after = &rest[i + 2..];
+                let j = after
+                    .find("}}")
+                    .ok_or_else(|| format!("line {line}: \"{{{{\" with no closing \"}}}}\""))?;
+                let key = after[..j].trim();
+                let val = vars.get(key).ok_or_else(|| {
+                    let mut known: Vec<&String> = vars.keys().collect();
+                    known.sort();
+                    format!(
+                        "line {line}: no variable \"{key}\" (set it on a vars line or with --var {key}=…; known: {})",
+                        if known.is_empty() { "none".to_string() } else { known.iter().map(|k| k.as_str()).collect::<Vec<_>>().join(", ") }
+                    )
+                })?;
+                out.push_str(val);
+                rest = &after[j + 2..];
+            }
+            out.push_str(rest);
+            *s = out;
+        }
+        Value::Array(a) => {
+            for x in a {
+                fill_vars(x, vars, line)?;
+            }
+        }
+        Value::Object(m) => {
+            for x in m.values_mut() {
+                fill_vars(x, vars, line)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn read_lines(body: &str, name: &str) -> Result<Vec<Line>, String> {
-    let mut out = Vec::new();
+    read_lines_with(body, name, &Variation::default()).map(|(l, _)| l)
+}
+
+/// Read a script, then apply its variation: variables, picks and maybes. The log says what
+/// each `$pick` chose, so a render can be traced back to its choices.
+fn read_lines_with(
+    body: &str,
+    name: &str,
+    var: &Variation,
+) -> Result<(Vec<Line>, Vec<Value>), String> {
+    let mut raw_lines = Vec::new();
     for (i, raw) in body.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() || line.starts_with('#') || line.starts_with("//") {
             continue;
         }
         let op: Value = serde_json::from_str(line).map_err(|e| format!("{name}:{}: {e}", i + 1))?;
+        if !op.is_object() {
+            return Err(format!("{name}:{}: each line must be a JSON object", i + 1));
+        }
+        raw_lines.push((i + 1, op));
+    }
+    // Variables: defaults from vars lines, then the command line on top.
+    let mut vars: HashMap<String, String> = HashMap::new();
+    for (_, op) in raw_lines.iter().filter(|(_, o)| o["op"] == "vars") {
+        for (k, v) in op.as_object().unwrap() {
+            if k == "op" {
+                continue;
+            }
+            let s = match v {
+                Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            vars.insert(k.clone(), s);
+        }
+    }
+    for (k, v) in &var.vars {
+        vars.insert(k.clone(), v.clone());
+    }
+    let mut log = Vec::new();
+    let mut kept = Vec::new();
+    for (no, mut op) in raw_lines {
+        if op["op"] == "vars" {
+            continue;
+        }
+        fill_vars(&mut op, &vars, no).map_err(|e| {
+            format!(
+                "{name}:{no}: {}",
+                e.trim_start_matches(&format!("line {no}: "))
+            )
+        })?;
+        resolve_picks(&mut op, var.seed, no, "", &mut log)
+            .map_err(|e| format!("{name}:{no}: {e}"))?;
+        // $maybe: the line is in this variant with that probability.
+        if let Some(p) = op.get("$maybe") {
+            let p = p
+                .as_f64()
+                .filter(|p| (0.0..=1.0).contains(p))
+                .ok_or_else(|| format!("{name}:{no}: $maybe is a probability from 0 to 1"))?;
+            let keep = draw(var.seed, no, "$maybe") < p;
+            log.push(json!({"line": no, "at": "$maybe", "kept": keep}));
+            if !keep {
+                continue;
+            }
+            op.as_object_mut().map(|m| m.remove("$maybe"));
+        }
+        kept.push((no, op));
+    }
+    let mut out = Vec::new();
+    for (no, op) in kept {
+        let i = no - 1;
         if !op.is_object() {
             return Err(format!("{name}:{}: each line must be a JSON object", i + 1));
         }
@@ -360,7 +550,7 @@ fn read_lines(body: &str, name: &str) -> Result<Vec<Line>, String> {
         }
         out.push(Line { no: i + 1, op });
     }
-    Ok(out)
+    Ok((out, log))
 }
 
 /// A scene after layout: where it sits on the timeline, in seconds.
@@ -387,6 +577,9 @@ pub struct Compiled {
     pub music_src: Option<(PathBuf, f64, f64)>,
     pub cues: Vec<synth::Cue>,
     pub warnings: Vec<String>,
+    /// What each `$pick` and `$maybe` chose in this variant.
+    pub picks: Vec<Value>,
+    pub seed: u64,
 }
 
 fn f64_field(op: &Value, k: &str) -> Option<f64> {
@@ -619,8 +812,19 @@ pub fn script_grid(path: &str) -> Result<Grid, String> {
 }
 
 /// Compile a script. `base` is the directory relative asset paths resolve against.
+#[cfg(test)]
 pub fn compile(body: &str, name: &str, base: &Path) -> Result<Compiled, String> {
-    let lines = read_lines(body, name)?;
+    compile_with(body, name, base, &Variation::default())
+}
+
+/// Compile one variant of a script: its variables filled in and its picks made with `var`.
+pub fn compile_with(
+    body: &str,
+    name: &str,
+    base: &Path,
+    var: &Variation,
+) -> Result<Compiled, String> {
+    let (lines, picks) = read_lines_with(body, name, var)?;
     // brand, beat and end are shorthand: they expand into the ops below before anything else.
     let mut lines: Vec<Line> =
         crate::story::expand(lines.into_iter().map(|l| (l.no, l.op)).collect())
@@ -893,6 +1097,16 @@ pub fn compile(body: &str, name: &str, base: &Path) -> Result<Compiled, String> 
                     )
                 })?;
                 l.op["svg"] = json!(svg);
+            }
+            "clip" => {
+                let src = str_field(&l.op, "src")
+                    .ok_or_else(|| format!("{here}: a clip needs \"src\", a video file"))?;
+                let p = resolve(base, src);
+                if !p.is_file() {
+                    return Err(format!("{here}: clip {} not found", p.display()));
+                }
+                let abs = std::fs::canonicalize(&p).map_err(|e| format!("{here}: {e}"))?;
+                l.op["src_path"] = json!(abs.to_string_lossy());
             }
             "image" => {
                 let src = str_field(&l.op, "src")
@@ -1297,6 +1511,8 @@ pub fn compile(body: &str, name: &str, base: &Path) -> Result<Compiled, String> 
         music_src,
         cues,
         warnings,
+        picks,
+        seed: var.seed,
     })
 }
 
@@ -1324,6 +1540,7 @@ pub fn page_html(c: &Compiled, audio_file: Option<&str>, preview: bool) -> Strin
 }
 
 /// What `kaviri motion` was asked to do.
+#[derive(Clone)]
 pub struct Opts {
     pub script: String,
     pub out: String,
@@ -1339,6 +1556,10 @@ pub struct Opts {
     pub mute: bool,
     pub keep_temp: bool,
     pub crf: u32,
+    pub seed: u64,
+    /// Render this many variants, seeds 1 to n, each to its own file.
+    pub variants: u64,
+    pub vars: Vec<(String, String)>,
 }
 
 fn emit(v: &Value) {
@@ -1381,10 +1602,40 @@ fn timeline(c: &Compiled) -> Value {
         "layers": c.spec["nodes"].as_array().map(Vec::len).unwrap_or(0),
         "sound_cues": c.cues.len(),
         "music": if c.music.is_some() { "synth" } else if c.music_src.is_some() { "file" } else { "none" },
+        "seed": c.seed,
+        "picks": c.picks,
     })
 }
 
 pub fn run(o: &Opts) -> Result<(), String> {
+    if o.variants <= 1 {
+        return run_one(o);
+    }
+    // One file per variant, named for its seed: reel-v1.mp4, reel-v2.mp4, …
+    for seed in 1..=o.variants {
+        let mut v = o.clone();
+        v.seed = seed;
+        v.variants = 1;
+        let out = if o.out.is_empty() {
+            "kaviri-motion.mp4".to_string()
+        } else {
+            o.out.clone()
+        };
+        let (stem, ext) = match out.rfind('.') {
+            Some(i) => (out[..i].to_string(), out[i..].to_string()),
+            None => (out.clone(), String::new()),
+        };
+        v.out = format!("{stem}-v{seed}{ext}");
+        if let Some(p) = &o.preview {
+            v.preview = Some(format!("{p}-v{seed}"));
+        }
+        eprintln!("kaviri: variant {seed} of {}", o.variants);
+        run_one(&v)?;
+    }
+    Ok(())
+}
+
+fn run_one(o: &Opts) -> Result<(), String> {
     let body =
         std::fs::read_to_string(&o.script).map_err(|e| format!("cannot read {}: {e}", o.script))?;
     let base = Path::new(&o.script)
@@ -1397,7 +1648,11 @@ pub fn run(o: &Opts) -> Result<(), String> {
     } else {
         base
     };
-    let mut c = compile(&body, &o.script, &base)?;
+    let var = Variation {
+        seed: o.seed,
+        vars: o.vars.clone(),
+    };
+    let mut c = compile_with(&body, &o.script, &base, &var)?;
     if let Some(f) = o.fps {
         c.fps = f;
         c.spec["video"]["fps"] = json!(f);
@@ -1416,6 +1671,8 @@ pub fn run(o: &Opts) -> Result<(), String> {
         dir: work.clone(),
         keep: o.keep_temp,
     };
+
+    extract_clips(&mut c, &work)?;
 
     // Sound first: it is quick, and the preview wants it.
     let wav = work.join("music.wav");
@@ -1436,6 +1693,10 @@ pub fn run(o: &Opts) -> Result<(), String> {
         } else {
             None
         };
+        let clips = work.join("clips");
+        if clips.is_dir() {
+            copy_dir(&clips, &d.join("clips")).map_err(|e| format!("{dir}: {e}"))?;
+        }
         let html = page_html(&c, audio, true);
         std::fs::write(d.join("index.html"), html).map_err(|e| format!("{dir}: {e}"))?;
         emit(
@@ -1491,6 +1752,89 @@ pub fn run(o: &Opts) -> Result<(), String> {
         "audio": have_audio,
         "render_seconds": (render_secs * 10.0).round() / 10.0,
     }}));
+    Ok(())
+}
+
+/// Every clip's frames, at the video's frame rate, as JPEGs beside the page.
+///
+/// A `<video>` element plays on its own clock and a headless Chromium may not have the codec,
+/// so a clip is shown as the frame for the moment being photographed: decoded ahead of time by
+/// ffmpeg, which reads anything, and swapped in by the runtime frame by frame.
+fn extract_clips(c: &mut Compiled, work: &Path) -> Result<(), String> {
+    let nodes = match c.spec["nodes"].as_array_mut() {
+        Some(n) => n,
+        None => return Ok(()),
+    };
+    let clips: Vec<usize> = nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| n["op"] == "clip")
+        .map(|(i, _)| i)
+        .collect();
+    if clips.is_empty() {
+        return Ok(());
+    }
+    let ffmpeg = crate::zoom::find_ffmpeg()?;
+    for i in clips {
+        let node = &mut nodes[i];
+        let id = node["id"].as_str().unwrap_or("clip").to_string();
+        let src = node["src_path"].as_str().unwrap_or("").to_string();
+        let dir = work.join("clips").join(&id);
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        // Big enough to stay sharp at twice the layer's size, and no bigger.
+        let max_w = node["w"]
+            .as_f64()
+            .map(|w| (w * 2.0).min(2400.0))
+            .unwrap_or(1920.0) as u32;
+        let out = Command::new(&ffmpeg)
+            .args(["-y", "-hide_banner", "-loglevel", "error", "-i"])
+            .arg(&src)
+            .args(["-t", &format!("{}", c.duration + 1.0)])
+            .args([
+                "-vf",
+                &format!("fps={},scale='min({max_w},iw)':-2", c.fps),
+                "-q:v",
+                "3",
+            ])
+            .arg(dir.join("f%05d.jpg"))
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|e| format!("ffmpeg: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "clip {id}: ffmpeg could not read {src}: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        let frames = std::fs::read_dir(&dir)
+            .map(|d| d.filter_map(Result::ok).count())
+            .unwrap_or(0);
+        if frames == 0 {
+            return Err(format!("clip {id}: {src} has no frames"));
+        }
+        let first = std::fs::read(dir.join("f00001.jpg")).unwrap_or_default();
+        if let Some((w, h)) = crate::cdp::jpeg_dims(&first) {
+            node["clip_w"] = json!(w);
+            node["clip_h"] = json!(h);
+        }
+        node["frames"] = json!(frames);
+        node["dir"] = json!(format!("clips/{id}"));
+        eprintln!("kaviri: clip {id}: {frames} frames");
+    }
+    Ok(())
+}
+
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for e in std::fs::read_dir(from)? {
+        let e = e?;
+        let p = e.path();
+        if p.is_dir() {
+            copy_dir(&p, &to.join(e.file_name()))?;
+        } else {
+            std::fs::copy(&p, to.join(e.file_name()))?;
+        }
+    }
     Ok(())
 }
 
@@ -1957,6 +2301,48 @@ mod tests {
             partial_path("reel.mp4"),
             PathBuf::from(".reel.mp4.partial.mp4")
         );
+    }
+
+    #[test]
+    fn variables_fill_in_and_an_unknown_one_is_named() {
+        let s = r##"{"op":"vars","name":"Relay"}
+{"op":"scene","id":"a","dur":2}
+{"op":"text","scene":"a","text":"Meet {{name}}, {{team}}"}"##;
+        let var = Variation {
+            seed: 1,
+            vars: vec![("team".into(), "Support".into())],
+        };
+        let c = compile_with(s, "t", Path::new("."), &var).unwrap();
+        assert_eq!(c.spec["nodes"][0]["text"], json!("Meet Relay, Support"));
+        let e = compile(s, "t", Path::new(".")).err().unwrap();
+        assert!(e.contains("team") && e.contains("name"), "{e}");
+    }
+
+    #[test]
+    fn a_pick_is_the_same_for_the_same_seed_and_varies_across_seeds() {
+        let s = r##"{"op":"scene","id":"a","dur":2}
+{"op":"text","scene":"a","text":{"$pick":["a","b","c","d","e","f","g","h"]}}"##;
+        let pick = |seed| {
+            let var = Variation { seed, vars: vec![] };
+            compile_with(s, "t", Path::new("."), &var).unwrap().spec["nodes"][0]["text"].clone()
+        };
+        assert_eq!(pick(5), pick(5));
+        let seen: HashSet<String> = (1..30).map(|sd| pick(sd).to_string()).collect();
+        assert!(seen.len() >= 5, "{seen:?}");
+    }
+
+    #[test]
+    fn weights_and_maybes_are_honoured() {
+        let s = r##"{"op":"scene","id":"a","dur":2}
+{"op":"text","scene":"a","text":{"$pick":["never","always"],"$weights":[0,1]}}
+{"op":"text","scene":"a","text":"gone","$maybe":0}"##;
+        for seed in 1..10 {
+            let var = Variation { seed, vars: vec![] };
+            let c = compile_with(s, "t", Path::new("."), &var).unwrap();
+            let nodes = c.spec["nodes"].as_array().unwrap();
+            assert_eq!(nodes.len(), 1);
+            assert_eq!(nodes[0]["text"], json!("always"));
+        }
     }
 
     #[test]

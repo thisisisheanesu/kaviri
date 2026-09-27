@@ -53,7 +53,18 @@ dated `[0.1.0]` heading, when the tag is cut.
   `kaviri motion --styles` lists them. Beats mix and match: a `style` and `theme` per beat, and
   two shows side by side. New shows: `number`, `roll`, `photo` and `stack`. Text takes
   `accent_font` and `accent_italic` for italic serif accent words, and there is a `dots`
-  entrance. `docs/motion-walkthroughs.md` walks through four builds with a frame of each step.
+  entrance. `docs/motion-walkthroughs.md` walks through six builds with a frame of each step.
+- **Real recordings in motion videos.** A `clip` layer shows any video frame-exact from frames
+  ffmpeg extracts beside the page; `clip` and `devices` shows put kaviri's own takes (iOS,
+  Android, macOS, Windows frames) into a beat, played across it with `fill`.
+  `examples/motion/hero.jsonl` is the kaviri.dev hero, filmed by `hero-takes.sh`.
+- **Templates and variations.** `{"op":"vars"}` with `{{name}}` and `--var`; `$pick` (with
+  `$weights`) for a random choice of any value; `$maybe` for an optional line; `--seed` and
+  `--variants n` to render and compare variants. `--check` reports every choice.
+- **Two more styles, `launch` and `gallery`,** and the shows they need: `cycle`, `wall` (with
+  `stats`), `float`, odometer and graph numbers, photo slideshows, a camera `pan` over an image,
+  a logo `intro`, `accent2`, and `links` on the end card. Text takes `gradient` and
+  `accent_gradient`, painted continuously across moving letters.
 - **`kaviri motion`: motion graphics from a JSONL timeline.** A script of scenes, layers,
   animations, micro-interactions and sounds renders to an MP4 with a synthesized soundtrack on
   the same beat grid. Times take seconds, beats (`"2b"`) and bars (`"1bar"`); scenes lie end

@@ -35,6 +35,8 @@ kaviri motion --script video.jsonl --out video.mp4
 | `theme` | `"dark"` or `"light"`, to override the style's | the style's |
 | `url` | the website, shown at the end | |
 | `logo` | a logo image file, shown at the end | a letter tile |
+| `accent2` | a second colour, where a style uses a gradient | a violet |
+| `intro` | `"logo"` to open on the logo alone for two seconds | none |
 | `music` | `"energetic"`, `"cinematic"`, `"calm"` or `"none"` | the style's |
 | `background` | `"nebula"`, `"mesh"`, `"grid"`, `"aurora"`, `"solid"`, `"gradient"` or `"flat"` | the style's |
 
@@ -49,7 +51,8 @@ kaviri motion --script video.jsonl --out video.mp4
 | `theme` | optional: `"light"` or `"dark"` for this beat only |
 
 **`end`**, once, last. `tagline` is one short line. It shows the logo, the name, the
-tagline and the url.
+tagline and the url. `links` adds a row of words above, like a site's navigation:
+`"links":["Docs","Pricing","Blog"]`.
 
 ## Styles
 
@@ -70,6 +73,8 @@ Pick the one that fits the product. Everything else stays the same.
 | `"corporate"` | clean and trustworthy: gentle rises, tidy pushes | light | calm |
 | `"retro"` | warm cream paper, heavy film grain, bouncing serif, iris wipes | light | calm |
 | `"announcement"` | cream and forest-green scenes in turn, italic serif accent words, huge numbers; use a mint accent | both | energetic |
+| `"launch"` | pure black, thin type, accent words in a gradient, odometer numbers, sparkles | dark | energetic |
+| `"gallery"` | soft pastel light, words among floating screenshots, a camera gliding over the product | light | calm |
 
 `kaviri motion --styles` prints this list.
 
@@ -91,6 +96,15 @@ Pick one per beat. Leave `show` out for a big headline on its own.
 | `{"roll":["Seed","Series A","Series F"]}` | a list that rolls up like a slot machine and stops on the last line |
 | `{"photo":"landscape.jpg"}` | a photo filling the whole frame, the headline in white on it |
 | `{"stack":["a.jpg","b.jpg","c.jpg"]}` | photo cards fanned out, rising one by one |
+| `{"clip":"take.mp4","label":"iOS"}` | a video (a kaviri recording, or any video) played across the beat |
+| `{"devices":["ios.mp4","android.mp4","mac.mp4"],"labels":["iOS","Android","macOS"]}` | several videos side by side |
+| `{"cycle":["developer.","designer.","founder."]}` | the headline as a lead-in ("To every"), then a big word that changes on the beat. Add `"around":["a.png","b.png"]` for pictures drifting at the edges |
+| `{"wall":["a.png","b.png","c.png"]}` | a tilted wall of pictures behind the headline. Add `"stats":[["197","resources"]]` for big numbers over it |
+| `{"float":["a.png","b.png","c.png"]}` | the headline in the middle with pictures floating in around it |
+
+Options: `number` takes `"pad":true` (an odometer with dim zeros) and `"graph":true` (a line
+climbing under it); `photo` takes a list for a slideshow; `image` takes `"pan":true` for a
+camera that leans in and travels across the picture.
 
 ## Mix and match
 
@@ -124,6 +138,16 @@ video length in seconds and `scenes` lists each beat as `beat1`, `beat2`… with
 then `end`.
 
 Fields you set on `brand` (`theme`, `background`, `music`) always win over the style's choice.
+
+## Variations and templates
+
+- **Random choices:** any value can be `{"$pick":["one","two","three"]}`; the video uses one of
+  them. `"$weights":[3,1,1]` makes the first more likely. Whole `show`s and styles can be picked.
+- **Optional lines:** `"$maybe":0.5` on a line keeps it half the time.
+- **Which variant:** `--seed 3` picks variant 3, and the same seed always gives the same video.
+  `--variants 4` renders variants 1 to 4 (`out-v1.mp4` …) to compare.
+- **Templates:** `{"op":"vars","product":"Relay"}` sets defaults, `{{product}}` uses them in any
+  text, and `--var product=Beacon` changes them from the command line. One file, many launches.
 
 ## Optional
 

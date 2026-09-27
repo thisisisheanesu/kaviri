@@ -272,6 +272,12 @@ OPTIONS:
   --mute              no soundtrack
   --chromium <path>   browser binary (default: autodetect / $KAVIRI_CHROMIUM)
   --keep-temp         keep the page, the frames and the WAV
+  --var <name=value>  fill {{name}} in the script (repeatable); overrides a
+                      vars line, so one template makes many launch videos
+  --seed <n>          which variant: every {\"$pick\":[…]} and \"$maybe\" in the
+                      script is decided by it (default 1, always the same)
+  --variants <n>      render n variants, seeds 1 to n, to out-v1.mp4 … out-vn.mp4
+                      (with --still: look-v1-….png), to compare and choose
 
 The format is in docs/motion.md; docs/motion-llm.md is the one-file version
 to hand to a model.
@@ -297,6 +303,9 @@ fn parse_motion() -> Result<Option<motion::Opts>, String> {
         mute: false,
         keep_temp: false,
         crf: 16,
+        seed: 1,
+        variants: 1,
+        vars: Vec::new(),
     };
     let mut stills_raw: Option<String> = None;
     let mut script = None;
@@ -321,6 +330,22 @@ fn parse_motion() -> Result<Option<motion::Opts>, String> {
             "--mute" => o.mute = true,
             "--chromium" => o.chromium = Some(val("--chromium")?),
             "--keep-temp" => o.keep_temp = true,
+            "--seed" => {
+                let raw = val("--seed")?;
+                o.seed = raw
+                    .parse()
+                    .map_err(|_| format!("--seed must be a whole number, got {raw}"))?;
+            }
+            "--variants" => {
+                o.variants = dimension("--variants", &val("--variants")?, 1, 100)? as u64
+            }
+            "--var" => {
+                let raw = val("--var")?;
+                let (k, v) = raw
+                    .split_once('=')
+                    .ok_or_else(|| format!("--var is name=value, got {raw}"))?;
+                o.vars.push((k.trim().to_string(), v.to_string()));
+            }
             "--help" | "-h" => {
                 println!("{MOTION_USAGE}");
                 return Ok(None);

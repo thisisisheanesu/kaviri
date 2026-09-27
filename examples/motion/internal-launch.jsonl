@@ -1,0 +1,13 @@
+# An internal launch video as a template. The {{variables}} name the launch; the $pick and $maybe
+# lines let every render come out a little different, and --seed says which one you get.
+#
+#   kaviri motion --script examples/motion/internal-launch.jsonl --variants 4 --still 9 --out look.png
+#   kaviri motion --script examples/motion/internal-launch.jsonl --seed 3 --out launch.mp4 \
+#       --var product=Relay --var team="Support Tools" --var color=#e0457b
+{"op":"vars","product":"Relay","team":"Support Tools","color":"#e0457b","url":"go/relay","what":"answers support tickets before anyone opens them","stat":"92%","stat_label":"tickets auto-resolved in beta"}
+{"op":"brand","name":"{{product}}","accent":"{{color}}","url":"{{url}}","intro":{"$pick":["logo","none"]},"style":{"$pick":["gallery","launch","bold","announcement","editorial"]}}
+{"op":"beat","text":{"$pick":["Meet [{{product}}.]","Say hello to [{{product}}.]","Introducing [{{product}}.]"]},"sub":"From {{team}}."}
+{"op":"beat","text":{"$pick":["It [{{what}}.]","{{product}} [{{what}}.]"]},"show":{"$pick":[{"icons":["chat","mail","ai","code","calendar"]},{"chips":["Fast","Private","Built in-house"]},{"type":"What can {{product}} do for me?"}]}}
+{"op":"beat","text":"[{{stat}}] {{stat_label}}","show":{"$pick":[{"number":"{{stat}}","label":"in beta"},{"stats":[["{{stat}}","{{stat_label}}"]]}]}}
+{"op":"beat","$maybe":0.6,"text":"Try it [today.]","show":{"list":["Open {{url}}","Sign in with SSO","Ask your first question"]}}
+{"op":"end","tagline":"{{product}}, from {{team}}.","links":{"$pick":[["Docs","Slack","Roadmap"],["Get started","Changelog"]]}}

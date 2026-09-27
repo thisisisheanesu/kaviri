@@ -1,0 +1,9 @@
+# The "gallery" style: soft pastel light, the logo turning in, words among floating screenshots,
+# a camera gliding over the product, big numbers over a wall, and the site's links at the end.
+#   kaviri motion --script examples/motion/gallery.jsonl --out gallery.mp4
+{"op":"brand","name":"Toolshelf","accent":"#6b7cff","style":"gallery","url":"toolshelf.dev","intro":"logo"}
+{"op":"beat","text":"Components","show":{"float":["site/hero.png","site/how.png","site/ci.png","site/pricing.png","site/stale.png","site/hero.png"]}}
+{"op":"beat","text":"Everything a design engineer needs,\n{curated in one place.}","show":{"image":"site/how.png","url":"toolshelf.dev","pan":true}}
+{"op":"beat","text":"Tools","show":{"float":["site/ci.png","site/pricing.png","site/hero.png","site/stale.png"]}}
+{"op":"beat","text":"Hand-picked, every one","show":{"wall":["site/hero.png","site/how.png","site/ci.png","site/pricing.png","site/stale.png"],"stats":[["197","hand-picked resources"],["16","categories"]]}}
+{"op":"end","tagline":"Everything a design engineer needs.","links":["Designs","Inspiration","Components","Creators"]}

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 33 33" width="33" height="33" role="img" aria-label="kaviri">
+  <!-- The mark for a dark ground: the first take in paper white, the second in ember. -->
+  <rect x="2" y="2" width="18" height="18" rx="2" fill="#f5f4f2"/>
+  <rect x="11.5" y="11.5" width="18" height="18" rx="2" fill="none" stroke="#ff6b3d" stroke-width="3"/>
+</svg>

@@ -115,6 +115,7 @@ canvas.kv-canvas { position: absolute; left: 0; top: 0; pointer-events: none; }
 .kv-cursor { width: 100%; height: 100%; filter: drop-shadow(0 3px 5px rgba(0,0,0,.45)); }
 .kv-stat { text-align: center; }
 .kv-stat-v { font-size: 64px; font-weight: 750; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+.kv-dim { opacity: .22; }
 .kv-stat-l { margin-top: 8px; color: var(--kv-muted); font-size: 15px; }
 .kv-rating { display: flex; align-items: center; gap: 10px; }
 .kv-laurel { width: 26px; height: 58px; color: var(--kv-muted); }

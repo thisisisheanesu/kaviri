@@ -27,6 +27,11 @@ link previews have no image.
 | `site/demo-poster.jpg` | first frame of the same take | `ffmpeg -ss 0.5 -i examples/kaviri-readme.mp4 -frames:v 1 site/demo-poster.jpg` |
 | `site/og.png` | made by hand, 1200x630 | the Open Graph and Twitter card image |
 
+The motion hero, "Screen Studio for your AI agent", is `examples/motion/hero.jsonl`: kaviri's own
+takes of the Parcel demo in five device frames, cut together with kaviri motion. From the repo
+root, `sh examples/motion/hero-takes.sh` films the takes and renders `hero.mp4`; copy it to
+`site/demo.mp4` (re-encode it smaller for the page, it runs about 40 seconds).
+
 The `demo.mp4` path is deliberate: the page asks for `/demo.mp4`, so whatever you drop at
 `site/demo.mp4` is what the world sees.
 

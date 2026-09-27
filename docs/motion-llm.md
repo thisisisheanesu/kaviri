@@ -31,7 +31,14 @@ this file only when you need control the simple way does not give.
   `{"image":…,"frame":"none","url":…}`, `{"type":…,"chips":[…],"placeholder":…}`,
   `{"code":…,"title":…,"lang":…}`, `{"list":[…]}`, `{"stats":[["20,641+","label"],…]}`,
   `{"icons":[names]}`, `{"chips":[…]}`, `{"strike":[…]}`, `{"number":"$400M","label":…,"from":…}`,
-  `{"roll":[lines]}`, `{"photo":…}` (full bleed alone, a card in a pair), `{"stack":[images]}`.
+  `{"roll":[lines]}`, `{"photo":…}` (full bleed alone, a card in a pair; a list is a slideshow),
+  `{"stack":[images]}`, `{"clip":video,"label":…}`, `{"devices":[videos],"labels":[…]}`,
+  `{"cycle":[words],"around":[images]}`, `{"wall":[images],"stats":[[…]]}`, `{"float":[images]}`.
+  `number` takes `pad` (odometer) and `graph`; `image` takes `pan`. `brand` also takes `accent2`
+  and `intro:"logo"`; `end` takes `links`.
+- Variations: any value may be `{"$pick":[…],"$weights":[…]}`, any line may carry `"$maybe":p`,
+  and `{"op":"vars",…}` with `{{name}}` in strings makes a template (`--var name=value`).
+  `--seed n` picks a variant; `--variants n` renders n of them.
 - The `announcement` style alternates light and dark grounds by itself, and sets the `[accent]`
   words in italic serif. Walkthroughs of all of this: `docs/motion-walkthroughs.md`.
 - `end`: `tagline`, and `name`, `url`, `logo`, `bars` if they differ from the brand.
@@ -193,7 +200,9 @@ Fields every layer takes:
 `align` (`center`, `left`, `right`) `italic` `upper` `shadow` (true or CSS) `gradient` (a list of
 colours, fills the letters) `gradient_angle` `caret` (show a text caret) `caret_color`
 `caret_hold` `strike_color` `split`, and `accent_font` (a CSS family, or `"mono"`), `accent_italic` and
-`accent_weight` to set the `[accent]` words in a second face, like italic serif inside sans.
+`accent_weight` to set the `[accent]` words in a second face, like italic serif inside sans;
+`gradient` (colours for the whole line) and `accent_gradient` (for the `[accent]` words), each a
+list painted continuously across the letters even while they move.
 
 Text entrances run per character by default, staggered: `wave`, `rise`, `pop`, `flip`,
 `typewriter`, `scramble`, `converge`, `mask` and the rest. `split`: `char`, `word`, `line` or
@@ -273,7 +282,7 @@ Children with `"parent"` set to a `window`, `phone` or `card` go inside it.
 | `message` | `name`, `tag`, `text` (`**bold**`), `avatar`, `avatar_src`, `avatar_bg`, `w` (620) | `stream` |
 | `field` | `label`, `value`, `placeholder`, `mask` (dots), `w` (420) | `type`, `check` (a green tick) |
 | `cursor` | `style` (`arrow`, `hand`), `size` (34). Move it with `keys` | `click` (press and ripple) |
-| `stat` | `value`, `prefix`, `suffix`, `label`, `decimals`, `size`, `color` | `count` |
+| `stat` | `value`, `prefix`, `suffix`, `label`, `decimals`, `size`, `color`, `gradient` (colours), `pad` (odometer: the final shape from the start, unreached places as dim zeros) | `count` |
 | `rating` | `title`, `value`, `value_label`, `stars` (0..5), `source`, `laurel:false` | |
 | `progress` | `value` (0..1), `color`, `w` | `progress` |
 | `skeleton` | `lines` | |
@@ -282,6 +291,16 @@ Children with `"parent"` set to a `window`, `phone` or `card` go inside it.
 
 Panels (`window`, `card`, `input`, `list`, `code`, `message`) also take `radius`, `bg`,
 `border:false`, `shadow:false` and `glass:true`.
+
+### `clip`
+
+A video file as a layer: `{"op":"clip","src":"take.mp4","h":600,"start":"1b","fill":"6b"}`.
+kaviri extracts its frames with ffmpeg and shows the right one for every frame of the render,
+so it is exact and needs no codec in the browser. `start` is when it begins (scene time),
+`fill` plays the whole video across that long (sped up or slowed), `speed` sets a rate instead,
+`trim` skips into it, `loop` repeats it, and `max_w` caps its width. `w` or `h` sizes it (the
+other follows the video's shape), plus `radius`, `shadow`, `label`, and all layer motion. Use it
+for kaviri's own recordings: a `record` take in an iOS, Android or macOS frame.
 
 ### `html`
 
