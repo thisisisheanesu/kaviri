@@ -1740,6 +1740,12 @@ fn encode(
         "slow",
         "-crf",
         &crf.to_string(),
+        // A ceiling, so film grain over a smooth gradient cannot turn a 30 second video
+        // into 40MB: about 6Mb/s at 1080p30, scaled by pixels and frame rate.
+        "-maxrate",
+        &format!("{}k", max_kbps(c)),
+        "-bufsize",
+        &format!("{}k", max_kbps(c) * 2),
         "-pix_fmt",
         "yuv420p",
         "-tune",
@@ -1765,6 +1771,11 @@ fn encode(
     }
     std::fs::rename(&partial, out).map_err(|e| format!("{out}: {e}"))?;
     Ok(())
+}
+
+fn max_kbps(c: &Compiled) -> u64 {
+    let px = (c.width as f64 * c.height as f64) / (1920.0 * 1080.0);
+    (6000.0 * px * (c.fps / 30.0).max(0.5)).round().max(1500.0) as u64
 }
 
 fn partial_path(out: &str) -> PathBuf {
