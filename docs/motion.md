@@ -29,7 +29,8 @@ one.
   `examples/motion/portraits.jsonl` (a 15 second 4:5 feed ad, light) and
   `examples/motion/kaviri-dev.jsonl` (kaviri.dev as a launch video: the site's copy, real
   screenshots of its sections in `examples/motion/site/`, and its Parcel demo rebuilt as an
-  `html` layer whose input types and whose button is pressed).
+  `html` layer whose input types and whose button is pressed), and
+  `examples/motion/tiktok.jsonl` (a 27 second 9:16 launch video for TikTok, Reels and Shorts).
 
 ## The simple way
 

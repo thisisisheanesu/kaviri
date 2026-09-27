@@ -1,0 +1,12 @@
+# kaviri's launch video for TikTok, Reels and Shorts: 9:16, hook in the first second, phone takes
+# on the drop. Uses the takes hero-takes.sh records into takes/.
+#   kaviri motion --script examples/motion/tiktok.jsonl --out tiktok.mp4
+{"op":"video","size":"tiktok","fps":30,"bpm":140}
+{"op":"brand","name":"kaviri","accent":"#ff6b3d","accent2":"#f472b6","style":"hype","url":"kaviri.dev","logo":"kaviri-mark-light.svg"}
+{"op":"beat","text":"Still re-recording your [demo video?]","sub":"Every time the UI changes?"}
+{"op":"beat","text":"Stop [doing that.]","show":{"strike":["Clear an afternoon.","Find a quiet room.","Record it 14 times."]}}
+{"op":"beat","text":"Your agent [films it.]","style":"launch","show":{"devices":["takes/ios.mp4","takes/android.mp4"],"labels":["iOS","Android"]},"bars":3}
+{"op":"beat","text":"You write [the script.]","show":{"code":"{\"op\":\"navigate\",\n \"url\":\"localhost:8099\"}\n{\"op\":\"type\",\n \"text\":\"14 Rue Lafayette\"}\n{\"op\":\"click\",\n \"selector\":\"#go\"}\n\n$ kaviri record\n    --frame ios","title":"demo.jsonl","lang":"json"}}
+{"op":"beat","text":"It looks like a [screen recording.]","show":{"clip":"takes/ios-rec.mp4","label":"iOS screen recording"},"bars":3}
+{"op":"beat","text":"Re-renders in [CI.]","show":{"list":["UI changes","Build runs","Video is new"]}}
+{"op":"end","tagline":"Screen Studio for your [AI agent.]","links":["Free","Open source","kaviri.dev"]}

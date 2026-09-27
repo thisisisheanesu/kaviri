@@ -611,6 +611,48 @@ fn mix(c: &str, with: (f64, f64, f64), t: f64) -> String {
 }
 
 /// The longest line of a headline in characters, markup not counted.
+/// Breaks a one-line headline into lines of about a dozen letters, so it can be set large in
+/// a narrow frame. `[accent]`, `{muted}` and `~struck~` markup carries across the break.
+fn wrap_short(text: &str) -> String {
+    let n = longest_line(text);
+    if text.contains('\n') || n <= 14 {
+        return text.to_string();
+    }
+    let lines = n.div_ceil(12).min(3);
+    let target = n / lines;
+    // Markup open at a break is closed before it and opened again after it.
+    let (mut out, mut run, mut open) = (String::new(), 0, Vec::<char>::new());
+    for c in text.chars() {
+        match c {
+            '[' | '{' => open.push(c),
+            ']' | '}' => {
+                open.pop();
+            }
+            '~' if open.last() == Some(&'~') => {
+                open.pop();
+            }
+            '~' => open.push('~'),
+            _ => {}
+        }
+        if c == ' ' && run >= target {
+            out.extend(open.iter().rev().map(|o| match o {
+                '[' => ']',
+                '{' => '}',
+                _ => '~',
+            }));
+            out.push('\n');
+            out.extend(open.iter());
+            run = 0;
+            continue;
+        }
+        if !matches!(c, '[' | ']' | '{' | '}' | '~') {
+            run += 1;
+        }
+        out.push(c);
+    }
+    out
+}
+
 fn longest_line(text: &str) -> usize {
     text.split('\n')
         .map(|l| {
@@ -978,6 +1020,8 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
             .as_str()
             .ok_or_else(|| format!("line {no}: a beat needs \"text\", its headline"))?
             .to_string();
+        // A phone frame is narrow: a long headline wraps to short lines and stays big.
+        let text = if vertical { wrap_short(&text) } else { text };
         // A beat may borrow another style's motion, and sit on the other ground.
         let bst = match b["style"].as_str() {
             Some(name) => STYLES.iter().find(|s| s.name == name).ok_or_else(|| {
@@ -1171,7 +1215,7 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
             }
             out.push(no, t);
             if let Some(s) = sub {
-                out.push(no, json!({"op": "text", "scene": id, "text": s, "size": fit_size(s, w, k, 44.0),
+                out.push(no, json!({"op": "text", "scene": id, "text": s, "size": fit_size(s, w, k, if vertical { 56.0 } else { 44.0 }),
                     "weight": 500, "color": if full_photo { "rgba(255,255,255,.85)" } else { b_muted }, "y": "60%",
                     "in": {"fx": "blur", "at": "2b", "dur": "1b"}}));
             }
@@ -1331,23 +1375,33 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
             }
             continue;
         }
-        out.push(
-            no,
-            head(
-                fit_size_em(&text, w, k, 84.0, head_em),
-                if vertical { "12%" } else { "15%" },
-                true,
-                b_ink,
-            ),
-        );
-        let mut body_y = if vertical { 52.0 } else { 58.0 };
+        let head_size = fit_size_em(&text, w, k, if vertical { 120.0 } else { 84.0 }, head_em);
+        // On a phone frame the headline hangs from the top, however many lines it wraps to, and
+        // the line under it and the show follow it down.
+        let head_h = head_size * 1.1 * text.split('\n').count() as f64 / h * 100.0;
+        let head_y = if vertical {
+            (7.0 + head_h / 2.0).max(12.0)
+        } else {
+            15.0
+        };
+        out.push(no, head(head_size, &format!("{head_y:.1}%"), true, b_ink));
+        let mut body_y = if vertical {
+            52.0_f64.max(head_y + head_h / 2.0 + 30.0)
+        } else {
+            58.0
+        };
         // A two-line headline takes more of the top, so what it shows sits lower.
-        if text.contains('\n') {
+        if text.contains('\n') && !vertical {
             body_y += 4.0;
         }
         if let Some(s) = sub {
-            out.push(no, json!({"op": "text", "scene": id, "fixed": true, "text": s, "size": fit_size(s, w, k, 30.0),
-                "weight": 500, "color": b_muted, "y": if vertical { "17.5%" } else { "24%" },
+            let sub_y = if vertical {
+                head_y + head_h / 2.0 + 3.5
+            } else {
+                24.0
+            };
+            out.push(no, json!({"op": "text", "scene": id, "fixed": true, "text": s, "size": fit_size(s, w, k, if vertical { 40.0 } else { 30.0 }),
+                "weight": 500, "color": b_muted, "y": format!("{sub_y:.1}%"),
                 "in": {"fx": "fade", "at": "1b"}}));
             body_y += 2.0;
         }
@@ -1444,7 +1498,7 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
         out.push(no, json!({"op": "text", "parent": "end_lockup", "text": title, "size": name_size, "weight": st.weight.max(600),
             "tracking": if st.upper { 0.02 } else { -0.045 }, "upper": st.upper, "in": {"fx": "rise", "at": "0.75b", "dur": "1b", "stagger": "0.08b"}}));
         if let Some(t) = e["tagline"].as_str().or_else(|| brand["tagline"].as_str()) {
-            let mut tl = json!({"op": "text", "scene": id, "text": t, "size": fit_size(t, w, k, 44.0), "weight": 600,
+            let mut tl = json!({"op": "text", "scene": id, "text": t, "size": fit_size(t, w, k, if vertical { 60.0 } else { 44.0 }), "weight": 600,
                 "tracking": -0.02, "y": "61%", "in": {"fx": "blur", "at": "2.5b", "dur": "1b"}});
             if let Some(f) = st.accent_font {
                 tl["accent_font"] = json!(f);
@@ -1460,12 +1514,12 @@ pub fn expand(lines: Vec<(usize, Value)>) -> Result<Vec<(usize, Value)>, String>
             out.push(no, json!({"op": "group", "id": "end_links", "scene": id, "y": "27%",
                 "layout": {"kind": "row", "gap": 44.0 * k}, "cascade": {"fx": "fade", "at": "3b", "stagger": "0.15b"}}));
             for l in links.iter().filter_map(Value::as_str) {
-                out.push(no, json!({"op": "text", "parent": "end_links", "text": l, "size": (20.0 * k).round(),
+                out.push(no, json!({"op": "text", "parent": "end_links", "text": l, "size": (if vertical { 30.0 } else { 20.0 } * k).round(),
                     "weight": 500, "color": muted}));
             }
         }
         if let Some(u) = e["url"].as_str().map(str::to_string).or(url) {
-            out.push(no, json!({"op": "ui", "scene": id, "kind": "button", "label": u, "size": (24.0 * k).round(),
+            out.push(no, json!({"op": "ui", "scene": id, "kind": "button", "label": u, "size": (if vertical { 34.0 } else { 24.0 } * k).round(),
                 "y": "73%", "in": {"fx": "pop", "at": "4b", "sfx": "pop"}, "shine": true,
                 "loop": {"fx": "shine", "period": "4b", "phase": "5b"}}));
         }
@@ -1585,6 +1639,18 @@ fn build_show(out: &mut Out, sl: &Slot, kind: &str, show: &Value) -> Result<(), 
             let code = show["code"]
                 .as_str()
                 .ok_or_else(|| format!("line {no}: show.code is the code, as text"))?;
+            // On a phone frame the code is set as large as its longest line allows.
+            let code_size = if sl.vertical {
+                let longest = code
+                    .lines()
+                    .map(|l| l.chars().count())
+                    .max()
+                    .unwrap_or(1)
+                    .max(1) as f64;
+                (span * 0.9 * 0.86 / (longest * 0.62)).clamp(23.0 * k, 34.0 * k)
+            } else {
+                23.0 * k * scale_c
+            };
             let cw = if sl.vertical {
                 span * 0.9
             } else if sl.compact {
@@ -1594,7 +1660,7 @@ fn build_show(out: &mut Out, sl: &Slot, kind: &str, show: &Value) -> Result<(), 
             };
             out.push(no, json!({"op": "ui", "id": format!("{id}_s"), "scene": scene, "kind": "code", "code": code,
                 "title": show["title"].as_str().unwrap_or("terminal"), "lang": show["lang"].as_str().unwrap_or("sh"),
-                "size": (23.0 * k * scale_c).round(), "w": cw, "x": sl.x, "y": sl.y, "ry": if sl.vertical || sl.compact { 0 } else { -10 },
+                "size": code_size.round(), "w": cw, "x": sl.x, "y": sl.y, "ry": if sl.vertical || sl.compact { 0 } else { -10 },
                 "keys": [{"t": end_b, "ry": 0}], "in": {"fx": "rise", "at": sl.at(0.0), "dur": "1b"}}));
             out.push(
                 no,
@@ -1636,7 +1702,7 @@ fn build_show(out: &mut Out, sl: &Slot, kind: &str, show: &Value) -> Result<(), 
                 .map(|l| json!({"label": l, "check": false}))
                 .collect();
             out.push(no, json!({"op": "ui", "id": format!("{id}_s"), "scene": scene, "kind": "list", "items": rows,
-                "w": if sl.vertical || sl.compact { span * 0.5 } else { span * 0.26 },
+                "w": if sl.vertical { span * 0.38 } else if sl.compact { span * 0.5 } else { span * 0.26 },
                 "x": sl.x, "y": sl.y, "scale": 2.1 * k * scale_c, "in": {"fx": "rise", "at": sl.at(0.0), "dur": "1b"}}));
             for (j, _) in items.iter().enumerate() {
                 out.push(no, json!({"op": "act", "target": format!("{id}_s"), "do": "check", "index": j,
@@ -1725,7 +1791,7 @@ fn build_show(out: &mut Out, sl: &Slot, kind: &str, show: &Value) -> Result<(), 
             for (j, s) in items.iter().enumerate() {
                 let sid = format!("{id}_x{j}");
                 out.push(no, json!({"op": "text", "id": sid, "parent": format!("{id}_s"), "text": format!("~{s}~"),
-                    "size": fit_size(s, span, k, 56.0 * scale_c), "weight": 500, "color": sl.muted, "strike_color": sl.accent}));
+                    "size": fit_size(s, span, k, if sl.vertical { 72.0 } else { 56.0 } * scale_c), "weight": 500, "color": sl.muted, "strike_color": sl.accent}));
                 out.push(no, json!({"op": "act", "target": sid, "do": "strike", "at": sl.at(2.5 + j as f64 * 0.5), "dur": "0.4b"}));
                 out.push(no, json!({"op": "sfx", "kind": "tick", "scene": scene, "at": sl.at(2.5 + j as f64 * 0.5), "pitch": 1.0 + j as f64 * 0.2}));
             }
@@ -1862,10 +1928,17 @@ fn build_show(out: &mut Out, sl: &Slot, kind: &str, show: &Value) -> Result<(), 
                 "layout": {"kind": "row", "gap": 44.0 * k}}),
             );
             let ch = sl.h * if sl.compact { 0.5 } else { 0.58 };
+            let n = srcs.len().max(1) as f64;
+            // Side by side on a phone frame, the devices share its width.
+            let max_w = if sl.vertical {
+                (span * 0.92 - 44.0 * k * (n - 1.0)) / n
+            } else {
+                span * 0.9 / n * 1.6
+            };
             for (j, src) in srcs.iter().enumerate() {
                 let t0 = 0.25 + j as f64 * 0.5 + sl.delay;
                 let mut c = json!({"op": "clip", "id": format!("{id}_d{j}"), "parent": gid, "src": src, "h": ch,
-                    "max_w": span * 0.9 / srcs.len().max(1) as f64 * 1.6, "start": format!("{t0}b"),
+                    "max_w": max_w, "start": format!("{t0}b"),
                     "fill": format!("{}b", beats_long - t0 - 0.25),
                     "radius": 16, "shadow": true,
                     "in": {"fx": "fly", "at": sl.at(0.25 + j as f64 * 0.5), "dur": "1.5b"},
@@ -1928,6 +2001,16 @@ fn ground(bst: &Style, st: &Style, light: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wraps_headlines_for_phones() {
+        assert_eq!(wrap_short("Stop [doing that.]"), "Stop [doing]\n[that.]");
+        assert_eq!(wrap_short("Short line"), "Short line");
+        assert_eq!(
+            wrap_short("Still re-recording your [demo video?]"),
+            "Still re-recording\nyour [demo video?]"
+        );
+    }
 
     fn run(src: &str) -> Result<Vec<Value>, String> {
         let lines = src

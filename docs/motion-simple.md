@@ -127,8 +127,10 @@ Walkthroughs with pictures of every step: `docs/motion-walkthroughs.md`
    the end card.
 4. **Different shows on different beats.** Do not use the same `show` twice in a row.
 5. File paths (`image`, `logo`) are relative to the `.jsonl` file.
-6. Use `"theme":"light"` for a bright, paper look. Use `"size":"vertical"` for phones by adding
-   `{"op":"video","size":"vertical"}` as the first line.
+6. Use `"theme":"light"` for a bright, paper look. For TikTok, Reels or Shorts add
+   `{"op":"video","size":"tiktok"}` as the first line (a 1080x1920 video; `"bpm":140` in the
+   same line makes it quicker). Long headlines wrap by themselves; keep code lines under
+   about 30 characters so they read on a phone. `examples/motion/tiktok.jsonl` is one.
 
 ## Checking your file
 

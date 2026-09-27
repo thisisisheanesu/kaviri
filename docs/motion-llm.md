@@ -98,7 +98,7 @@ kaviri motion --script reel.jsonl --preview player/       # a page that plays it
 
 ## Top-level ops (at most one of each)
 
-**`video`**: `size` `[w,h]` or `"1080p"` `"720p"` `"4k"` `"vertical"` (1080x1920) `"square"`
+**`video`**: `size` `[w,h]` or `"1080p"` `"720p"` `"4k"` `"vertical"` or `"tiktok"` `"reels"` `"shorts"` (1080x1920) `"square"`
 (default 1920x1080; even numbers). `fps` (30). `bpm` (120). `beats_per_bar` (4). `duration`
 (default: where the scenes end, or the music). `pulse` (0.012: the whole frame kicks on each
 beat, scaled by how hard the music plays; 0 turns it off). `grain` (0.06). `vignette` (0.55).

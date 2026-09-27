@@ -58,6 +58,10 @@ dated `[0.1.0]` heading, when the tag is cut.
   ffmpeg extracts beside the page; `clip` and `devices` shows put kaviri's own takes (iOS,
   Android, macOS, Windows frames) into a beat, played across it with `fill`.
   `examples/motion/hero.jsonl` is the kaviri.dev hero, filmed by `hero-takes.sh`.
+- **Phone-shaped videos.** `{"op":"video","size":"tiktok"}` (or `vertical`, `reels`, `shorts`)
+  makes a 1080x1920 video, and the simple way lays out for it: headlines wrap to short lines
+  and stay large, the line under a headline follows it down, and devices, lists and code fit
+  the narrow frame. `examples/motion/tiktok.jsonl` is kaviri's launch video for TikTok.
 - **Templates and variations.** `{"op":"vars"}` with `{{name}}` and `--var`; `$pick` (with
   `$weights`) for a random choice of any value; `$maybe` for an optional line; `--seed` and
   `--variants n` to render and compare variants. `--check` reports every choice.
