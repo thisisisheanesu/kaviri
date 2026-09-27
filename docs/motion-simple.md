@@ -73,7 +73,7 @@ Pick one per beat. Leave `show` out for a big headline on its own.
 | `{"code":"line one\nline two","title":"file.js"}` | a code editor that types the code out |
 | `{"list":["Step one","Step two","Step three"]}` | a checklist that ticks each line |
 | `{"stats":[["20,641+","customers"],["4.9","rating"]]}` | big numbers that count up. Two to four of them |
-| `{"icons":["chat","code","ai","mail","terminal"]}` | icons orbiting in 3D with light trails. Names: `files browser mail chat music photos calendar notes settings terminal code camera video maps store ai game wallet device`; any other word becomes a letter tile |
+| `{"icons":["chat","code","ai","mail","terminal"]}` | icons orbiting in 3D with light trails. Names: `files browser mail chat music photos calendar notes settings terminal code camera video maps store ai game wallet device`; any other word becomes a tile of its first letter, and an emoji (`"🌙"`, `"🎧"`) becomes a tile of that emoji, so any product can have icons |
 | `{"chips":["Fast","Private","Free"]}` | labels that pop in one by one |
 | `{"strike":["Old way one.","Old way two."]}` | lines that get crossed out |
 
