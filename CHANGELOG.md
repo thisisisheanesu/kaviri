@@ -43,6 +43,15 @@ dated `[0.1.0]` heading, when the tag is cut.
 
 ### Added
 
+- **Audio.** `--audio` records what the page plays and muxes it into the take as AAC. It was
+  reserved and printed `not implemented`; it now works. The sound is tapped inside the page
+  (every connection to an `AudioContext`'s destination, and each `<audio>` and `<video>` as it
+  starts playing) and handed to kaviri over a CDP binding, so it needs no sound card, Pulse or
+  PipeWire, and works headless on a CI runner. Each context is anchored to the recording clock
+  once and then placed by sample count, so the sound is gapless and lands within a frame or
+  two of the click that caused it. Under `--audio` the browser's autoplay policy no longer
+  waits for a gesture. Off under `--slowmo`, which says so. The `recording_rendered` result
+  carries `"audio": true|false` when `--audio` was given.
 - **Device frames.** `--frame macos|windows|linux|android|ios|android-emulator|ios-simulator`
   draws the take inside that system's window or handset. Desktop frames default to a browser
   window carrying the page's own favicon, title and URL (`--frame-style app` for a bare title

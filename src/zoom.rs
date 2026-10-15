@@ -767,7 +767,7 @@ fn runs(cmd: &str) -> bool {
 /// ffmpeg has no `--` end-of-options marker, so any path beginning with a dash is read as an
 /// option and the rest of the command line is reinterpreted around it. Making such a path
 /// explicitly relative is the portable way to pass it as data.
-fn arg_path(p: &str) -> String {
+pub(crate) fn arg_path(p: &str) -> String {
     if p.starts_with('-') {
         format!("./{p}")
     } else {
@@ -776,7 +776,7 @@ fn arg_path(p: &str) -> String {
 }
 
 /// The last few lines of ffmpeg's own diagnostics, for an error message.
-fn stderr_tail(bytes: &[u8]) -> String {
+pub(crate) fn stderr_tail(bytes: &[u8]) -> String {
     let text = String::from_utf8_lossy(bytes);
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
     let keep = lines.len().saturating_sub(8);

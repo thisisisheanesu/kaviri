@@ -450,9 +450,11 @@ enough.
 
 ## Limitations
 
-- **Video only.** Audio capture is not implemented. `--audio` warns and is
-  otherwise ignored. The plan is a dedicated PipeWire or Pulse sink for the
-  browser process, muxed against the same clock. For now, add narration in an
+- **Sound is the page's, and opt in.** `--audio` taps what the page plays
+  (Web Audio and every `<audio>` and `<video>`) inside the browser, so it needs
+  no sound card, PipeWire or Pulse, and works on a CI runner. It does not hear
+  a cross-origin media file served without CORS, plugins, or anything outside
+  the page, and it is off under `--slowmo`. Narration still goes on in an
   editor afterwards.
 - **Takes are not reproducible frame for frame.** The whole timeline comes from
   a wall clock, so the same script on the same commit gives you the same film,

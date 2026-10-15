@@ -667,6 +667,10 @@ pub struct Cdp {
     /// How many times slower than real time the page's clock runs (`--slowmo`). The
     /// recording clock and every wait are in PAGE time, so the video plays at normal speed.
     pub slowmo: f64,
+    /// The take's sound, when `--audio` asked for it; see `crate::audio`.
+    pub audio: Option<crate::audio::AudioTrack>,
+    /// The wall-clock second `rec_t0` was taken, which is the clock the page stamps sound in.
+    rec_wall: f64,
 }
 
 fn free_port() -> std::io::Result<u16> {
@@ -774,6 +778,7 @@ impl Cdp {
         css_w: u32,
         css_h: u32,
         scale: f64,
+        audio: bool,
     ) -> Result<Cdp, String> {
         let bin = find_chromium(chromium)?;
         let dev_w = (css_w as f64 * scale).round() as u32;
@@ -840,6 +845,12 @@ impl Cdp {
         // containers, so a runner needs --no-sandbox. That is a real reduction in
         // isolation and belongs to whoever owns the machine, so it is opt in here rather
         // than a default that quietly weakens every local recording too.
+        /*
+         * A page that plays sound on load is waiting for a gesture that a recorder's synthetic
+         * input may or may not count as one, and a take that is silent for that reason looks
+         * exactly like a take of a silent page. Only under --audio: it changes what pages do.
+         */
+        .args(audio.then_some("--autoplay-policy=no-user-gesture-required"))
         .args(
             crate::env::var("CHROMIUM_ARGS")
                 .unwrap_or_default()
@@ -946,6 +957,8 @@ impl Cdp {
             recording: false,
             profile_dir,
             slowmo: 1.0,
+            audio: None,
+            rec_wall: 0.0,
         };
 
         let target = cdp.send_raw("Target.createTarget", json!({"url": "about:blank"}), None)?;
@@ -1174,6 +1187,18 @@ impl Cdp {
             return Ok(());
         }
         let method = v["method"].as_str().unwrap_or("").to_string();
+        if method == "Runtime.bindingCalled" && v["params"]["name"] == crate::audio::BINDING {
+            // Sound arrives continuously while a page plays, so it never touches the event
+            // queue, where it would push out the events an op is waiting for.
+            if self.recording {
+                if let (Some(track), Some(payload)) =
+                    (self.audio.as_mut(), v["params"]["payload"].as_str())
+                {
+                    track.push(payload, self.rec_wall);
+                }
+            }
+            return Ok(());
+        }
         if method == "Page.screencastFrame" {
             let params = &v["params"];
             if self.recording {
@@ -1433,6 +1458,13 @@ impl Cdp {
     pub fn start_capture(&mut self, max_w: u32, max_h: u32) -> Result<(), String> {
         self.frames.reset()?;
         self.rec_t0 = Some(Instant::now());
+        self.rec_wall = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        if let Some(track) = self.audio.as_mut() {
+            track.reset();
+        }
         self.recording = true;
         self.capture_abandoned = false;
         self.last_shot = None;

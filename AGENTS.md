@@ -140,7 +140,7 @@ want the address bar to show.
 ## What it will not do
 
 It will not record a native application, a terminal, or anything outside the browser it starts.
-It will not record audio yet. It will not find the interesting part of your app for you: the
+It records sound only when asked: `--audio` lays what the page plays under the take. It will not find the interesting part of your app for you: the
 script is the storyboard, and a bad storyboard films perfectly.
 
 ## Determinism

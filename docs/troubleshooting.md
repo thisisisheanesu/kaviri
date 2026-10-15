@@ -489,8 +489,15 @@ A take interrupted the first way reports `interrupted` and still renders what it
 - **Two runs of the same script are not frame-identical.** Marks and frame times come from a wall
   clock and the capture cadence adapts to machine load, so durations, waypoint spacing and the
   exact pixels move run to run. If you need a byte-stable asset, render once and commit the MP4.
-- **`--audio` prints a warning and does nothing.** Audio capture is not implemented.
-  `kaviri: --audio is not implemented yet (headless backend); ignoring`.
+- **A take made without `--audio` has no sound track.** Sound is opt in. With `--audio`, a take
+  in which the page played nothing says `--audio heard nothing during the take` and still has
+  none: there is no point muxing silence.
+- **`--audio` misses a `<video>` or `<audio>` from another origin.** The page's media is tapped
+  with `createMediaElementSource`, and the browser feeds that silence for a cross-origin file
+  served without CORS headers. Serve the file from the app's own origin, or with
+  `Access-Control-Allow-Origin` and `crossorigin` on the element.
+- **`--audio` with `--slowmo` records no sound.** The page's clock is warped and its audio clock
+  is not, so the sound would land at the wrong moments. kaviri says so and records video only.
 - **The filmed app runs slower than it does unrecorded.** Each screenshot is a full compositor
   pass plus a JPEG encode inside the browser that is running the app. `--scale 1` is the way out.
 - **No telemetry sidecar was written.** It is off by default. `--keep-temp` puts it at

@@ -555,6 +555,7 @@ fn parse_chord(chord: &str) -> Result<(Vec<&'static str>, KeyDef), String> {
 }
 
 impl Session {
+    #[allow(clippy::too_many_arguments)]
     pub fn launch(
         chromium: Option<&str>,
         css_w: u32,
@@ -563,8 +564,22 @@ impl Session {
         out_size: (u32, u32),
         keep_temp: bool,
         cursor: CursorCfg,
+        audio: bool,
     ) -> Result<Session, String> {
-        let mut cdp = Cdp::launch(chromium, css_w, css_h, scale)?;
+        let mut cdp = Cdp::launch(chromium, css_w, css_h, scale, audio)?;
+        if audio {
+            // The binding first: the tap looks for it when it installs, and stays out of the
+            // page entirely if it is missing.
+            cdp.send(
+                "Runtime.addBinding",
+                json!({ "name": crate::audio::BINDING }),
+            )?;
+            cdp.send(
+                "Page.addScriptToEvaluateOnNewDocument",
+                json!({ "source": crate::audio::AUDIO_JS }),
+            )?;
+            cdp.audio = Some(crate::audio::AudioTrack::new());
+        }
         // `--keep-temp` is about every intermediate the run produces, and the frame
         // spool is by far the largest of them.
         cdp.set_keep_spool(keep_temp);
@@ -1447,12 +1462,29 @@ impl Session {
                 self.cdp.frames_release();
                 let (dur, n_ev) = rendered?;
                 self.rendered = Some((dur, n_ev));
+                let audio = match self.cdp.audio.as_ref() {
+                    None => None,
+                    Some(track) if track.is_silent() => {
+                        eprintln!(
+                            "kaviri: --audio heard nothing during the take, so the video has no \
+                             sound track"
+                        );
+                        Some(false)
+                    }
+                    Some(track) => {
+                        crate::audio::mux(&out, track, dur, self.keep_temp)?;
+                        Some(true)
+                    }
+                };
                 let mut result = json!({
                     "event": "recording_rendered", "path": out,
                     "duration": dur, "zoom_events": n_ev,
                     "frames": n_frames,
                     "spooled_bytes": spooled,
                 });
+                if let Some(a) = audio {
+                    result["audio"] = json!(a);
+                }
                 if let Some(w) = warning {
                     result["warning"] = json!(w);
                 }

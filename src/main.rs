@@ -5,6 +5,7 @@
 //!   kaviri serve
 //!   kaviri doctor
 
+mod audio;
 mod backdrop;
 mod cdp;
 mod device;
@@ -99,7 +100,9 @@ OPTIONS:
                       ceiling on the frame spool; the take stops and renders
                       what it has when it is reached (default 8 GiB)
   --keep-temp         keep the intermediate CFR video and the frame spool
-  --audio             reserved; audio capture is not yet implemented
+  --audio             record what the page plays (Web Audio, <audio>, <video>)
+                      and mux it into the take as AAC. Not with --slowmo, whose
+                      warped clock would have to warp the sound with it
   --version, -V       print the version and exit
 
 OPS (one JSON object per line):
@@ -236,6 +239,7 @@ struct Args {
     cursor: CursorCfg,
     chromium: Option<String>,
     keep_temp: bool,
+    audio: bool,
     spool_dir: Option<PathBuf>,
     max_spool_bytes: Option<u64>,
 }
@@ -376,6 +380,7 @@ fn parse_argv() -> Result<Parsed, String> {
         cursor: CursorCfg::default(),
         chromium: None,
         keep_temp: false,
+        audio: false,
         spool_dir: None,
         max_spool_bytes: None,
     };
@@ -477,15 +482,22 @@ fn parse_argv() -> Result<Parsed, String> {
                 )?)
             }
             "--keep-temp" => a.keep_temp = true,
-            "--audio" => {
-                eprintln!("kaviri: --audio is not implemented yet (headless backend); ignoring")
-            }
+            "--audio" => a.audio = true,
             "--help" | "-h" => return Ok(Parsed::Help(USAGE.to_string())),
             "--version" | "-V" => return Ok(Parsed::Help(version_line())),
             other => return Err(format!("unknown flag: {other}\n\n{USAGE}")),
         }
     }
     a.background = backdrop::parse_choice(&background)?;
+    /*
+     * Under --slowmo the page runs k times slower but its audio hardware clock does not, so
+     * the sound would be heard at the wrong moments, and slowing it to match would drop its
+     * pitch. Refused out loud rather than delivered wrong.
+     */
+    if a.audio && a.slowmo > 1.0 {
+        eprintln!("kaviri: --audio does not work with --slowmo; recording without sound");
+        a.audio = false;
+    }
     let opts = device::FrameOpts {
         platform: frame,
         style: frame_style,
@@ -710,6 +722,7 @@ fn run_record(a: &Args) -> Result<(), String> {
         (a.out_w.unwrap_or(a.width), a.out_h.unwrap_or(a.height)),
         a.keep_temp,
         a.cursor,
+        a.audio,
     )?;
     s.out_path = Some(a.out.clone());
     s.background = a.background.clone();
@@ -1095,6 +1108,7 @@ fn run_serve(a: &Args) -> Result<(), String> {
         (a.out_w.unwrap_or(a.width), a.out_h.unwrap_or(a.height)),
         a.keep_temp,
         a.cursor,
+        a.audio,
     )?;
     sess.out_path = Some(a.out.clone());
     sess.background = a.background.clone();
